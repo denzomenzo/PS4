@@ -10,18 +10,32 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check initial session
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
-        const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password", "/pay", "/success"];
+        // Public paths that don't require authentication
+        const publicPaths = [
+          "/", 
+          "/login", 
+          "/register", 
+          "/forgot-password", 
+          "/reset-password", 
+          "/pay", 
+          "/activate",
+          "/success"
+        ];
+        
         const isPublicPath = publicPaths.includes(pathname);
 
+        // If not logged in and trying to access protected route
         if (!session && !isPublicPath) {
           router.push("/login");
-        } else if (session && !isPublicPath) {
-          // Check license
+          return;
+        }
+
+        // If logged in and trying to access protected routes, check license
+        if (session && !isPublicPath && pathname !== "/activate") {
           const { data: license } = await supabase
             .from("licenses")
             .select("status")
@@ -29,8 +43,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             .eq("status", "active")
             .single();
 
-          if (!license && pathname !== "/activate") {
+          if (!license) {
             router.push("/activate");
+            return;
           }
         }
       } catch (error) {
@@ -45,7 +60,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
-        router.push("/login");
+        router.push("/");
       }
     });
 
@@ -56,10 +71,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-950">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white text-xl">Loading...</p>
+          <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-xl font-semibold">Loading...</p>
         </div>
       </div>
     );
