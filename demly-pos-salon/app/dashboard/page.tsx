@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X } from "lucide-react";
@@ -611,3 +611,4 @@ export default function POS() {
     </div>
   );
 }
+
