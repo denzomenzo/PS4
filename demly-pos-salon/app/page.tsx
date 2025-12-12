@@ -142,20 +142,138 @@ export default function LandingPage() {
                 </div>
               </div>
               
-              <div className="relative">
-                <div className="aspect-[4/3] bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl border border-emerald-500/20 flex items-center justify-center">
-                  <div className="text-center p-8">
-                    <div className="text-6xl mb-4">🖥️</div>
-                    <p className="text-2xl font-bold bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-2">Demly POS Interface</p>
-                    <p className="text-slate-400">Beautiful, intuitive design</p>
-                  </div>
+               <div class="screenshot-frame rounded-3xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 p-1">
+                <div class="bg-gradient-to-br from-slate-950 via-slate-900 to-black rounded-2xl p-8">
+                    <!-- POS Interface Mockup -->
+                    <div class="grid grid-cols-3 gap-6">
+                        <!-- Left: Products Grid -->
+                        <div class="col-span-2 space-y-4">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 flex items-center gap-3">
+                                    <span class="text-slate-500">🔍</span>
+                                    <span class="text-slate-500">Search products, SKU, barcode...</span>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-slate-800/30 border border-slate-700/50 rounded-2xl p-6">
+                                <div class="grid grid-cols-4 gap-3">
+                                    <!-- Product Cards -->
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">✂️</div>
+                                        <div class="text-xs font-bold mb-1">Haircut</div>
+                                        <div class="text-sm font-black gradient-text">£25.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">💅</div>
+                                        <div class="text-xs font-bold mb-1">Manicure</div>
+                                        <div class="text-sm font-black gradient-text">£15.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">🧴</div>
+                                        <div class="text-xs font-bold mb-1">Shampoo</div>
+                                        <div class="text-sm font-black gradient-text">£8.99</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">💆</div>
+                                        <div class="text-xs font-bold mb-1">Facial</div>
+                                        <div class="text-sm font-black gradient-text">£45.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">🎨</div>
+                                        <div class="text-xs font-bold mb-1">Hair Color</div>
+                                        <div class="text-sm font-black gradient-text">£60.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">💇</div>
+                                        <div class="text-xs font-bold mb-1">Blowdry</div>
+                                        <div class="text-sm font-black gradient-text">£20.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">🧖</div>
+                                        <div class="text-xs font-bold mb-1">Spa</div>
+                                        <div class="text-sm font-black gradient-text">£80.00</div>
+                                    </div>
+                                    <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
+                                        <div class="text-3xl mb-2">💄</div>
+                                        <div class="text-xs font-bold mb-1">Makeup</div>
+                                        <div class="text-sm font-black gradient-text">£35.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right: Cart -->
+                        <div class="bg-slate-800/30 border border-slate-700/50 rounded-2xl p-4 flex flex-col">
+                            <div class="flex items-center gap-2 mb-4 pb-3 border-b border-slate-700/50">
+                                <div class="p-2 bg-gradient-to-r from-emerald-500 to-green-600 rounded-lg">
+                                    <span class="text-sm">🛒</span>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold">Shopping Cart</div>
+                                    <div class="text-xs text-slate-400">2 items</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex-1 space-y-2 mb-4">
+                                <div class="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-lg">✂️</span>
+                                            <span class="text-xs font-bold">Haircut</span>
+                                        </div>
+                                        <span class="text-xs font-black gradient-text">£25.00</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-1 bg-slate-900/50 rounded px-2 py-1">
+                                            <button class="text-xs px-1">−</button>
+                                            <span class="text-xs font-bold px-2">1</span>
+                                            <button class="text-xs px-1">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-lg">🧴</span>
+                                            <span class="text-xs font-bold">Shampoo</span>
+                                        </div>
+                                        <span class="text-xs font-black gradient-text">£8.99</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-1 bg-slate-900/50 rounded px-2 py-1">
+                                            <button class="text-xs px-1">−</button>
+                                            <span class="text-xs font-bold px-2">1</span>
+                                            <button class="text-xs px-1">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 mb-3">
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-400">Subtotal</span>
+                                    <span class="font-bold">£33.99</span>
+                                </div>
+                                <div class="flex justify-between text-xs mb-2">
+                                    <span class="text-slate-400">VAT (20%)</span>
+                                    <span class="font-bold">£6.80</span>
+                                </div>
+                                <div class="border-t border-slate-700/50 pt-2 flex justify-between">
+                                    <span class="text-sm font-bold">Total</span>
+                                    <span class="text-lg font-black gradient-text">£40.79</span>
+                                </div>
+                            </div>
+                            
+                            <button class="w-full bg-gradient-to-r from-emerald-500 to-green-600 rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2">
+                                💳 Charge £40.79
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div className="absolute -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-emerald-500/10 blur-3xl rounded-full"></div>
-              </div>
             </div>
-          </div>
         </div>
-      </section>
+    </section>
 
       {/* Features */}
       <section id="features" className="py-32 px-6">
@@ -295,3 +413,4 @@ export default function LandingPage() {
     </div>
   );
 }
+
