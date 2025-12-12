@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer,
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2
 } from "lucide-react";
 
 const navigation = [
@@ -35,7 +35,9 @@ export default function DashboardLayout({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuth();
+    if (userId) {
+      checkAuth();
+    }
   }, [userId]);
 
   const checkAuth = async () => {
@@ -83,7 +85,10 @@ export default function DashboardLayout({
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
-        <div className="text-white text-xl">Loading...</div>
+        <div className="text-center">
+          <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
+          <p className="text-xl text-slate-400">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -91,7 +96,6 @@ export default function DashboardLayout({
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black overflow-hidden">
       
-      {/* SIDEBAR */}
       <aside className="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col shadow-2xl">
         
         <div className="p-6 border-b border-slate-800/50">
