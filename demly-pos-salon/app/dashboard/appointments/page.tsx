@@ -112,12 +112,7 @@ export default function Appointments() {
           .order("name"),
         supabase
           .from("appointments")
-          .select(`
-            *,
-            customers (name, phone),
-            staff (name),
-            products (name, price, icon)
-          `)
+          .select("*")
           .eq("user_id", currentUserId)
           .order("appointment_date", { ascending: false })
           .order("appointment_time", { ascending: false })
@@ -144,7 +139,27 @@ export default function Appointments() {
       }
       if (appointmentsRes.data) {
         console.log("Appointments loaded:", appointmentsRes.data.length);
-        setAppointments(appointmentsRes.data as any);
+        
+        // Manually fetch related data for each appointment
+        const enrichedAppointments = await Promise.all(
+          appointmentsRes.data.map(async (apt) => {
+            const [customerRes, staffRes, serviceRes] = await Promise.all([
+              apt.customer_id ? supabase.from("customers").select("name, phone").eq("id", apt.customer_id).single() : null,
+              apt.staff_id ? supabase.from("staff").select("name").eq("id", apt.staff_id).single() : null,
+              apt.service_id ? supabase.from("products").select("name, price, icon").eq("id", apt.service_id).single() : null,
+            ]);
+
+            return {
+              ...apt,
+              customers: customerRes?.data || null,
+              staff: staffRes?.data || null,
+              products: serviceRes?.data || null,
+            };
+          })
+        );
+
+        console.log("Enriched appointments:", enrichedAppointments);
+        setAppointments(enrichedAppointments as any);
       }
 
     } catch (error) {
@@ -190,7 +205,7 @@ export default function Appointments() {
         return;
       }
 
-      const { data, error } = await supabase.from("appointments").insert({
+      const appointmentData = {
         user_id: user.id,
         customer_id: parseInt(formCustomerId),
         staff_id: parseInt(formStaffId),
@@ -199,7 +214,15 @@ export default function Appointments() {
         appointment_time: formTime,
         notes: formNotes.trim() || null,
         status: "scheduled",
-      }).select();
+      };
+
+      console.log("Creating appointment with data:", appointmentData);
+      console.log("Service ID type:", typeof appointmentData.service_id, "Value:", appointmentData.service_id);
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .insert(appointmentData)
+        .select();
 
       if (error) {
         console.error("Error creating appointment:", error);
