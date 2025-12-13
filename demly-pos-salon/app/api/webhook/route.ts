@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { supabase } from "@/lib/supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2024-11-20.acacia" as any
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+
+// Use service role key for admin operations
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+);
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,27 +41,46 @@ export async function POST(request: NextRequest) {
       case "checkout.session.completed":
         const session = event.data.object as Stripe.Checkout.Session;
         
-        // Get user ID from metadata
-        const userId = session.metadata?.userId;
+        // Get email from metadata
+        const email = session.metadata?.email || session.customer_email;
         
-        if (!userId) {
-          console.error("No userId in session metadata");
+        if (!email) {
+          console.error("No email in session metadata");
+          break;
+        }
+
+        // Find user by email
+        const { data: { users }, error: userError } = await supabase.auth.admin.listUsers();
+        
+        if (userError) {
+          console.error("Error fetching users:", userError);
+          break;
+        }
+
+        const user = users?.find(u => u.email === email);
+        
+        if (!user) {
+          console.error("User not found for email:", email);
           break;
         }
 
         // Generate license key
         const licenseKey = `DEMLY-${Math.random().toString(36).substr(2, 9).toUpperCase()}-${Date.now()}`;
 
-        // Calculate expiry (30 days for monthly, 365 for annual)
+        // Calculate expiry based on plan
         const expiryDate = new Date();
-        const subscriptionId = session.subscription as string;
-        
-        // Check if annual or monthly (you can also fetch from Stripe)
-        expiryDate.setDate(expiryDate.getDate() + 30); // Default to 30 days
+        const plan = session.metadata?.plan || "annual";
+        if (plan === "monthly") {
+          expiryDate.setMonth(expiryDate.getMonth() + 1);
+        } else {
+          expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+        }
 
-        // Create license in database
+        const subscriptionId = session.subscription as string;
+
+        // Create license in database using service role
         const { error } = await supabase.from("licenses").insert({
-          user_id: userId,
+          user_id: user.id,
           license_key: licenseKey,
           status: "active",
           stripe_subscription_id: subscriptionId,
@@ -67,7 +90,7 @@ export async function POST(request: NextRequest) {
         if (error) {
           console.error("Error creating license:", error);
         } else {
-          console.log("License created:", licenseKey);
+          console.log("License created:", licenseKey, "for user:", user.id);
         }
         break;
 
@@ -75,7 +98,7 @@ export async function POST(request: NextRequest) {
         // Handle subscription cancellation
         const subscription = event.data.object as Stripe.Subscription;
         
-        // Deactivate license
+        // Deactivate license using service role
         await supabase
           .from("licenses")
           .update({ status: "cancelled" })
