@@ -14,7 +14,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
-        // Public paths that don't require authentication
+        // Public paths that anyone can access
         const publicPaths = [
           "/", 
           "/login", 
@@ -28,14 +28,20 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         
         const isPublicPath = publicPaths.includes(pathname);
 
-        // If not logged in and trying to access protected route
-        if (!session && !isPublicPath) {
+        // Allow access to public paths regardless of auth status
+        if (isPublicPath) {
+          setLoading(false);
+          return;
+        }
+
+        // For protected routes, check if user is logged in
+        if (!session) {
           router.push("/login");
           return;
         }
 
-        // If logged in and trying to access protected routes, check license
-        if (session && !isPublicPath && pathname !== "/activate") {
+        // If logged in and accessing dashboard routes, check license
+        if (pathname.startsWith("/dashboard")) {
           const { data: license } = await supabase
             .from("licenses")
             .select("status")
@@ -43,14 +49,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             .eq("status", "active")
             .single();
 
-          if (!license) {
+          if (!license && pathname !== "/activate") {
             router.push("/activate");
             return;
           }
         }
+
+        setLoading(false);
       } catch (error) {
         console.error("Auth check error:", error);
-      } finally {
         setLoading(false);
       }
     };
@@ -61,6 +68,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
         router.push("/");
+      } else if (event === "SIGNED_IN") {
+        router.push("/dashboard");
       }
     });
 
