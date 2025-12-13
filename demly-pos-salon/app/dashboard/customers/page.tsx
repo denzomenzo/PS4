@@ -52,15 +52,37 @@ export default function Customers() {
 
   const loadCustomers = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("customers")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
-    if (data) {
-      setCustomers(data);
-      setFilteredCustomers(data);
+    
+    try {
+      // Get the current user directly
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log("Current user:", user?.id);
+
+      if (!user) {
+        console.error("No user found");
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("name");
+      
+      if (error) {
+        console.error("Error loading customers:", error);
+      } else {
+        console.log("Customers loaded:", data?.length);
+        if (data) {
+          setCustomers(data);
+          setFilteredCustomers(data);
+        }
+      }
+    } catch (error) {
+      console.error("Error:", error);
     }
+    
     setLoading(false);
   };
 
@@ -88,51 +110,71 @@ export default function Customers() {
       return;
     }
 
-    if (editingCustomer) {
-      const { error } = await supabase
-        .from("customers")
-        .update({
+    try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("Not authenticated");
+        return;
+      }
+
+      if (editingCustomer) {
+        const { error } = await supabase
+          .from("customers")
+          .update({
+            name: formName,
+            phone: formPhone || null,
+            email: formEmail || null,
+            notes: formNotes || null,
+          })
+          .eq("id", editingCustomer.id);
+
+        if (error) {
+          console.error("Error updating customer:", error);
+          alert("Error updating customer: " + error.message);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from("customers").insert({
+          user_id: user.id,
           name: formName,
           phone: formPhone || null,
           email: formEmail || null,
           notes: formNotes || null,
-        })
-        .eq("id", editingCustomer.id);
+        });
 
-      if (error) {
-        alert("Error updating customer");
-        return;
+        if (error) {
+          console.error("Error adding customer:", error);
+          alert("Error adding customer: " + error.message);
+          return;
+        }
       }
-    } else {
-      const { error } = await supabase.from("customers").insert({
-        user_id: userId,
-        name: formName,
-        phone: formPhone || null,
-        email: formEmail || null,
-        notes: formNotes || null,
-      });
 
-      if (error) {
-        alert("Error adding customer");
-        return;
-      }
+      setShowModal(false);
+      loadCustomers();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error saving customer");
     }
-
-    setShowModal(false);
-    loadCustomers();
   };
 
   const deleteCustomer = async (id: number) => {
     if (!confirm("Are you sure you want to delete this customer?")) return;
 
-    const { error } = await supabase.from("customers").delete().eq("id", id);
+    try {
+      const { error } = await supabase.from("customers").delete().eq("id", id);
 
-    if (error) {
+      if (error) {
+        console.error("Error deleting customer:", error);
+        alert("Error deleting customer: " + error.message);
+        return;
+      }
+
+      loadCustomers();
+    } catch (error) {
+      console.error("Error:", error);
       alert("Error deleting customer");
-      return;
     }
-
-    loadCustomers();
   };
 
   if (loading) {
