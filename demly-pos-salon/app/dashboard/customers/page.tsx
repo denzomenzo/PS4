@@ -50,19 +50,20 @@ export default function Customers() {
     }
   }, [searchQuery, customers]);
 
-  const loadCustomers = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from("customers")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
-    if (data) {
-      setCustomers(data);
-      setFilteredCustomers(data);
-    }
-    setLoading(false);
-  };
+const { data, error } = await supabase
+  .from("customers")
+  .select("*")
+  .eq("user_id", userId)
+  .order("name");
+
+if (error) {
+  console.error("Error loading customers:", error);
+}
+
+if (data) {
+  setCustomers(data);
+  setFilteredCustomers(data);
+}
 
   const openAddModal = () => {
     setEditingCustomer(null);
@@ -358,4 +359,5 @@ export default function Customers() {
       )}
     </div>
   );
+
 }
