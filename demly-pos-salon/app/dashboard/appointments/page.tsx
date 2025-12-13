@@ -58,6 +58,7 @@ export default function Appointments() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -71,32 +72,42 @@ export default function Appointments() {
   const [formNotes, setFormNotes] = useState("");
 
   useEffect(() => {
-    if (userId) {
-      loadData();
-    }
-  }, [userId]);
+    loadData();
+  }, []);
 
   const loadData = async () => {
-    if (!userId) return;
-    
     setLoading(true);
+    setError(null);
 
     try {
+      // First, get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log("Current user:", user?.id);
+
+      if (!user) {
+        setError("Not authenticated");
+        setLoading(false);
+        return;
+      }
+
+      const currentUserId = user.id;
+
+      // Load all data with better error handling
       const [customersRes, staffRes, servicesRes, appointmentsRes] = await Promise.all([
         supabase
           .from("customers")
           .select("id, name")
-          .eq("user_id", userId)
+          .eq("user_id", currentUserId)
           .order("name"),
         supabase
           .from("staff")
           .select("id, name")
-          .eq("user_id", userId)
+          .eq("user_id", currentUserId)
           .order("name"),
         supabase
           .from("products")
           .select("id, name, price, icon")
-          .eq("user_id", userId)
+          .eq("user_id", currentUserId)
           .eq("is_service", true)
           .order("name"),
         supabase
@@ -107,27 +118,44 @@ export default function Appointments() {
             staff (name),
             products (name, price, icon)
           `)
-          .eq("user_id", userId)
+          .eq("user_id", currentUserId)
           .order("appointment_date", { ascending: false })
           .order("appointment_time", { ascending: false })
       ]);
 
-      if (customersRes.data) setCustomers(customersRes.data);
-      if (staffRes.data) setStaff(staffRes.data);
-      if (servicesRes.data) setServices(servicesRes.data);
+      // Log any errors
+      if (customersRes.error) console.error("Customers error:", customersRes.error);
+      if (staffRes.error) console.error("Staff error:", staffRes.error);
+      if (servicesRes.error) console.error("Services error:", servicesRes.error);
+      if (appointmentsRes.error) console.error("Appointments error:", appointmentsRes.error);
+
+      // Set data
+      if (customersRes.data) {
+        console.log("Customers loaded:", customersRes.data.length);
+        setCustomers(customersRes.data);
+      }
+      if (staffRes.data) {
+        console.log("Staff loaded:", staffRes.data.length);
+        setStaff(staffRes.data);
+      }
+      if (servicesRes.data) {
+        console.log("Services loaded:", servicesRes.data.length);
+        setServices(servicesRes.data);
+      }
       if (appointmentsRes.data) {
-        console.log("Loaded appointments:", appointmentsRes.data);
+        console.log("Appointments loaded:", appointmentsRes.data.length);
         setAppointments(appointmentsRes.data as any);
       }
+
     } catch (error) {
       console.error("Error loading appointments data:", error);
+      setError("Failed to load data");
     }
 
     setLoading(false);
   };
 
   const openAddModal = () => {
-    // Set default date to today
     const today = new Date().toISOString().split('T')[0];
     setFormDate(today);
     setFormTime("09:00");
@@ -155,95 +183,110 @@ export default function Appointments() {
       return;
     }
 
-    console.log("Creating appointment with data:", {
-      user_id: userId,
-      customer_id: parseInt(formCustomerId),
-      staff_id: parseInt(formStaffId),
-      service_id: parseInt(formServiceId),
-      appointment_date: formDate,
-      appointment_time: formTime,
-      notes: formNotes.trim() || null,
-      status: "scheduled",
-    });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("Not authenticated");
+        return;
+      }
 
-    const { data, error } = await supabase.from("appointments").insert({
-      user_id: userId,
-      customer_id: parseInt(formCustomerId),
-      staff_id: parseInt(formStaffId),
-      service_id: parseInt(formServiceId),
-      appointment_date: formDate,
-      appointment_time: formTime,
-      notes: formNotes.trim() || null,
-      status: "scheduled",
-    }).select();
-
-    if (error) {
-      console.error("Error creating appointment:", error);
-      alert("Error creating appointment: " + error.message);
-      return;
-    }
-
-    console.log("Appointment created successfully:", data);
-    alert("✅ Appointment created successfully!");
-    setShowAddModal(false);
-    loadData();
-  };
-
-  const updateAppointment = async () => {
-    if (!selectedAppointment) return;
-
-    const { error } = await supabase
-      .from("appointments")
-      .update({
+      const { data, error } = await supabase.from("appointments").insert({
+        user_id: user.id,
         customer_id: parseInt(formCustomerId),
         staff_id: parseInt(formStaffId),
         service_id: parseInt(formServiceId),
         appointment_date: formDate,
         appointment_time: formTime,
         notes: formNotes.trim() || null,
-      })
-      .eq("id", selectedAppointment.id);
+        status: "scheduled",
+      }).select();
 
-    if (error) {
-      console.error("Error updating appointment:", error);
-      alert("Error updating appointment: " + error.message);
-      return;
+      if (error) {
+        console.error("Error creating appointment:", error);
+        alert("Error creating appointment: " + error.message);
+        return;
+      }
+
+      console.log("Appointment created successfully:", data);
+      alert("✅ Appointment created successfully!");
+      setShowAddModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error creating appointment");
     }
+  };
 
-    alert("✅ Appointment updated successfully!");
-    setShowEditModal(false);
-    loadData();
+  const updateAppointment = async () => {
+    if (!selectedAppointment) return;
+
+    try {
+      const { error } = await supabase
+        .from("appointments")
+        .update({
+          customer_id: parseInt(formCustomerId),
+          staff_id: parseInt(formStaffId),
+          service_id: parseInt(formServiceId),
+          appointment_date: formDate,
+          appointment_time: formTime,
+          notes: formNotes.trim() || null,
+        })
+        .eq("id", selectedAppointment.id);
+
+      if (error) {
+        console.error("Error updating appointment:", error);
+        alert("Error updating appointment: " + error.message);
+        return;
+      }
+
+      alert("✅ Appointment updated successfully!");
+      setShowEditModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error updating appointment");
+    }
   };
 
   const updateAppointmentStatus = async (id: number, status: string) => {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status })
-      .eq("id", id);
+    try {
+      const { error } = await supabase
+        .from("appointments")
+        .update({ status })
+        .eq("id", id);
 
-    if (error) {
-      console.error("Error updating status:", error);
-      alert("Error updating status: " + error.message);
-      return;
+      if (error) {
+        console.error("Error updating status:", error);
+        alert("Error updating status: " + error.message);
+        return;
+      }
+
+      loadData();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error updating status");
     }
-
-    loadData();
   };
 
   const deleteAppointment = async (id: number) => {
     if (!confirm("Are you sure you want to delete this appointment?")) return;
 
-    const { error } = await supabase.from("appointments").delete().eq("id", id);
+    try {
+      const { error } = await supabase.from("appointments").delete().eq("id", id);
 
-    if (error) {
-      console.error("Error deleting appointment:", error);
-      alert("Error deleting appointment: " + error.message);
-      return;
+      if (error) {
+        console.error("Error deleting appointment:", error);
+        alert("Error deleting appointment: " + error.message);
+        return;
+      }
+
+      alert("✅ Appointment deleted successfully!");
+      setShowEditModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error deleting appointment");
     }
-
-    alert("✅ Appointment deleted successfully!");
-    setShowEditModal(false);
-    loadData();
   };
 
   const getStatusColor = (status: string) => {
@@ -266,14 +309,26 @@ export default function Appointments() {
     }
   };
 
-  if (!userId) return null;
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
           <p className="text-xl text-slate-400">Loading appointments...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <p className="text-xl text-red-400 mb-4">{error}</p>
+          <button onClick={loadData} className="px-6 py-3 bg-cyan-500 rounded-lg">
+            Retry
+          </button>
         </div>
       </div>
     );
