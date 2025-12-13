@@ -2,8 +2,26 @@
 
 import Link from "next/link";
 import { Check, ArrowRight, Zap, Shield, TrendingUp, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function LandingPage() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsLoggedIn(!!session);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setIsLoggedIn(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       
@@ -22,15 +40,22 @@ export default function LandingPage() {
             </div>
             
             <div className="flex items-center gap-4">
-              <Link href="/login" className="px-6 py-2.5 text-slate-300 hover:text-white transition-colors font-semibold">
-                Sign In
-              </Link>
-              <Link href="/dashboard" className="px-6 py-2.5 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-emerald-500/30 rounded-xl font-semibold transition-all text-white">
-                Dashboard
-              </Link>
-              <Link href="/pay" className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
-                Get Started
-              </Link>
+              {isLoggedIn ? (
+                <>
+                  <Link href="/dashboard" className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
+                    Go to Dashboard
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="px-6 py-2.5 text-slate-300 hover:text-white transition-colors font-semibold">
+                    Sign In
+                  </Link>
+                  <Link href="/pay" className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
+                    Get Started
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -56,12 +81,20 @@ export default function LandingPage() {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
-            <Link href="/pay" className="px-10 py-5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
-              Start Now
-            </Link>
-            <Link href="#pos" className="px-10 py-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/30 rounded-2xl font-bold text-xl transition-all text-white">
-              Explore Products
-            </Link>
+            {isLoggedIn ? (
+              <Link href="/dashboard" className="px-10 py-5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
+                Open Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link href="/pay" className="px-10 py-5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
+                  Start Now
+                </Link>
+                <Link href="#pos" className="px-10 py-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/30 rounded-2xl font-bold text-xl transition-all text-white">
+                  Explore Products
+                </Link>
+              </>
+            )}
           </div>
           
           {/* Stats */}
@@ -139,9 +172,15 @@ export default function LandingPage() {
                 </div>
                 
                 <div className="flex gap-4">
-                  <Link href="/pay" className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
-                    Get Started →
-                  </Link>
+                  {isLoggedIn ? (
+                    <Link href="/dashboard" className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
+                      Open Dashboard →
+                    </Link>
+                  ) : (
+                    <Link href="/pay" className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">
+                      Get Started →
+                    </Link>
+                  )}
                 </div>
               </div>
               
@@ -393,9 +432,15 @@ export default function LandingPage() {
           <p className="text-xl text-slate-400 mb-12 max-w-2xl mx-auto">
             Join thousands of businesses already using Demly to power their operations.
           </p>
-          <Link href="/pay" className="inline-block px-12 py-6 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-2xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
-            Start Now
-          </Link>
+          {isLoggedIn ? (
+            <Link href="/dashboard" className="inline-block px-12 py-6 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-2xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
+              Open Dashboard
+            </Link>
+          ) : (
+            <Link href="/pay" className="inline-block px-12 py-6 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-2xl font-bold text-2xl shadow-2xl shadow-emerald-500/30 transition-all hover:scale-105">
+              Start Now
+            </Link>
+          )}
         </div>
       </section>
 
