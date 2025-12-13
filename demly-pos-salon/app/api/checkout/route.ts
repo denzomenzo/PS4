@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 export async function POST(request: Request) {
   try {
@@ -14,22 +14,35 @@ export async function POST(request: Request) {
       );
     }
 
+    // Get app URL with fallback
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
+                   "http://localhost:3000";
+
     // Define pricing for both plans
     const pricing = {
       monthly: {
         amount: 2900, // £29.00 in pence
-        mode: "subscription" as const,
+        interval: "month" as const,
         description: "Monthly subscription to Demly POS",
       },
       annual: {
         amount: 29900, // £299.00 in pence
-        mode: "subscription" as const,
+        interval: "year" as const,
         description: "Annual subscription to Demly POS (Save £49/year)",
       },
     };
 
     const selectedPlan = pricing[plan as keyof typeof pricing];
 
+    if (!selectedPlan) {
+      return NextResponse.json(
+        { error: "Invalid plan selected" },
+        { status: 400 }
+      );
+    }
+
+    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       customer_email: email,
       payment_method_types: ["card"],
@@ -43,15 +56,15 @@ export async function POST(request: Request) {
             },
             unit_amount: selectedPlan.amount,
             recurring: {
-              interval: plan === "monthly" ? "month" : "year",
+              interval: selectedPlan.interval,
             },
           },
           quantity: 1,
         },
       ],
-      mode: selectedPlan.mode,
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pay`,
+      mode: "subscription",
+      success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/pay`,
       metadata: {
         email: email,
         plan: plan,
