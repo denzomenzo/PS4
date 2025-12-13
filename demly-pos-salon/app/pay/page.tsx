@@ -36,7 +36,9 @@ export default function PaymentPage() {
     },
   };
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
     if (!email) {
       setError("Please enter your email");
       return;
@@ -55,16 +57,21 @@ export default function PaymentPage() {
         }),
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create checkout session");
+      }
+
       const data = await response.json();
 
       if (data.url) {
         window.location.href = data.url;
       } else {
-        setError("Failed to create checkout session");
-        setLoading(false);
+        throw new Error("No checkout URL returned");
       }
-    } catch (err) {
-      setError("An error occurred");
+    } catch (err: any) {
+      console.error("Checkout error:", err);
+      setError(err.message || "An error occurred. Please try again.");
       setLoading(false);
     }
   };
@@ -188,7 +195,7 @@ export default function PaymentPage() {
                 </div>
               )}
 
-              <div className="space-y-6">
+              <form onSubmit={handleCheckout} className="space-y-6">
                 <div>
                   <label className="block text-white mb-2 text-sm font-medium">
                     Email Address
@@ -198,10 +205,11 @@ export default function PaymentPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="your@email.com"
+                    required
                     className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition"
                   />
                   <p className="text-slate-500 text-sm mt-2">
-                    Your license will be sent to this email
+                    Your subscription details will be sent to this email
                   </p>
                 </div>
 
@@ -236,7 +244,7 @@ export default function PaymentPage() {
                 </div>
 
                 <button
-                  onClick={handleCheckout}
+                  type="submit"
                   disabled={loading}
                   className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-6 rounded-xl transition disabled:opacity-50 text-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
@@ -264,7 +272,7 @@ export default function PaymentPage() {
                     <span>Cancel anytime</span>
                   </div>
                 </div>
-              </div>
+              </form>
             </div>
           </div>
         </div>
