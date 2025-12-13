@@ -687,24 +687,11 @@ export default function POS() {
         {/* Checkout */}
         <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4">
           
-          {staff.length > 0 && (
-            <select 
-              value={staffId} 
-              onChange={(e) => setStaffId(e.target.value)} 
-              className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 text-white p-4 rounded-xl font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-            >
-              <option value="">Select Staff (Optional)</option>
-              {staff.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          )}
-
           {customers.length > 0 && (
             <select 
               value={customerId} 
               onChange={(e) => setCustomerId(e.target.value)} 
-              className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 text-white p-4 rounded-xl font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+              className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 text-white p-4 rounded-xl font-medium focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             >
               <option value="">Select Customer (Optional)</option>
               {customers.map((c) => (
@@ -727,7 +714,7 @@ export default function POS() {
             <div className="h-px bg-slate-700/50 my-2"></div>
             <div className="flex justify-between items-center">
               <span className="text-2xl font-black text-white">Total</span>
-              <span className="text-4xl font-black text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text">
+              <span className="text-4xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                 £{grandTotal.toFixed(2)}
               </span>
             </div>
@@ -736,7 +723,7 @@ export default function POS() {
           <button
             onClick={checkout}
             disabled={checkingOut || cart.length === 0}
-            className="w-full bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-xl py-6 rounded-2xl shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-3"
+            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-xl py-6 rounded-2xl shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-3"
           >
             {checkingOut ? (
               <>
