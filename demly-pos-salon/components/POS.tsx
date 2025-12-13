@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
-import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X } from "lucide-react";
+import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X, Lock, LogOut, Settings as SettingsIcon } from "lucide-react";
+import Link from "next/link";
 
 interface Product {
   id: number;
@@ -21,6 +22,8 @@ interface Product {
 interface Staff {
   id: number;
   name: string;
+  pin: string;
+  role: "staff" | "manager";
 }
 
 interface Customer {
@@ -49,6 +52,13 @@ export default function POS() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  
+  // Authentication states
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentStaff, setCurrentStaff] = useState<Staff | null>(null);
+  const [showPinModal, setShowPinModal] = useState(true);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
   
   // Multi-transaction state
   const [transactions, setTransactions] = useState<Transaction[]>([
@@ -96,12 +106,13 @@ export default function POS() {
   };
 
   const handleBarcodeScan = useCallback((barcode: string) => {
+    if (!isAuthenticated) return;
     const product = products.find((p) => p.barcode === barcode || p.sku === barcode);
     if (product) addToCart(product);
-  }, [products]);
+  }, [products, isAuthenticated]);
 
   const { isScanning } = useBarcodeScanner({
-    enabled: hardwareSettings?.barcode_scanner_enabled !== false,
+    enabled: isAuthenticated && hardwareSettings?.barcode_scanner_enabled !== false,
     onScan: handleBarcodeScan,
     playSoundOnScan: hardwareSettings?.scanner_sound_enabled !== false,
   });
@@ -111,7 +122,7 @@ export default function POS() {
   }, [userId]);
 
   useEffect(() => {
-    if (searchQuery.trim()) {
+    if (searchQuery.trim() && isAuthenticated) {
       const query = searchQuery.toLowerCase();
       setFilteredProducts(
         products.filter((p) =>
@@ -123,12 +134,11 @@ export default function POS() {
     } else {
       setFilteredProducts(products);
     }
-  }, [searchQuery, products]);
+  }, [searchQuery, products, isAuthenticated]);
 
   const loadData = async () => {
     setLoading(true);
     
-    // Fetch settings with user_id filter
     const { data: settingsData } = await supabase
       .from("settings")
       .select("vat_enabled")
@@ -177,8 +187,51 @@ export default function POS() {
     setLoading(false);
   };
 
+  const handlePinSubmit = () => {
+    if (pinInput.length !== 4) {
+      setPinError("PIN must be 4 digits");
+      return;
+    }
+
+    const staffMember = staff.find(s => s.pin === pinInput);
+    
+    if (!staffMember) {
+      setPinError("Invalid PIN. Please try again.");
+      setPinInput("");
+      return;
+    }
+
+    setCurrentStaff(staffMember);
+    setIsAuthenticated(true);
+    setShowPinModal(false);
+    setPinError("");
+    setPinInput("");
+    
+    // Set staff ID for transaction
+    setStaffId(staffMember.id.toString());
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentStaff(null);
+    setShowPinModal(true);
+    setPinInput("");
+    
+    // Clear all transactions
+    setTransactions([{
+      id: "1",
+      name: "Transaction 1",
+      cart: [],
+      staffId: "",
+      customerId: "",
+      createdAt: Date.now()
+    }]);
+    setActiveTransactionId("1");
+  };
+
   const addToCart = (product: Product) => {
-    // Check if product has enough stock
+    if (!isAuthenticated) return;
+    
     if (product.track_inventory && product.stock_quantity <= 0) {
       alert(`${product.name} is out of stock`);
       return;
@@ -189,7 +242,6 @@ export default function POS() {
     if (existingItem) {
       const newQuantity = existingItem.quantity + 1;
       
-      // Check if new quantity exceeds available stock
       if (product.track_inventory && newQuantity > product.stock_quantity) {
         alert(`Only ${product.stock_quantity} of ${product.name} available`);
         return;
@@ -224,7 +276,7 @@ export default function POS() {
       id: newId,
       name: `Transaction ${newId}`,
       cart: [],
-      staffId: "",
+      staffId: currentStaff?.id.toString() || "",
       customerId: "",
       createdAt: Date.now()
     };
@@ -257,12 +309,11 @@ export default function POS() {
     setCheckingOut(true);
     
     try {
-      // 1. Insert the transaction
       const { data: transaction, error: transactionError } = await supabase
         .from("transactions")
         .insert({
           user_id: userId,
-          staff_id: staffId ? parseInt(staffId) : null,
+          staff_id: currentStaff?.id || null,
           customer_id: customerId ? parseInt(customerId) : null,
           services: [],
           products: cart.map((item) => ({
@@ -282,7 +333,6 @@ export default function POS() {
 
       if (transactionError) throw transactionError;
 
-      // 2. Update stock quantities for products with inventory tracking
       const stockUpdates = cart
         .filter(item => item.track_inventory)
         .map(item => ({
@@ -290,7 +340,6 @@ export default function POS() {
           newStock: item.stock_quantity - item.quantity
         }));
 
-      // Update each product's stock
       for (const update of stockUpdates) {
         const { error: stockError } = await supabase
           .from("products")
@@ -304,14 +353,12 @@ export default function POS() {
 
       alert(`✅ £${grandTotal.toFixed(2)} charged successfully!`);
       
-      // Clear current transaction
       setTransactions(prev => prev.map(t => 
         t.id === activeTransactionId 
-          ? { ...t, cart: [], staffId: "", customerId: "" }
+          ? { ...t, cart: [], customerId: "" }
           : t
       ));
       
-      // Reload data to refresh stock quantities
       loadData();
       
     } catch (error: any) {
@@ -328,8 +375,72 @@ export default function POS() {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
         <div className="text-center">
-          <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Loading products...</p>
+          <Loader2 className="w-16 h-16 animate-spin text-emerald-400 mx-auto mb-4" />
+          <p className="text-xl text-slate-400">Loading POS...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // PIN Authentication Modal
+  if (showPinModal || !isAuthenticated) {
+    return (
+      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-6">
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20">
+              <Lock className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-4xl font-black bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-2">
+              Staff Login
+            </h1>
+            <p className="text-slate-400 text-lg">Enter your 4-digit PIN to access POS</p>
+          </div>
+
+          {pinError && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-400 mb-6 text-center">
+              {pinError}
+            </div>
+          )}
+
+          <div className="mb-6">
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pinInput}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, "");
+                setPinInput(value);
+                setPinError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
+              placeholder="••••"
+              className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-6 text-center text-4xl font-bold tracking-widest text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              autoFocus
+            />
+            <p className="text-center text-slate-500 text-sm mt-3">
+              {staff.length === 0 ? "No staff members found. Please create staff in Settings." : `${staff.length} staff member${staff.length !== 1 ? 's' : ''} available`}
+            </p>
+          </div>
+
+          <button
+            onClick={handlePinSubmit}
+            disabled={pinInput.length !== 4}
+            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
+          >
+            Enter POS
+          </button>
+
+          <div className="mt-6 pt-6 border-t border-slate-700/50">
+            <Link
+              href="/dashboard/settings"
+              className="block text-center text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors"
+            >
+              <SettingsIcon className="w-4 h-4 inline mr-2" />
+              Need to manage staff & PINs? Go to Settings
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -341,6 +452,39 @@ export default function POS() {
       {/* LEFT - Products */}
       <div className="flex-1 flex flex-col p-6">
         
+        {/* Top Bar with Staff Info */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 rounded-xl px-6 py-3">
+              <p className="text-sm text-slate-400">Logged in as</p>
+              <div className="flex items-center gap-2">
+                <p className="text-lg font-bold text-white">{currentStaff?.name}</p>
+                {currentStaff?.role === "manager" && (
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/30">
+                    MANAGER
+                  </span>
+                )}
+              </div>
+            </div>
+            {currentStaff?.role === "manager" && (
+              <Link
+                href="/dashboard/settings"
+                className="bg-slate-900/50 hover:bg-slate-800/50 backdrop-blur-xl border border-slate-800/50 hover:border-emerald-500/50 rounded-xl px-6 py-3 transition-all flex items-center gap-2"
+              >
+                <SettingsIcon className="w-5 h-5 text-emerald-400" />
+                <span className="font-semibold text-white">Settings</span>
+              </Link>
+            )}
+          </div>
+          <button
+            onClick={handleLogout}
+            className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/50 text-red-400 px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2"
+          >
+            <LogOut className="w-5 h-5" />
+            Logout
+          </button>
+        </div>
+
         {/* Search */}
         <div className="mb-6">
           <div className="relative">
@@ -350,7 +494,7 @@ export default function POS() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search products, SKU, or barcode..."
-              className="w-full bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 pl-14 pr-6 py-5 rounded-2xl text-lg text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 shadow-xl transition-all"
+              className="w-full bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 pl-14 pr-6 py-5 rounded-2xl text-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 shadow-xl transition-all"
             />
             {isScanning && (
               <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-2 text-emerald-400 text-sm font-semibold">
@@ -378,7 +522,7 @@ export default function POS() {
                   key={product.id}
                   onClick={() => addToCart(product)}
                   disabled={product.track_inventory && product.stock_quantity <= 0}
-                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-5 hover:border-cyan-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
+                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-5 hover:border-emerald-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
                 >
                   {product.icon && (
                     <span className="text-5xl block mb-3 group-hover:scale-110 transition-transform duration-200">
@@ -388,7 +532,7 @@ export default function POS() {
                   <p className="font-bold text-white text-sm mb-2 line-clamp-2 leading-tight">
                     {product.name}
                   </p>
-                  <p className="text-2xl font-black text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text">
+                  <p className="text-2xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                     £{product.price.toFixed(2)}
                   </p>
                   {product.track_inventory && (
@@ -413,10 +557,10 @@ export default function POS() {
       <div className="w-[500px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl">
         
         {/* Header with Transaction Switcher */}
-        <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10">
+        <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-emerald-500/10 to-green-500/10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-2xl shadow-lg shadow-cyan-500/20">
+              <div className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-500/20">
                 <ShoppingCart className="w-7 h-7 text-white" />
               </div>
               <div>
@@ -428,11 +572,11 @@ export default function POS() {
             </div>
             <button
               onClick={() => setShowTransactionMenu(!showTransactionMenu)}
-              className="relative p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-cyan-500/50 rounded-xl transition-all"
+              className="relative p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-emerald-500/50 rounded-xl transition-all"
             >
-              <Layers className="w-5 h-5 text-cyan-400" />
+              <Layers className="w-5 h-5 text-emerald-400" />
               {transactions.length > 1 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full text-xs font-bold flex items-center justify-center text-white">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-r from-emerald-500 to-green-600 rounded-full text-xs font-bold flex items-center justify-center text-white">
                   {transactions.length}
                 </span>
               )}
@@ -447,7 +591,7 @@ export default function POS() {
                   key={trans.id}
                   className={`flex items-center justify-between p-3 rounded-xl transition-all ${
                     trans.id === activeTransactionId
-                      ? "bg-cyan-500/20 border border-cyan-500/30"
+                      ? "bg-emerald-500/20 border border-emerald-500/30"
                       : "bg-slate-900/30 border border-slate-700/30 hover:bg-slate-800/50"
                   }`}
                 >
@@ -472,7 +616,7 @@ export default function POS() {
               ))}
               <button
                 onClick={addNewTransaction}
-                className="w-full p-3 bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 hover:from-cyan-500/30 hover:to-emerald-500/30 border border-cyan-500/30 rounded-xl text-white font-semibold text-sm transition-all flex items-center justify-center gap-2"
+                className="w-full p-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-white font-semibold text-sm transition-all flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
                 New Transaction
@@ -531,7 +675,7 @@ export default function POS() {
                       <Plus className="w-4 h-4 mx-auto" />
                     </button>
                   </div>
-                  <span className="text-xl font-black text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text">
+                  <span className="text-xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                     £{(item.price * item.quantity).toFixed(2)}
                   </span>
                 </div>
