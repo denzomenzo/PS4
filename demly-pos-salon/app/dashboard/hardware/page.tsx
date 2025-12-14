@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor } from "lucide-react";
 import Link from "next/link";
 
 export default function Hardware() {
@@ -22,6 +22,9 @@ export default function Hardware() {
   const [scannerEnabled, setScannerEnabled] = useState(true);
   const [scannerSound, setScannerSound] = useState(true);
 
+  const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
+  const [displaySyncChannel, setDisplaySyncChannel] = useState("customer-display");
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -33,6 +36,8 @@ export default function Hardware() {
       .select("*")
       .eq("user_id", userId)
       .single();
+    setCustomerDisplayEnabled(data.customer_display_enabled || false);
+s   etDisplaySyncChannel(data.display_sync_channel || "customer-display");
 
     if (data) {
       setPrinterEnabled(data.printer_enabled || false);
@@ -60,6 +65,8 @@ export default function Hardware() {
       cash_drawer_enabled: cashDrawerEnabled,
       barcode_scanner_enabled: scannerEnabled,
       scanner_sound_enabled: scannerSound,
+      customer_display_enabled: customerDisplayEnabled,
+      display_sync_channel: displaySyncChannel,
     });
 
     if (error) {
@@ -288,7 +295,51 @@ export default function Hardware() {
             )}
           </div>
 
-          {/* Info Box */}
+          {/* Customer Display */}
+<div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-8 shadow-2xl">
+  <div className="flex items-center justify-between mb-6">
+    <div className="flex items-center gap-4">
+      <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+        <Monitor className="w-8 h-8" />
+      </div>
+      <div>
+        <h2 className="text-3xl font-black">Customer Display</h2>
+        <p className="text-slate-400">Secondary screen for customers</p>
+      </div>
+    </div>
+    <button
+      onClick={() => setCustomerDisplayEnabled(!customerDisplayEnabled)}
+      className={`relative w-20 h-10 rounded-full transition-all shadow-lg ${
+        customerDisplayEnabled ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-slate-600'
+      }`}
+    >
+      <div
+        className={`absolute top-1 left-1 w-8 h-8 bg-white rounded-full transition-transform flex items-center justify-center shadow-lg ${
+          customerDisplayEnabled ? 'translate-x-10' : 'translate-x-0'
+        }`}
+      >
+        {customerDisplayEnabled && <Check className="w-5 h-5 text-emerald-500" />}
+      </div>
+    </button>
+  </div>
+
+  {customerDisplayEnabled && (
+    <div className="pl-20">
+      <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
+        <p className="text-sm text-blue-400">
+          <strong>Display URL:</strong> {window.location.origin}/dashboard/display
+        </p>
+        <p className="text-xs text-slate-400 mt-2">
+          Open this URL on your customer-facing screen. It will automatically sync with your active transaction.
+        </p>
+      </div>
+    </div>
+  )}
+</div>
+
+          
+
+        {/* Info Box */}
           <div className="bg-blue-500/20 backdrop-blur-lg border border-blue-500/30 rounded-3xl p-6 shadow-lg">
             <div className="flex gap-4">
               <AlertCircle className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
@@ -316,4 +367,5 @@ export default function Hardware() {
       </div>
     </div>
   );
+
 }
