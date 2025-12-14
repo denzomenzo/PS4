@@ -1,3 +1,5 @@
+
+// COMPLETE FIXED components/POS.tsx - Copy this ENTIRE file
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -54,14 +56,12 @@ export default function POS() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   
-  // Authentication states
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentStaff, setCurrentStaff] = useState<Staff | null>(null);
   const [showPinModal, setShowPinModal] = useState(true);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   
-  // Multi-transaction state
   const [transactions, setTransactions] = useState<Transaction[]>([
     {
       id: "1",
@@ -122,29 +122,33 @@ export default function POS() {
     if (userId) loadData();
   }, [userId]);
 
+  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const vat = vatEnabled ? total * 0.2 : 0;
+  const grandTotal = total + vat;
+
   // Broadcast cart updates to customer display
-useEffect(() => {
+  useEffect(() => {
     if (!isAuthenticated || !hardwareSettings?.customer_display_enabled) return;
     
-    const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
+    const channelName = hardwareSettings.display_sync_channel || 'customer-display';
+    const channel = supabase.channel(channelName);
     
-    // Broadcast current cart state
-    const broadcastCart = async () => {
-      await channel.send({
-        type: 'broadcast',
-        event: 'cart-update',
-        payload: {
-          cart: cart,
-          total: total,
-          vat: vat,
-          grandTotal: grandTotal,
-          transactionName: activeTransaction?.name,
-          transactionId: activeTransactionId,
-        }
-      });
-    };
-
-    broadcastCart();
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.send({
+          type: 'broadcast',
+          event: 'cart-update',
+          payload: {
+            cart: cart,
+            total: total,
+            vat: vat,
+            grandTotal: grandTotal,
+            transactionName: activeTransaction?.name || "Transaction 1",
+            transactionId: activeTransactionId,
+          }
+        });
+      }
+    });
 
     return () => {
       supabase.removeChannel(channel);
@@ -236,8 +240,6 @@ useEffect(() => {
     setShowPinModal(false);
     setPinError("");
     setPinInput("");
-    
-    // Set staff ID for transaction
     setStaffId(staffMember.id.toString());
   };
 
@@ -246,8 +248,6 @@ useEffect(() => {
     setCurrentStaff(null);
     setShowPinModal(true);
     setPinInput("");
-    
-    // Clear all transactions
     setTransactions([{
       id: "1",
       name: "Transaction 1",
@@ -329,10 +329,6 @@ useEffect(() => {
     }
   };
 
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const vat = vatEnabled ? total * 0.2 : 0;
-  const grandTotal = total + vat;
-
   const checkout = async () => {
     if (cart.length === 0) return alert("Cart is empty");
     
@@ -389,6 +385,23 @@ useEffect(() => {
           : t
       ));
       
+      if (hardwareSettings?.customer_display_enabled) {
+        const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
+        await channel.send({
+          type: 'broadcast',
+          event: 'cart-update',
+          payload: {
+            cart: [],
+            total: 0,
+            vat: 0,
+            grandTotal: 0,
+            transactionName: activeTransaction?.name,
+            transactionId: activeTransactionId,
+          }
+        });
+        supabase.removeChannel(channel);
+      }
+      
       loadData();
       
     } catch (error: any) {
@@ -412,7 +425,6 @@ useEffect(() => {
     );
   }
 
-  // PIN Authentication Modal
   if (showPinModal || !isAuthenticated) {
     return (
       <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-6">
@@ -478,11 +490,7 @@ useEffect(() => {
 
   return (
     <div className="h-screen flex bg-gradient-to-br from-slate-950 via-slate-900 to-black">
-      
-      {/* LEFT - Products */}
       <div className="flex-1 flex flex-col p-6">
-        
-        {/* Top Bar with Staff Info */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 rounded-xl px-6 py-3">
@@ -498,11 +506,11 @@ useEffect(() => {
             </div>
             {currentStaff?.role === "manager" && (
               <Link
-                href="/dashboard/settings"
+                href="/dashboard"
                 className="bg-slate-900/50 hover:bg-slate-800/50 backdrop-blur-xl border border-slate-800/50 hover:border-emerald-500/50 rounded-xl px-6 py-3 transition-all flex items-center gap-2"
               >
                 <SettingsIcon className="w-5 h-5 text-emerald-400" />
-                <span className="font-semibold text-white">Settings</span>
+                <span className="font-semibold text-white">Dashboard</span>
               </Link>
             )}
           </div>
@@ -515,7 +523,6 @@ useEffect(() => {
           </button>
         </div>
 
-        {/* Search */}
         <div className="mb-6">
           <div className="relative">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
@@ -535,7 +542,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Product Grid */}
         <div className="flex-1 overflow-y-auto bg-slate-900/30 backdrop-blur-xl rounded-3xl p-6 border border-slate-800/50 shadow-2xl">
           {filteredProducts.length === 0 ? (
             <div className="flex items-center justify-center h-full">
@@ -583,10 +589,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* RIGHT - Cart */}
       <div className="w-[500px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl">
-        
-        {/* Header with Transaction Switcher */}
         <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-emerald-500/10 to-green-500/10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
@@ -613,7 +616,6 @@ useEffect(() => {
             </button>
           </div>
 
-          {/* Transaction Menu */}
           {showTransactionMenu && (
             <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-3 space-y-2">
               {transactions.map((trans) => (
@@ -655,7 +657,6 @@ useEffect(() => {
           )}
         </div>
 
-        {/* Cart Items */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {cart.length === 0 ? (
             <div className="flex items-center justify-center h-full">
@@ -669,22 +670,17 @@ useEffect(() => {
             cart.map((item) => (
               <div key={item.cartId} className="bg-slate-800/40 backdrop-blur-lg rounded-2xl p-4 border border-slate-700/50 hover:border-slate-600/50 transition-all shadow-lg">
                 <div className="flex items-start gap-3 mb-3">
-               {item.image_url ? (
-                <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border-2 border-slate-700/50" />
-                ) : item.icon ? (
-             <span className="text-3xl">{item.icon}</span>
-            ) : (
-                   <div className="w-16 h-16 bg-slate-700/50 rounded-xl flex items-center justify-center text-2xl">📦</div>
-                     )}
+                  {item.image_url ? (
+                    <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border-2 border-slate-700/50" />
+                  ) : item.icon ? (
+                    <span className="text-3xl">{item.icon}</span>
+                  ) : (
+                    <div className="w-16 h-16 bg-slate-700/50 rounded-xl flex items-center justify-center text-2xl">📦</div>
+                  )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-white text-base truncate">
-                      {item.name}
-                    </h3>
-                    <p className="text-sm text-slate-400 font-medium">
-                      £{item.price.toFixed(2)} each
-                    </p>
-                  </div>
-                  <button 
+                    <h3 className="font-bold text-white text-base truncate">{item.name}</h3>
+                    <p className="text-sm text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
+                    <button 
                     onClick={() => removeFromCart(item.cartId)} 
                     className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-xl transition-all"
                   >
@@ -718,7 +714,7 @@ useEffect(() => {
           )}
         </div>
 
-        {/* Checkout */}
+        {/* Checkout Section */}
         <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4">
           
           {customers.length > 0 && (
@@ -768,28 +764,6 @@ useEffect(() => {
               <>
                 <CreditCard className="w-6 h-6" />
                 Charge £{grandTotal.toFixed(2)}
-                setTransactions(prev => prev.map(t => 
-               t.id === activeTransactionId 
-                ? { ...t, cart: [], customerId: "" }
-                : t
-              ));
-                // Clear customer display
-if (hardwareSettings?.customer_display_enabled) {
-  const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
-  await channel.send({
-    type: 'broadcast',
-    event: 'cart-update',
-    payload: {
-      cart: [],
-      total: 0,
-      vat: 0,
-      grandTotal: 0,
-      transactionName: activeTransaction?.name,
-      transactionId: activeTransactionId,
-    }
-  });
-  supabase.removeChannel(channel);
-}
               </>
             )}
           </button>
@@ -798,5 +772,3 @@ if (hardwareSettings?.customer_display_enabled) {
     </div>
   );
 }
-
-
