@@ -9,6 +9,7 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
+  image_url?: string | null;
 }
 
 export default function CustomerDisplay() {
@@ -17,6 +18,8 @@ export default function CustomerDisplay() {
   const [vat, setVat] = useState(0);
   const [grandTotal, setGrandTotal] = useState(0);
   const [shopName, setShopName] = useState("Welcome");
+  const [transactionName, setTransactionName] = useState("Transaction 1");
+  const [transactionId, setTransactionId] = useState("");
 
   useEffect(() => {
     loadSettings();
@@ -27,6 +30,8 @@ export default function CustomerDisplay() {
           setTotal(payload.payload.total || 0);
           setVat(payload.payload.vat || 0);
           setGrandTotal(payload.payload.grandTotal || 0);
+          setTransactionName(payload.payload.transactionName || "Transaction 1");
+          setTransactionId(payload.payload.transactionId || "");
         }
       })
       .subscribe();
@@ -48,6 +53,18 @@ export default function CustomerDisplay() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center p-8">
       <div className="w-full max-w-5xl">
         
+        {/* Active Transaction Indicator */}
+        {transactionId && (
+          <div className="bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 border-2 border-cyan-500/50 rounded-2xl p-4 mb-8 animate-fade-in">
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-3 h-3 bg-cyan-400 rounded-full animate-pulse"></div>
+              <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
+                {transactionName}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Logo/Shop Name */}
         <div className="text-center mb-12 animate-fade-in">
           <h1 className="text-7xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 mb-4 drop-shadow-2xl">
@@ -87,7 +104,17 @@ export default function CustomerDisplay() {
                     className="bg-slate-900/50 backdrop-blur-lg rounded-2xl p-6 flex items-center justify-between border border-slate-700/50 hover:border-cyan-500/50 transition-all shadow-lg"
                   >
                     <div className="flex items-center gap-6">
-                      {item.icon && <span className="text-5xl drop-shadow-lg">{item.icon}</span>}
+                      {item.image_url ? (
+                        <img 
+                          src={item.image_url} 
+                          alt={item.name} 
+                          className="w-20 h-20 rounded-xl object-cover border-2 border-slate-700/50 shadow-lg"
+                        />
+                      ) : item.icon ? (
+                        <span className="text-5xl drop-shadow-lg">{item.icon}</span>
+                      ) : (
+                        <div className="w-20 h-20 bg-slate-700/50 rounded-xl flex items-center justify-center text-4xl">📦</div>
+                      )}
                       <div>
                         <h3 className="text-3xl font-bold">{item.name}</h3>
                         <p className="text-xl text-slate-400 font-medium">£{item.price.toFixed(2)} × {item.quantity}</p>
