@@ -21,6 +21,7 @@ interface Product {
   is_service: boolean;
   icon: string;
   supplier: string | null;
+  image_url: string | null;
 }
 
 export default function Inventory() {
@@ -53,6 +54,7 @@ export default function Inventory() {
   const [formIsService, setFormIsService] = useState(false);
   const [formIcon, setFormIcon] = useState("");
   const [formSupplier, setFormSupplier] = useState("");
+  const [formImageUrl, setFormImageUrl] = useState("");
 
   useEffect(() => {
     if (userId) {
@@ -87,6 +89,7 @@ export default function Inventory() {
     setFormIsService(false);
     setFormIcon("");
     setFormSupplier("");
+    setFormImageUrl("");
   };
 
   const openAddModal = () => {
@@ -110,6 +113,7 @@ export default function Inventory() {
     setFormIcon(product.icon || "");
     setFormSupplier(product.supplier || "");
     setShowEditModal(true);
+    setFormImageUrl(product.image_url || "");
   };
 
   const openStockModal = (product: Product) => {
@@ -140,6 +144,7 @@ export default function Inventory() {
       is_service: formIsService,
       icon: formIcon || null,
       supplier: formSupplier || null,
+      image_url: formImageUrl || null,
     });
 
     if (error) {
@@ -170,6 +175,7 @@ export default function Inventory() {
         is_service: formIsService,
         icon: formIcon || null,
         supplier: formSupplier || null,
+        image_url: formImageUrl || null,
       })
       .eq("id", editingProduct.id);
 
@@ -582,6 +588,17 @@ export default function Inventory() {
                 />
               </div>
 
+            <div className="col-span-2">
+              <label className="block text-lg mb-2 font-medium text-slate-300">Product Image URL</label>
+              <input
+                value={formImageUrl}
+                onChange={(e) => setFormImageUrl(e.target.value)}
+                className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                placeholder="https://example.com/image.jpg"
+              />
+              <p className="text-xs text-slate-400 mt-2">Optional: Add a product image URL to display in POS</p>
+              </div>
+
               <div>
                 <label className="block text-lg mb-2 font-medium text-slate-300">Price * (£)</label>
                 <input
@@ -780,3 +797,4 @@ export default function Inventory() {
     </div>
   );
 }
+
