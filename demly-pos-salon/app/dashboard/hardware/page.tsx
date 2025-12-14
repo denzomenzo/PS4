@@ -41,7 +41,7 @@ const loadSettings = async () => {
     setCustomerDisplayEnabled(data.customer_display_enabled || false);
     setDisplaySyncChannel(data.display_sync_channel || "customer-display");
 
-    if (data) {
+   
       setPrinterEnabled(data.printer_enabled || false);
       setPrinterName(data.printer_name || "");
       setPrinterWidth(data.printer_width || 80);
@@ -371,5 +371,6 @@ const loadSettings = async () => {
   );
 
 }
+
 
 
