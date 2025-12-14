@@ -37,7 +37,7 @@ export default function Hardware() {
       .eq("user_id", userId)
       .single();
     setCustomerDisplayEnabled(data.customer_display_enabled || false);
-s   etDisplaySyncChannel(data.display_sync_channel || "customer-display");
+    setDisplaySyncChannel(data.display_sync_channel || "customer-display");
 
     if (data) {
       setPrinterEnabled(data.printer_enabled || false);
@@ -369,3 +369,4 @@ s   etDisplaySyncChannel(data.display_sync_channel || "customer-display");
   );
 
 }
+
