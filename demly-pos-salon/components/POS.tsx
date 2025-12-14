@@ -17,6 +17,7 @@ interface Product {
   track_inventory: boolean;
   stock_quantity: number;
   category?: string | null;
+  image_url?: string | null;
 }
 
 interface Staff {
@@ -639,9 +640,13 @@ export default function POS() {
             cart.map((item) => (
               <div key={item.cartId} className="bg-slate-800/40 backdrop-blur-lg rounded-2xl p-4 border border-slate-700/50 hover:border-slate-600/50 transition-all shadow-lg">
                 <div className="flex items-start gap-3 mb-3">
-                  {item.icon && (
-                    <span className="text-3xl">{item.icon}</span>
-                  )}
+               {item.image_url ? (
+                <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border-2 border-slate-700/50" />
+                ) : item.icon ? (
+             <span className="text-3xl">{item.icon}</span>
+            ) : (
+                   <div className="w-16 h-16 bg-slate-700/50 rounded-xl flex items-center justify-center text-2xl">📦</div>
+                     )}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-white text-base truncate">
                       {item.name}
@@ -742,3 +747,4 @@ export default function POS() {
     </div>
   );
 }
+
