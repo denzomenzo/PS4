@@ -29,13 +29,15 @@ export default function Hardware() {
     loadSettings();
   }, []);
 
-  const loadSettings = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from("hardware_settings")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
+const loadSettings = async () => {
+  setLoading(true);
+  const { data } = await supabase
+    .from("hardware_settings")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+  if (data) {
     setCustomerDisplayEnabled(data.customer_display_enabled || false);
     setDisplaySyncChannel(data.display_sync_channel || "customer-display");
 
@@ -369,4 +371,5 @@ export default function Hardware() {
   );
 
 }
+
 
