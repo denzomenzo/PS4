@@ -122,6 +122,35 @@ export default function POS() {
     if (userId) loadData();
   }, [userId]);
 
+  // Broadcast cart updates to customer display
+useEffect(() => {
+    if (!isAuthenticated || !hardwareSettings?.customer_display_enabled) return;
+    
+    const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
+    
+    // Broadcast current cart state
+    const broadcastCart = async () => {
+      await channel.send({
+        type: 'broadcast',
+        event: 'cart-update',
+        payload: {
+          cart: cart,
+          total: total,
+          vat: vat,
+          grandTotal: grandTotal,
+          transactionName: activeTransaction?.name,
+          transactionId: activeTransactionId,
+        }
+      });
+    };
+
+    broadcastCart();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [cart, total, vat, grandTotal, activeTransactionId, activeTransaction, isAuthenticated, hardwareSettings]);
+
   useEffect(() => {
     if (searchQuery.trim() && isAuthenticated) {
       const query = searchQuery.toLowerCase();
@@ -739,6 +768,28 @@ export default function POS() {
               <>
                 <CreditCard className="w-6 h-6" />
                 Charge £{grandTotal.toFixed(2)}
+                setTransactions(prev => prev.map(t => 
+               t.id === activeTransactionId 
+                ? { ...t, cart: [], customerId: "" }
+                : t
+              ));
+                // Clear customer display
+if (hardwareSettings?.customer_display_enabled) {
+  const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
+  await channel.send({
+    type: 'broadcast',
+    event: 'cart-update',
+    payload: {
+      cart: [],
+      total: 0,
+      vat: 0,
+      grandTotal: 0,
+      transactionName: activeTransaction?.name,
+      transactionId: activeTransactionId,
+    }
+  });
+  supabase.removeChannel(channel);
+}
               </>
             )}
           </button>
@@ -747,4 +798,5 @@ export default function POS() {
     </div>
   );
 }
+
 
