@@ -163,14 +163,35 @@ export default function Settings() {
     // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setSentCode(code);
-    setCodeSent(true);
 
     try {
-      console.log(`Verification code for ${staffEmail}: ${code}`);
-      alert(`✅ Verification code sent to ${staffEmail}\n\n⚠️ Development Mode - Code: ${code}`);
+      // Call Supabase Edge Function
+      const { data: functionData, error: functionError } = await supabase.functions.invoke(
+        'send-verification-email',
+        {
+          body: {
+            email: staffEmail,
+            code: code,
+            staffName: staffName || pinChangeStaff?.name
+          }
+        }
+      );
+
+      if (functionError) {
+        console.error("Error sending email:", functionError);
+        alert("❌ Failed to send verification email. Please try again.");
+        setCodeSent(false);
+        setSentCode("");
+        return;
+      }
+
+      setCodeSent(true);
+      alert(`✅ Verification code sent to ${staffEmail}\n\nPlease check your email inbox (and spam folder).`);
     } catch (error) {
       console.error("Error sending verification code:", error);
-      alert("❌ Failed to send verification code");
+      alert("❌ Failed to send verification email. Please check your connection and try again.");
+      setCodeSent(false);
+      setSentCode("");
     }
   };
 
