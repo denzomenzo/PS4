@@ -29,6 +29,7 @@ export default function Hardware() {
     loadSettings();
   }, []);
 
+
 const loadSettings = async () => {
   setLoading(true);
   const { data } = await supabase
@@ -40,20 +41,18 @@ const loadSettings = async () => {
   if (data) {
     setCustomerDisplayEnabled(data.customer_display_enabled || false);
     setDisplaySyncChannel(data.display_sync_channel || "customer-display");
-
-   
-      setPrinterEnabled(data.printer_enabled || false);
-      setPrinterName(data.printer_name || "");
-      setPrinterWidth(data.printer_width || 80);
-      setAutoPrint(data.auto_print_receipt !== false);
-      setReceiptHeader(data.receipt_header || "");
-      setReceiptFooter(data.receipt_footer || "");
-      setCashDrawerEnabled(data.cash_drawer_enabled || false);
-      setScannerEnabled(data.barcode_scanner_enabled !== false);
-      setScannerSound(data.scanner_sound_enabled !== false);
-    }
-    setLoading(false);
-  };
+    setPrinterEnabled(data.printer_enabled || false);
+    setPrinterName(data.printer_name || "");
+    setPrinterWidth(data.printer_width || 80);
+    setAutoPrint(data.auto_print_receipt !== false);
+    setReceiptHeader(data.receipt_header || "");
+    setReceiptFooter(data.receipt_footer || "");
+    setCashDrawerEnabled(data.cash_drawer_enabled || false);
+    setScannerEnabled(data.barcode_scanner_enabled !== false);
+    setScannerSound(data.scanner_sound_enabled !== false);
+  }
+  setLoading(false);
+};
 
   const saveSettings = async () => {
     const { error } = await supabase.from("hardware_settings").upsert({
@@ -371,6 +370,7 @@ const loadSettings = async () => {
   );
 
 }
+
 
 
 
