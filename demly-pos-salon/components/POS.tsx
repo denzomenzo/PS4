@@ -1,4 +1,3 @@
-
 // COMPLETE FIXED components/POS.tsx - Copy this ENTIRE file
 "use client";
 
@@ -680,7 +679,8 @@ export default function POS() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-white text-base truncate">{item.name}</h3>
                     <p className="text-sm text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
-                    <button 
+                  </div>
+                  <button 
                     onClick={() => removeFromCart(item.cartId)} 
                     className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-xl transition-all"
                   >
@@ -714,7 +714,6 @@ export default function POS() {
           )}
         </div>
 
-        {/* Checkout Section */}
         <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4">
           
           {customers.length > 0 && (
