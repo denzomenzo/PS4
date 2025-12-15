@@ -702,7 +702,7 @@ export default function Settings() {
             </button>
           </div>
 
-{/* Quick Access */}
+          {/* Quick Access */}
           <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-xl border border-blue-500/30 rounded-3xl p-8 shadow-xl">
             <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
               💡 Quick Access
@@ -740,7 +740,7 @@ export default function Settings() {
               <h2 className="text-3xl font-bold">
                 {editingStaff ? "Edit Staff Member" : "Add Staff Member"}
               </h2>
-              <button onClick={() => setShowStaffModal(false)} className="text-slate-400 hover:text-white transition-colors">
+              <button onClick={() => { setShowStaffModal(false); resetModalStates(); }} className="text-slate-400 hover:text-white transition-colors">
                 <X className="w-8 h-8" />
               </button>
             </div>
@@ -754,23 +754,165 @@ export default function Settings() {
                   placeholder="Staff member name"
                   className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                   autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && saveStaffMember()}
                 />
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium">Email *</label>
+                <input
+                  type="email"
+                  value={staffEmail}
+                  onChange={(e) => setStaffEmail(e.target.value)}
+                  placeholder="staff@example.com"
+                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+                <p className="text-xs text-slate-400 mt-1">Required for PIN verification</p>
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium">PIN (Optional)</label>
+                <input
+                  type="password"
+                  value={staffPin}
+                  onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="4-6 digit PIN"
+                  maxLength={6}
+                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+                {staffPin && staffPin.length >= 4 && (
+                  <div className="mt-3 space-y-2">
+                    {!codeSent ? (
+                      <button
+                        onClick={sendVerificationCode}
+                        className="w-full bg-blue-500 hover:bg-blue-600 py-3 rounded-xl font-bold transition-all"
+                      >
+                        Send Verification Code
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="Enter 6-digit code"
+                          maxLength={6}
+                          className="w-full bg-slate-800/50 border border-slate-700/50 p-3 rounded-xl text-center text-2xl font-mono focus:outline-none focus:border-cyan-500/50"
+                        />
+                        <button
+                          onClick={sendVerificationCode}
+                          className="w-full text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                        >
+                          Resend Code
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex gap-4 mt-8">
               <button
-                onClick={() => setShowStaffModal(false)}
+                onClick={() => { setShowStaffModal(false); resetModalStates(); }}
                 className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={saveStaffMember}
-                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 py-4 rounded-xl text-lg font-bold transition-all shadow-xl shadow-purple-500/20"
+                disabled={verifying}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl shadow-purple-500/20 disabled:opacity-50"
               >
-                {editingStaff ? "Save Changes" : "Add Staff"}
+                {verifying ? "Saving..." : editingStaff ? "Save Changes" : "Add Staff"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PIN Change Modal */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold">Change PIN</h2>
+              <button onClick={() => { setShowPinModal(false); resetModalStates(); }} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                <p className="text-sm text-blue-400">
+                  Changing PIN for: <strong>{pinChangeStaff?.name}</strong>
+                </p>
+                {staffEmail && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Verification code will be sent to: {staffEmail}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium">New PIN</label>
+                <input
+                  type="password"
+                  value={staffPin}
+                  onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="4-6 digit PIN"
+                  maxLength={6}
+                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  autoFocus
+                />
+              </div>
+
+              {staffPin && staffPin.length >= 4 && (
+                <>
+                  {!codeSent ? (
+                    <button
+                      onClick={sendVerificationCode}
+                      className="w-full bg-blue-500 hover:bg-blue-600 py-4 rounded-xl font-bold transition-all"
+                    >
+                      Send Verification Code
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm mb-2 font-medium">Verification Code</label>
+                        <input
+                          type="text"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="Enter 6-digit code"
+                          maxLength={6}
+                          className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-center text-2xl font-mono focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+                      <button
+                        onClick={sendVerificationCode}
+                        className="w-full text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                      >
+                        Resend Code
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-4 mt-8">
+              <button
+                onClick={() => { setShowPinModal(false); resetModalStates(); }}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={verifyAndSavePin}
+                disabled={!codeSent || !verificationCode || verifying || staffPin.length < 4}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl shadow-purple-500/20 disabled:opacity-50"
+              >
+                {verifying ? "Saving..." : "Save PIN"}
               </button>
             </div>
           </div>
