@@ -3,14 +3,14 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save } from "lucide-react";
+import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save, Lock } from "lucide-react";
 import Link from "next/link";
 
 interface Staff {
   id: number;
   name: string;
-  pin?: string | null;
   email?: string | null;
+  pin?: string | null;
 }
 
 export default function Settings() {
@@ -35,9 +35,10 @@ export default function Settings() {
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [staffName, setStaffName] = useState("");
-
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPin, setStaffPin] = useState("");
+  
+  // PIN Change Modal
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinChangeStaff, setPinChangeStaff] = useState<Staff | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
@@ -63,7 +64,7 @@ export default function Settings() {
     if (settingsData) {
       setShopName(settingsData.shop_name || "");
       setVatEnabled(settingsData.vat_enabled !== undefined ? settingsData.vat_enabled : true);
-      setBusinessName(settingsData.business_name || "");
+      setBusinessName(settingsData.business_name || settingsData.shop_name || "");
       setBusinessAddress(settingsData.business_address || "");
       setBusinessPhone(settingsData.business_phone || "");
       setBusinessEmail(settingsData.business_email || "");
@@ -73,7 +74,7 @@ export default function Settings() {
 
     const { data: staffData } = await supabase
       .from("staff")
-      .select("id, name")
+      .select("id, name, email, pin")
       .eq("user_id", userId)
       .order("name");
     
@@ -92,7 +93,7 @@ export default function Settings() {
             user_id: userId,
             shop_name: shopName,
             vat_enabled: vatEnabled,
-            business_name: businessName,
+            business_name: businessName || shopName,
             business_address: businessAddress,
             business_phone: businessPhone,
             business_email: businessEmail,
@@ -119,16 +120,94 @@ export default function Settings() {
     }
   };
 
-  const openAddStaffModal = () => {
-    setEditingStaff(null);
+  const resetModalStates = () => {
     setStaffName("");
+    setStaffEmail("");
+    setStaffPin("");
+    setVerificationCode("");
+    setSentCode("");
+    setCodeSent(false);
+    setEditingStaff(null);
+    setPinChangeStaff(null);
+  };
+
+  const openAddStaffModal = () => {
+    resetModalStates();
     setShowStaffModal(true);
   };
 
   const openEditStaffModal = (member: Staff) => {
     setEditingStaff(member);
     setStaffName(member.name);
+    setStaffEmail(member.email || "");
+    setStaffPin("");
     setShowStaffModal(true);
+  };
+
+  const openPinChangeModal = (member: Staff) => {
+    setPinChangeStaff(member);
+    setStaffEmail(member.email || "");
+    setStaffPin("");
+    setVerificationCode("");
+    setSentCode("");
+    setCodeSent(false);
+    setShowPinModal(true);
+  };
+
+  const sendVerificationCode = async () => {
+    if (!staffEmail || !staffEmail.includes('@')) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    // Generate 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setSentCode(code);
+    setCodeSent(true);
+
+    try {
+      console.log(`Verification code for ${staffEmail}: ${code}`);
+      alert(`✅ Verification code sent to ${staffEmail}\n\n⚠️ Development Mode - Code: ${code}`);
+    } catch (error) {
+      console.error("Error sending verification code:", error);
+      alert("❌ Failed to send verification code");
+    }
+  };
+
+  const verifyAndSavePin = async () => {
+    if (verificationCode !== sentCode) {
+      alert("❌ Invalid verification code");
+      return;
+    }
+
+    if (!staffPin || staffPin.length < 4) {
+      alert("❌ PIN must be at least 4 digits");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      if (pinChangeStaff) {
+        const { error } = await supabase
+          .from("staff")
+          .update({ pin: staffPin })
+          .eq("id", pinChangeStaff.id)
+          .eq("user_id", userId);
+        
+        if (error) throw error;
+        
+        alert("✅ PIN updated successfully!");
+      }
+
+      setShowPinModal(false);
+      resetModalStates();
+      loadData();
+    } catch (error: any) {
+      console.error("Error updating PIN:", error);
+      alert("❌ Error updating PIN: " + error.message);
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const saveStaffMember = async () => {
@@ -137,28 +216,63 @@ export default function Settings() {
       return;
     }
 
+    if (!staffEmail.trim() || !staffEmail.includes('@')) {
+      alert("Valid email is required");
+      return;
+    }
+
+    // If PIN is provided and this is a new entry or edit, require verification
+    if (staffPin && staffPin.length >= 4) {
+      if (!codeSent) {
+        alert("Please send and verify the email code first");
+        return;
+      }
+      if (verificationCode !== sentCode) {
+        alert("❌ Invalid verification code");
+        return;
+      }
+    }
+
     try {
       if (editingStaff) {
+        const updateData: any = {
+          name: staffName.trim(),
+          email: staffEmail.trim()
+        };
+        
+        if (staffPin && staffPin.length >= 4) {
+          updateData.pin = staffPin;
+        }
+        
         const { error } = await supabase
           .from("staff")
-          .update({ name: staffName.trim() })
+          .update(updateData)
           .eq("id", editingStaff.id)
           .eq("user_id", userId);
         
         if (error) throw error;
       } else {
+        const insertData: any = {
+          user_id: userId,
+          name: staffName.trim(),
+          email: staffEmail.trim()
+        };
+        
+        if (staffPin && staffPin.length >= 4) {
+          insertData.pin = staffPin;
+        }
+        
         const { error } = await supabase
           .from("staff")
-          .insert({
-            user_id: userId,
-            name: staffName.trim(),
-          });
+          .insert(insertData);
         
         if (error) throw error;
       }
 
       setShowStaffModal(false);
+      resetModalStates();
       loadData();
+      alert("✅ Staff member saved successfully!");
     } catch (error: any) {
       console.error("Error saving staff:", error);
       alert("Error saving staff member: " + error.message);
@@ -205,9 +319,9 @@ export default function Settings() {
           <h1 className="text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
             Settings
           </h1>
-          <Link href="/" className="flex items-center gap-2 text-xl text-slate-400 hover:text-white transition-colors">
+          <Link href="/dashboard" className="flex items-center gap-2 text-xl text-slate-400 hover:text-white transition-colors">
             <ArrowLeft className="w-6 h-6" />
-            Back to POS
+            Back to Dashboard
           </Link>
         </div>
 
@@ -230,7 +344,11 @@ export default function Settings() {
                 <label className="block text-lg font-semibold mb-3 text-slate-300">Business Name</label>
                 <input
                   value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    setShopName(newName);
+                    if (!businessName) setBusinessName(newName);
+                  }}
                   placeholder="e.g. Your Business Name"
                   className="w-full bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 p-5 rounded-2xl text-xl placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                 />
@@ -274,22 +392,25 @@ export default function Settings() {
             <div className="grid md:grid-cols-2 gap-6 mb-6">
               
               {/* Business Info Column */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Business Name on Receipt *
-            </label>
-            <input
-              type="text"
-              value={businessName || shopName}  // Show shopName if businessName is empty
-              onChange={(e) => {
-                const newName = e.target.value;
-                setBusinessName(newName);
-                setShopName(newName);  // Keep both in sync
-              }}
-              className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-              placeholder="My Salon"
-            />
-          </div>
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold mb-4">Receipt Information</h3>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Business Name on Receipt *
+                  </label>
+                  <input
+                    type="text"
+                    value={businessName || shopName}
+                    onChange={(e) => {
+                      const newName = e.target.value;
+                      setBusinessName(newName);
+                      setShopName(newName);
+                    }}
+                    className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    placeholder="My Salon"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -434,7 +555,7 @@ export default function Settings() {
                 
                 <div className="space-y-1 mb-2">
                   <div className="flex justify-between text-[11px]">
-                    <span>Product</span>
+                    <span>✂️ Haircut</span>
                     <span className="font-bold">£25.00</span>
                   </div>
                 </div>
@@ -504,27 +625,55 @@ export default function Settings() {
                     key={member.id}
                     className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-5 hover:border-purple-500/50 transition-all group"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-xl font-black shadow-lg shadow-purple-500/20">
                           {member.name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-lg font-bold">{member.name}</span>
+                        <div>
+                          <span className="text-lg font-bold block">{member.name}</span>
+                          {member.email && (
+                            <span className="text-xs text-slate-400">{member.email}</span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => openEditStaffModal(member)}
                           className="p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
+                          title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => deleteStaffMember(member.id)}
                           className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
+                          title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-700/50">
+                      <span className="text-sm flex items-center gap-2">
+                        {member.pin ? (
+                          <>
+                            <Lock className="w-4 h-4 text-emerald-400" />
+                            <span className="text-emerald-400">PIN Set</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-4 h-4 text-slate-500" />
+                            <span className="text-slate-500">No PIN</span>
+                          </>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => openPinChangeModal(member)}
+                        className="text-sm text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+                      >
+                        {member.pin ? "Change PIN" : "Set PIN"}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -536,7 +685,7 @@ export default function Settings() {
           <div className="flex justify-end">
             <button
               onClick={saveAllSettings}
-              disabled={saving || !businessName}
+              disabled={saving || !shopName}
               className="px-12 py-5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-xl rounded-2xl transition-all shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
             >
               {saving ? (
@@ -553,7 +702,7 @@ export default function Settings() {
             </button>
           </div>
 
-          {/* Quick Access */}
+{/* Quick Access */}
           <div className="bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-xl border border-blue-500/30 rounded-3xl p-8 shadow-xl">
             <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
               💡 Quick Access
@@ -630,5 +779,3 @@ export default function Settings() {
     </div>
   );
 }
-
-
