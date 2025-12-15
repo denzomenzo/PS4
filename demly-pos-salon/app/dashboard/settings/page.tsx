@@ -9,6 +9,8 @@ import Link from "next/link";
 interface Staff {
   id: number;
   name: string;
+  pin?: string | null;
+  email?: string | null;
 }
 
 export default function Settings() {
@@ -33,6 +35,15 @@ export default function Settings() {
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [staffName, setStaffName] = useState("");
+
+  const [staffEmail, setStaffEmail] = useState("");
+  const [staffPin, setStaffPin] = useState("");
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinChangeStaff, setPinChangeStaff] = useState<Staff | null>(null);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [sentCode, setSentCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     if (userId) {
@@ -549,7 +560,7 @@ export default function Settings() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Link
-                href="/inventory"
+                href="/dashboard/inventory"
                 className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 hover:border-cyan-500/50 p-5 rounded-2xl transition-all group"
               >
                 <h4 className="text-lg font-bold mb-1 group-hover:text-cyan-400 transition-colors">
@@ -558,7 +569,7 @@ export default function Settings() {
                 <p className="text-sm text-slate-400">Add products and services</p>
               </Link>
               <Link
-                href="/hardware"
+                href="/dashboard/hardware"
                 className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 hover:border-cyan-500/50 p-5 rounded-2xl transition-all group"
               >
                 <h4 className="text-lg font-bold mb-1 group-hover:text-cyan-400 transition-colors">
@@ -619,4 +630,5 @@ export default function Settings() {
     </div>
   );
 }
+
 
