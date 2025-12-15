@@ -18,7 +18,7 @@ export default function DashboardHome() {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link href="/" className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-8 hover:border-cyan-500/50 transition-all group">
+          <Link href="/dashboard/pos" className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-8 hover:border-cyan-500/50 transition-all group">
             <TrendingUp className="w-12 h-12 text-cyan-400 mb-4 group-hover:scale-110 transition-transform" />
             <h2 className="text-2xl font-bold mb-2">Point of Sale</h2>
             <p className="text-slate-400">Process transactions and manage sales</p>
@@ -58,3 +58,4 @@ export default function DashboardHome() {
     </div>
   );
 }
+
