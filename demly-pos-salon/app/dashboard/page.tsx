@@ -114,7 +114,7 @@ export default function POSPage() {
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import  useState, useEffect  from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { ShoppingCart, Check } from 'lucide-react';
 
@@ -298,3 +298,4 @@ export default function CustomerDisplay() {
     </div>
   );
 }
+
