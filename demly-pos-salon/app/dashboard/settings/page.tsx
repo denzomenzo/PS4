@@ -263,21 +263,22 @@ export default function Settings() {
             <div className="grid md:grid-cols-2 gap-6 mb-6">
               
               {/* Business Info Column */}
-              <div className="space-y-4">
-                <h3 className="text-xl font-bold mb-4">Receipt Information</h3>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Business Name on Receipt *
-                  </label>
-                  <input
-                    type="text"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                    placeholder="My Salon"
-                  />
-                </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Business Name on Receipt *
+            </label>
+            <input
+              type="text"
+              value={businessName || shopName}  // Show shopName if businessName is empty
+              onChange={(e) => {
+                const newName = e.target.value;
+                setBusinessName(newName);
+                setShopName(newName);  // Keep both in sync
+              }}
+              className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+              placeholder="My Salon"
+            />
+          </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -422,7 +423,7 @@ export default function Settings() {
                 
                 <div className="space-y-1 mb-2">
                   <div className="flex justify-between text-[11px]">
-                    <span>✂️ Haircut</span>
+                    <span>Product</span>
                     <span className="font-bold">£25.00</span>
                   </div>
                 </div>
@@ -618,3 +619,4 @@ export default function Settings() {
     </div>
   );
 }
+
