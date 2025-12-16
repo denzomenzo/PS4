@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Check, ArrowRight, Zap, Shield, TrendingUp, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import Image from "next/image";
 
 export default function LandingPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -30,14 +29,8 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-emerald-500/10">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center">
-              <Image 
-                src="/demly-logo.png" 
-                alt="Demly" 
-                width={120} 
-                height={40}
-                className="h-10 w-auto"
-              />
+            <Link href="/" className="text-4xl font-black text-white tracking-tight">
+              DEMLY
             </Link>
             
             <div className="hidden md:flex items-center gap-8 text-slate-300">
@@ -455,14 +448,8 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-white/5 py-12 px-6">
         <div className="max-w-7xl mx-auto text-center">
-          <Image 
-            src="/demly-logo.png" 
-            alt="Demly" 
-            width={100} 
-            height={33}
-            className="h-8 w-auto mx-auto mb-4"
-          />
-          <p className="text-slate-400 mb-6">© 2024 Demly. All rights reserved.</p>
+          <div className="text-3xl font-black text-white mb-4 tracking-tight">DEMLY</div>
+          <p className="text-slate-400 mb-6">© 2025 Demly. All rights reserved.</p>
           <div className="flex gap-6 justify-center text-slate-500 text-sm">
             <a href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy</a>
             <a href="/terms" className="hover:text-emerald-400 transition-colors">Terms</a>
