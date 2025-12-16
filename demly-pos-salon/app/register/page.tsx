@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User, Loader2, CheckCircle, ArrowLeft } from "lucide-react";
-import Image from "next/image";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -119,13 +118,9 @@ export default function Register() {
           {/* Left Side - Branding */}
           <div className="hidden lg:block">
             <div className="bg-gradient-to-br from-emerald-500/10 to-green-500/10 border border-emerald-500/20 rounded-3xl p-12">
-              <Image 
-                src="/demly-logo.png" 
-                alt="Demly" 
-                width={180} 
-                height={60}
-                className="h-14 w-auto mb-8"
-              />
+              <h1 className="text-5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-8">
+                Demly POS
+              </h1>
               <h2 className="text-4xl font-black text-white mb-4">
                 Start Your Journey with Demly POS
               </h2>
@@ -155,13 +150,9 @@ export default function Register() {
           {/* Right Side - Registration Form */}
           <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 border border-slate-800/50 shadow-2xl">
             <div className="text-center mb-8 lg:hidden">
-              <Image 
-                src="/demly-logo.png" 
-                alt="Demly" 
-                width={150} 
-                height={50}
-                className="h-12 w-auto mx-auto mb-4"
-              />
+              <h1 className="text-5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-green-400 mb-4">
+                Demly POS
+              </h1>
             </div>
 
             <div className="mb-8">
