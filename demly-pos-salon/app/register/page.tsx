@@ -4,7 +4,8 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User, Loader2, CheckCircle } from "lucide-react";
+import { Mail, Lock, User, Loader2, CheckCircle, ArrowLeft } from "lucide-react";
+import Image from "next/image";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -59,7 +60,7 @@ export default function Register() {
 
   if (showEmailVerification) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
         <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 text-center shadow-2xl">
           <CheckCircle className="w-20 h-20 text-emerald-400 mx-auto mb-6" />
           <h2 className="text-4xl font-bold text-white mb-4">Check Your Email</h2>
@@ -77,7 +78,7 @@ export default function Register() {
           <div className="space-y-3">
             <Link
               href="/login"
-              className="block w-full bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-cyan-500/20"
+              className="block w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-emerald-500/20"
             >
               Go to Login
             </Link>
@@ -102,111 +103,173 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-4">
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 shadow-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 mb-2">
-            Demly POS
-          </h1>
-          <p className="text-slate-400 text-lg">Create your account</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-6xl">
+        
+        {/* Back Button */}
+        <div className="mb-8">
+          <Link href="/" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+            Back to Home
+          </Link>
         </div>
 
-        <form onSubmit={handleRegister} className="space-y-6">
-          {error && (
-            <div className="bg-red-500/20 backdrop-blur-lg border border-red-500/50 rounded-xl p-4 text-red-400">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-white mb-2 text-sm font-semibold">Business Name</label>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="text"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="Your Business Name"
-                required
-                className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+        <div className="grid lg:grid-cols-2 gap-12 items-center">
+          
+          {/* Left Side - Branding */}
+          <div className="hidden lg:block">
+            <div className="bg-gradient-to-br from-emerald-500/10 to-green-500/10 border border-emerald-500/20 rounded-3xl p-12">
+              <Image 
+                src="/demly-logo.png" 
+                alt="Demly" 
+                width={180} 
+                height={60}
+                className="h-14 w-auto mb-8"
               />
+              <h2 className="text-4xl font-black text-white mb-4">
+                Start Your Journey with Demly POS
+              </h2>
+              <p className="text-xl text-slate-300 mb-8">
+                Join thousands of businesses managing their operations efficiently with our all-in-one platform.
+              </p>
+              
+              <div className="space-y-4">
+                {[
+                  { icon: "⚡", title: "Quick Setup", desc: "Get started in minutes, not hours" },
+                  { icon: "🔒", title: "Secure & Reliable", desc: "Bank-level encryption for your data" },
+                  { icon: "📈", title: "Grow Your Business", desc: "Scale effortlessly as you expand" },
+                  { icon: "💬", title: "24/7 Support", desc: "Always here when you need help" },
+                ].map((feature, i) => (
+                  <div key={i} className="flex items-start gap-4 bg-slate-900/30 rounded-xl p-4 border border-slate-800/50">
+                    <div className="text-3xl">{feature.icon}</div>
+                    <div>
+                      <h3 className="text-white font-bold mb-1">{feature.title}</h3>
+                      <p className="text-slate-400 text-sm">{feature.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div>
-            <label className="block text-white mb-2 text-sm font-semibold">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                required
-                className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+          {/* Right Side - Registration Form */}
+          <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 border border-slate-800/50 shadow-2xl">
+            <div className="text-center mb-8 lg:hidden">
+              <Image 
+                src="/demly-logo.png" 
+                alt="Demly" 
+                width={150} 
+                height={50}
+                className="h-12 w-auto mx-auto mb-4"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-white mb-2 text-sm font-semibold">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-              />
+            <div className="mb-8">
+              <h1 className="text-4xl font-black text-white mb-2">
+                Create Account
+              </h1>
+              <p className="text-slate-400 text-lg">Sign up to get started with Demly POS</p>
             </div>
+
+            <form onSubmit={handleRegister} className="space-y-6">
+              {error && (
+                <div className="bg-red-500/20 backdrop-blur-lg border border-red-500/50 rounded-xl p-4 text-red-400">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-semibold">Business Name</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type="text"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="Your Business Name"
+                    required
+                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-semibold">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    required
+                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-semibold">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Must be at least 6 characters</p>
+              </div>
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-semibold">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 hover:shadow-emerald-500/40"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating account...
+                  </>
+                ) : (
+                  "Create Account"
+                )}
+              </button>
+
+              <div className="pt-6 space-y-4 text-center border-t border-slate-800/50">
+                <p className="text-slate-400">
+                  Already have an account?{" "}
+                  <Link href="/login" className="text-emerald-400 hover:text-emerald-300 font-bold transition-colors">
+                    Sign In
+                  </Link>
+                </p>
+                <p className="text-slate-500 text-sm">
+                  You'll need a license key to activate your account.{" "}
+                  <Link href="/pay" className="text-emerald-400 hover:text-emerald-300 font-semibold transition-colors">
+                    Purchase a license →
+                  </Link>
+                </p>
+              </div>
+            </form>
           </div>
-
-          <div>
-            <label className="block text-white mb-2 text-sm font-semibold">Confirm Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 text-white font-bold py-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/20 hover:shadow-cyan-500/40"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Creating account...
-              </>
-            ) : (
-              "Create Account"
-            )}
-          </button>
-        </form>
-
-        <div className="mt-8 text-center space-y-4">
-          <p className="text-slate-400">
-            Already have an account?{" "}
-            <Link href="/login" className="text-cyan-400 hover:text-cyan-300 font-bold transition-colors">
-              Sign In
-            </Link>
-          </p>
-          <p className="text-slate-400 text-sm">
-            You'll need a license key to activate your account.{" "}
-            <Link href="/pay" className="text-emerald-400 hover:text-emerald-300 font-bold transition-colors">
-              Purchase a license
-            </Link>
-          </p>
         </div>
       </div>
     </div>
