@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Stripe without a hardcoded apiVersion
-// This lets the SDK use its internal default or your Stripe Dashboard setting
+// Initialize Stripe. 
+// We omit apiVersion to use the version associated with your Stripe Account/SDK.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const supabase = createClient(
@@ -12,13 +12,15 @@ const supabase = createClient(
 );
 
 /**
- * Helper to safely extract an ID from Stripe's "Expandable" fields.
- * This prevents TypeScript errors when Stripe returns an object instead of a string.
+ * FIXED: This helper handles Stripe's "Expandable" fields.
+ * It ensures TypeScript is happy by checking if the field is a string,
+ * an object with an ID, or null.
  */
-function getResourceId(field: string | any | null | undefined): string | null {
+function getResourceId(field: any): string | null {
   if (!field) return null;
   if (typeof field === 'string') return field;
-  return (field as { id: string }).id || null;
+  if (typeof field === 'object' && 'id' in field) return (field as { id: string }).id;
+  return null;
 }
 
 function generateLicenseKey(): string {
@@ -46,15 +48,12 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     console.error(`❌ Webhook Error: ${err.message}`);
-    return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  const eventType = event.type;
-  const dataObject = event.data.object;
-
-  // --- 1. SUCCESSFUL CHECKOUT (NEW SUBSCRIPTION) ---
-  if (eventType === 'checkout.session.completed') {
-    const session = dataObject as Stripe.Checkout.Session;
+  // --- 1. CHECKOUT COMPLETED ---
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
     const customerEmail = session.customer_email || session.customer_details?.email;
     const subscriptionId = getResourceId(session.subscription);
     const customerId = getResourceId(session.customer);
@@ -83,19 +82,19 @@ export async function POST(req: NextRequest) {
     });
 
     if (dbError) {
-      console.error('❌ Supabase Insert Error:', dbError);
+      console.error('❌ DB Error:', dbError);
       return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
     }
 
-    // Trigger email via Supabase Edge Function
     await supabase.functions.invoke('send-license-email', {
       body: { email: customerEmail, licenseKey, planType },
     });
   }
 
-  // --- 2. RENEWAL (PAYMENT SUCCEEDED) ---
-  if (eventType === 'invoice.payment_succeeded') {
-    const invoice = dataObject as Stripe.Invoice;
+  // --- 2. PAYMENT SUCCEEDED (RENEWAL) ---
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object as Stripe.Invoice;
+    // FIXED: Safely extract subscription ID using our helper
     const subscriptionId = getResourceId(invoice.subscription);
 
     if (subscriptionId) {
@@ -119,16 +118,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // --- 3. CANCELLATION OR FAILURE ---
-  if (eventType === 'customer.subscription.deleted' || eventType === 'invoice.payment_failed') {
-    const obj = dataObject as Stripe.Subscription | Stripe.Invoice;
-    const subscriptionId = getResourceId('subscription' in obj ? obj.subscription : obj.id);
+  // --- 3. SUBSCRIPTION DELETED / FAILED ---
+  if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
+    const dataObj = event.data.object;
+    // Check if it's an invoice or a subscription object to get the ID
+    const subId = event.type === 'customer.subscription.deleted' 
+      ? (dataObj as Stripe.Subscription).id 
+      : getResourceId((dataObj as Stripe.Invoice).subscription);
 
-    if (subscriptionId) {
+    if (subId) {
       await supabase
         .from('licenses')
         .update({ status: 'inactive' })
-        .eq('stripe_subscription_id', subscriptionId);
+        .eq('stripe_subscription_id', subId);
     }
   }
 
