@@ -1,11 +1,17 @@
+// app/api/checkout/route.ts
+
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  
+});
 
 export async function POST(request: Request) {
   try {
     const { email, plan = "annual" } = await request.json();
+
+    console.log('🛒 Checkout initiated:', { email, plan });
 
     if (!email) {
       return NextResponse.json(
@@ -16,8 +22,10 @@ export async function POST(request: Request) {
 
     // Get app URL with fallback
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                   "http://localhost:3000";
+                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
+                   "https://demly.co.uk");
+
+    console.log('🌐 App URL:', appUrl);
 
     // Define pricing for both plans
     const pricing = {
@@ -41,6 +49,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    console.log('💰 Selected plan:', selectedPlan);
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
@@ -66,14 +76,15 @@ export async function POST(request: Request) {
       success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/pay`,
       metadata: {
-        email: email,
         plan: plan,
       },
     });
 
+    console.log('✅ Checkout session created:', session.id);
+
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
-    console.error("Stripe checkout error:", error);
+    console.error("❌ Stripe checkout error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to create checkout session" },
       { status: 500 }
