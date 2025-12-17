@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Stripe. 
-// We omit apiVersion to use the version associated with your Stripe Account/SDK.
+// Initialize Stripe without hardcoded version
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const supabase = createClient(
@@ -12,15 +11,13 @@ const supabase = createClient(
 );
 
 /**
- * FIXED: This helper handles Stripe's "Expandable" fields.
- * It ensures TypeScript is happy by checking if the field is a string,
- * an object with an ID, or null.
+ * Robust helper to extract ID from Stripe's Expandable fields.
+ * This explicitly handles the Union type: string | object | null
  */
-function getResourceId(field: any): string | null {
+function getResourceId(field: string | Stripe.Subscription | Stripe.Customer | Stripe.Checkout.Session | any | null | undefined): string | null {
   if (!field) return null;
   if (typeof field === 'string') return field;
-  if (typeof field === 'object' && 'id' in field) return (field as { id: string }).id;
-  return null;
+  return (field as { id: string }).id || null;
 }
 
 function generateLicenseKey(): string {
@@ -94,7 +91,8 @@ export async function POST(req: NextRequest) {
   // --- 2. PAYMENT SUCCEEDED (RENEWAL) ---
   if (event.type === 'invoice.payment_succeeded') {
     const invoice = event.data.object as Stripe.Invoice;
-    // FIXED: Safely extract subscription ID using our helper
+    
+    // FIX: Accessing subscription safely using the helper
     const subscriptionId = getResourceId(invoice.subscription);
 
     if (subscriptionId) {
@@ -106,32 +104,30 @@ export async function POST(req: NextRequest) {
 
       if (license) {
         const newExpiry = new Date();
-        license.plan_type === 'monthly' 
-          ? newExpiry.setMonth(newExpiry.getMonth() + 1) 
-          : newExpiry.setFullYear(newExpiry.getFullYear() + 1);
+        if (license.plan_type === 'monthly') {
+          newExpiry.setMonth(newExpiry.getMonth() + 1);
+        } else {
+          newExpiry.setFullYear(newExpiry.getFullYear() + 1);
+        }
 
         await supabase
           .from('licenses')
-          .update({ expires_at: newExpiry.toISOString(), status: 'active' })
+          .update({ 
+            expires_at: newExpiry.toISOString(), 
+            status: 'active' 
+          })
           .eq('stripe_subscription_id', subscriptionId);
       }
     }
   }
 
-  // --- 3. SUBSCRIPTION DELETED / FAILED ---
-  if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
-    const dataObj = event.data.object;
-    // Check if it's an invoice or a subscription object to get the ID
-    const subId = event.type === 'customer.subscription.deleted' 
-      ? (dataObj as Stripe.Subscription).id 
-      : getResourceId((dataObj as Stripe.Invoice).subscription);
-
-    if (subId) {
-      await supabase
-        .from('licenses')
-        .update({ status: 'inactive' })
-        .eq('stripe_subscription_id', subId);
-    }
+  // --- 3. CANCELLATION ---
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as Stripe.Subscription;
+    await supabase
+      .from('licenses')
+      .update({ status: 'inactive' })
+      .eq('stripe_subscription_id', subscription.id);
   }
 
   return NextResponse.json({ received: true });
