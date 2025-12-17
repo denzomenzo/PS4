@@ -1,11 +1,7 @@
-// app/api/checkout/route.ts
-
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 export async function POST(request: Request) {
   try {
@@ -20,22 +16,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get app URL with fallback
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
                    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
                    "http://localhost:3000");
 
     console.log('🌐 App URL:', appUrl);
 
-    // Define pricing for both plans
     const pricing = {
       monthly: {
-        amount: 2900, // £29.00 in pence
+        amount: 2900,
         interval: "month" as const,
         description: "Monthly subscription to Demly POS",
       },
       annual: {
-        amount: 29900, // £299.00 in pence
+        amount: 29900,
         interval: "year" as const,
         description: "Annual subscription to Demly POS (Save £49/year)",
       },
@@ -52,7 +46,6 @@ export async function POST(request: Request) {
 
     console.log('💰 Selected plan:', selectedPlan);
 
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       customer_email: email,
       payment_method_types: ["card"],
@@ -91,5 +84,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
-
