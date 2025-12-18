@@ -17,6 +17,13 @@ function generateLicenseKey(): string {
   ).join('-');
 }
 
+function getStripeId(value: string | Stripe.Customer | Stripe.Subscription | Stripe.DeletedCustomer | Stripe.DeletedSubscription | null): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && 'id' in value) return value.id;
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   console.log('🔔 Webhook endpoint hit');
   
@@ -64,11 +71,9 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      // Generate license key
       const licenseKey = generateLicenseKey();
       console.log('🔑 Generated license key:', licenseKey);
 
-      // Calculate expiry
       const expiryDate = new Date();
       if (planType === 'monthly') {
         expiryDate.setMonth(expiryDate.getMonth() + 1);
@@ -77,11 +82,9 @@ export async function POST(req: NextRequest) {
       }
       console.log('📅 Expiry date:', expiryDate.toISOString());
 
-      // Get IDs safely
-      const customerId = typeof session.customer === 'string' ? session.customer : null;
-      const subscriptionId = typeof session.subscription === 'string' ? session.subscription : null;
+      const customerId = getStripeId(session.customer);
+      const subscriptionId = getStripeId(session.subscription);
 
-      // Store license in database
       console.log('💾 Storing license in database...');
       const { data: licenseData, error: licenseError } = await supabase
         .from('licenses')
@@ -107,7 +110,6 @@ export async function POST(req: NextRequest) {
 
       console.log('✅ License stored in database');
 
-      // Send email
       console.log('📧 Calling send-license-email function...');
       const { data: emailData, error: emailError } = await supabase.functions.invoke('send-license-email', {
         body: {
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
     console.log('🔄 Processing invoice.payment_succeeded');
     
     const invoice = event.data.object as Stripe.Invoice;
-    const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : null;
+    const subscriptionId = getStripeId(invoice.subscription);
 
     if (subscriptionId) {
       const { data: license } = await supabase
