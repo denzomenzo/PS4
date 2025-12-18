@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
                    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                   "http://demly.co.uk");
+                   "https://demly.co.uk");
 
     console.log('🌐 App URL:', appUrl);
 
@@ -84,5 +84,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
 
 
