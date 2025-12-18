@@ -17,7 +17,7 @@ function generateLicenseKey(): string {
   ).join('-');
 }
 
-function getStripeId(value: string | Stripe.Customer | Stripe.Subscription | Stripe.DeletedCustomer | Stripe.DeletedSubscription | null): string | null {
+function getStripeId(value: any): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value;
   if (typeof value === 'object' && 'id' in value) return value.id;
