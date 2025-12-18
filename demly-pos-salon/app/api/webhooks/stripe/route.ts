@@ -138,12 +138,19 @@ export async function POST(req: NextRequest) {
   if (event.type === 'invoice.payment_succeeded') {
     console.log('🔄 Processing invoice.payment_succeeded');
     
-    const invoice = event.data.object as Stripe.Invoice;
+    const invoice = event.data.object;
     
-    // Fix: Access subscription property correctly
-    const subscriptionId = typeof invoice.subscription === 'string' 
-      ? invoice.subscription 
-      : invoice.subscription?.id || null;
+    // Extract subscription ID - invoice.subscription can be string | Subscription | null
+    let subscriptionId: string | null = null;
+    if (invoice.subscription) {
+      if (typeof invoice.subscription === 'string') {
+        subscriptionId = invoice.subscription;
+      } else if (typeof invoice.subscription === 'object' && 'id' in invoice.subscription) {
+        subscriptionId = invoice.subscription.id;
+      }
+    }
+
+    console.log('🔑 Subscription ID:', subscriptionId);
 
     if (subscriptionId) {
       const { data: license } = await supabase
