@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
   if (event.type === 'invoice.payment_succeeded') {
     console.log('🔄 Processing invoice.payment_succeeded');
     
-    const invoice = event.data.object;
+    const invoice = event.data.object as any;
     
     // Extract subscription ID - invoice.subscription can be string | Subscription | null
     let subscriptionId: string | null = null;
