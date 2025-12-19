@@ -24,6 +24,11 @@ function getStripeId(value: any): string | null {
   return null;
 }
 
+// Type for invoice with subscription property
+interface InvoiceWithSubscription extends Stripe.Invoice {
+  subscription?: string | Stripe.Subscription | null;
+}
+
 export async function POST(req: NextRequest) {
   console.log('🔔 Webhook endpoint hit');
   
@@ -138,17 +143,8 @@ export async function POST(req: NextRequest) {
   if (event.type === 'invoice.payment_succeeded') {
     console.log('🔄 Processing invoice.payment_succeeded');
     
-    const invoice = event.data.object as any;
-    
-    // Extract subscription ID - invoice.subscription can be string | Subscription | null
-    let subscriptionId: string | null = null;
-    if (invoice.subscription) {
-      if (typeof invoice.subscription === 'string') {
-        subscriptionId = invoice.subscription;
-      } else if (typeof invoice.subscription === 'object' && 'id' in invoice.subscription) {
-        subscriptionId = invoice.subscription.id;
-      }
-    }
+    const invoice = event.data.object as InvoiceWithSubscription;
+    const subscriptionId = getStripeId(invoice.subscription);
 
     console.log('🔑 Subscription ID:', subscriptionId);
 
