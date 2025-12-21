@@ -214,7 +214,6 @@ export default function ActivatePage() {
                 placeholder="XXXX-XXXX-XXXX-XXXX"
                 required
                 className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-5 text-center text-2xl font-bold tracking-widest text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all uppercase"
-                maxLength={19}
                 autoFocus
               />
               <p className="text-slate-500 text-sm mt-3 text-center">
