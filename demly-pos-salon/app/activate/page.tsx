@@ -133,18 +133,9 @@ export default function ActivatePage() {
 
       console.log('📋 Final result:', { found: !!license, license, fetchError });
 
-      // Check if license exists and is valid
-      const { data: license, error: fetchError } = await supabase
-        .from("licenses")
-        .select("*")
-        .eq("license_key", normalizedKey)
-        .single();
-
-      console.log('📋 License lookup result:', { license, fetchError });
-
-      if (fetchError || !license) {
-        console.error('❌ License not found after trying all formats:', fetchError);
-        setError(`Invalid license key. Please check and try again. (Tried: ${licenseKey.trim()})`);
+      if (!license) {
+        console.error('❌ License not found after trying all formats');
+        setError(`Invalid license key. Please check and try again.`);
         setLoading(false);
         return;
       }
