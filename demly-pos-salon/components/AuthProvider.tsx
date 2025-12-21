@@ -56,8 +56,23 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             .eq("status", "active")
             .single();
 
-          if (!license && pathname !== "/activate") {
+          if (!license) {
             router.push("/activate");
+            return;
+          }
+        }
+        
+        // If on activate page with valid license, redirect to dashboard
+        if (pathname === "/activate" && session) {
+          const { data: license } = await supabase
+            .from("licenses")
+            .select("status")
+            .eq("user_id", session.user.id)
+            .eq("status", "active")
+            .single();
+
+          if (license) {
+            router.push("/dashboard");
             return;
           }
         }
