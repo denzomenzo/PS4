@@ -56,85 +56,50 @@ export default function ActivatePage() {
         return;
       }
 
-      // First, let's see ALL available licenses for debugging
-      const { data: allLicenses } = await supabase
-        .from("licenses")
-        .select("license_key, user_id, status")
-        .limit(10);
+      // Normalize license key to uppercase
+      const normalizedKey = licenseKey.trim().toUpperCase();
       
-      console.log('📋 All licenses in database:', allLicenses);
+      console.log('🔍 Attempting to activate license:', normalizedKey);
+      console.log('👤 User ID:', session.user.id);
 
-      // Normalize license key - try multiple formats
-      const userInput = licenseKey.trim();
-      const upperInput = userInput.toUpperCase();
-      
-      console.log('🔍 User entered:', userInput);
-      console.log('🔍 Looking for (uppercase):', upperInput);
-      
-      // Simple direct query first
-      const { data: license, error: fetchError } = await supabase
-        .from("licenses")
-        .select("*")
-        .eq("license_key", upperInput)
-        .maybeSingle();
-      
-      console.log('📋 Query result:', { license, fetchError });
+      // Use RPC function to activate license (bypasses RLS)
+      const { data, error: rpcError } = await supabase
+        .rpc('activate_license', {
+          p_license_key: normalizedKey,
+          p_user_id: session.user.id
+        });
 
-      if (!license) {
-        console.error('❌ License not found');
-        console.log('💡 Available keys:', allLicenses?.map(l => l.license_key));
-        setError(`Invalid license key. Please check and try again. Available keys in DB: ${allLicenses?.length || 0}`);
+      console.log('📋 RPC result:', { data, rpcError });
+
+      if (rpcError) {
+        console.error('❌ RPC error:', rpcError);
+        
+        // Handle specific error cases
+        if (rpcError.message.includes('not found')) {
+          setError("Invalid license key. Please check and try again.");
+        } else if (rpcError.message.includes('already activated')) {
+          setError("This license key has already been activated.");
+        } else if (rpcError.message.includes('expired')) {
+          setError("This license has expired. Please contact support.");
+        } else if (rpcError.message.includes('not active')) {
+          setError("This license is not active. Please contact support.");
+        } else {
+          setError(`Activation failed: ${rpcError.message}`);
+        }
+        
         setLoading(false);
         return;
       }
 
-      console.log('✅ Found license:', license.license_key);
-
-      // Check if already activated by this user
-      if (license.user_id === session.user.id) {
-        console.log('✅ License already activated by this user, redirecting...');
-        router.push("/dashboard");
-        return;
-      }
-
-      // Check if activated by someone else
-      if (license.user_id && license.user_id !== session.user.id) {
-        setError("This license key has already been activated by another account.");
-        setLoading(false);
-        return;
-      }
-
-      if (license.status !== "active") {
-        setError("This license is not active. Please contact support.");
-        setLoading(false);
-        return;
-      }
-
-      // Check if license is expired
-      if (new Date(license.expires_at) < new Date()) {
-        setError("This license has expired. Please renew your subscription.");
-        setLoading(false);
-        return;
-      }
-
-      console.log('🔑 Activating license for user:', session.user.id);
-
-      // Activate the license by assigning it to the user
-      const { error: updateError } = await supabase
-        .from("licenses")
-        .update({ user_id: session.user.id })
-        .eq("license_key", license.license_key); // Use the exact key from DB
-
-      if (updateError) {
-        console.error('❌ Update error:', updateError);
-        setError("Failed to activate license. Please try again.");
+      if (!data || data === false) {
+        setError("Failed to activate license. Please try again or contact support.");
         setLoading(false);
         return;
       }
 
       console.log('✅ License activated successfully');
 
-      // Create settings entry with business name from license email or default
+      // Create settings entry
       const { error: settingsError } = await supabase
         .from("settings")
         .insert({
@@ -143,9 +108,8 @@ export default function ActivatePage() {
           vat_enabled: true,
         });
 
-      if (settingsError) {
+      if (settingsError && !settingsError.message.includes('duplicate')) {
         console.error("Settings creation error:", settingsError);
-        // Don't fail activation if settings creation fails
       }
 
       setSuccess(true);
