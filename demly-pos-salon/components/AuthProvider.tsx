@@ -1,3 +1,4 @@
+// components/AuthProvider.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -14,7 +15,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       try {
         const { data: { session } } = await supabase.auth.getSession();
         
-        // Public paths that anyone can access
+        // Public paths that anyone can access (logged in or not)
         const publicPaths = [
           "/", 
           "/login", 
@@ -26,6 +27,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           "/success"
         ];
         
+        // API routes should NEVER be redirected
+        if (pathname.startsWith("/api/")) {
+          setLoading(false);
+          return;
+        }
+        
         const isPublicPath = publicPaths.includes(pathname);
 
         // Allow access to public paths regardless of auth status
@@ -34,14 +41,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           return;
         }
 
-        // For protected routes, check if user is logged in
-        if (!session) {
-          router.push("/login");
-          return;
-        }
-
-        // If logged in and accessing dashboard routes, check license
+        // For protected routes (like /dashboard/*), check if user is logged in
         if (pathname.startsWith("/dashboard")) {
+          if (!session) {
+            router.push("/login");
+            return;
+          }
+
+          // Check license for dashboard access
           const { data: license } = await supabase
             .from("licenses")
             .select("status")
@@ -64,13 +71,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     checkSession();
 
-    // Listen for auth changes
+    // Listen for auth changes - but DON'T auto-redirect
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
-        router.push("/");
-      } else if (event === "SIGNED_IN") {
-        router.push("/dashboard");
+        // Only redirect to home if user was on a protected route
+        if (pathname.startsWith("/dashboard")) {
+          router.push("/");
+        }
       }
+      // REMOVED: Auto-redirect to dashboard on sign in
+      // Users should stay where they are or be manually redirected
     });
 
     return () => {
