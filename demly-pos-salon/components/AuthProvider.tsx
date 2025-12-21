@@ -23,7 +23,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           "/forgot-password", 
           "/reset-password", 
           "/pay", 
-          "/activate",
           "/success"
         ];
         
@@ -41,40 +40,58 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           return;
         }
 
-        // For protected routes (like /dashboard/*), check if user is logged in
+        // For all dashboard routes (protected)
         if (pathname.startsWith("/dashboard")) {
           if (!session) {
             router.push("/login");
             return;
           }
 
-          // Check license for dashboard access
-          const { data: license } = await supabase
-            .from("licenses")
-            .select("status")
-            .eq("user_id", session.user.id)
-            .eq("status", "active")
-            .single();
+          // Use RPC to check license (bypasses RLS)
+          const { data: hasLicense, error } = await supabase
+            .rpc('check_user_license', { p_user_id: session.user.id });
 
-          if (!license) {
+          console.log('🔍 License check result:', { hasLicense, error, pathname });
+
+          if (error) {
+            console.error('License check error:', error);
+            // On error, assume no license
             router.push("/activate");
             return;
           }
-        }
-        
-        // If on activate page with valid license, redirect to dashboard
-        if (pathname === "/activate" && session) {
-          const { data: license } = await supabase
-            .from("licenses")
-            .select("status")
-            .eq("user_id", session.user.id)
-            .eq("status", "active")
-            .single();
 
-          if (license) {
+          if (!hasLicense) {
+            router.push("/activate");
+            return;
+          }
+
+          // Has license, allow access
+          setLoading(false);
+          return;
+        }
+
+        // For /activate page
+        if (pathname === "/activate") {
+          if (!session) {
+            router.push("/login");
+            return;
+          }
+
+          // Use RPC to check if user already has license
+          const { data: hasLicense } = await supabase
+            .rpc('check_user_license', { p_user_id: session.user.id });
+
+          console.log('🔍 Activate page - license check:', { hasLicense });
+
+          if (hasLicense) {
+            // Already has license, go to dashboard
             router.push("/dashboard");
             return;
           }
+
+          // No license, stay on activate page
+          setLoading(false);
+          return;
         }
 
         setLoading(false);
@@ -86,16 +103,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     checkSession();
 
-    // Listen for auth changes - but DON'T auto-redirect
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔐 Auth state changed:', event);
+      
       if (event === "SIGNED_OUT") {
         // Only redirect to home if user was on a protected route
-        if (pathname.startsWith("/dashboard")) {
+        if (pathname.startsWith("/dashboard") || pathname === "/activate") {
           router.push("/");
         }
       }
-      // REMOVED: Auto-redirect to dashboard on sign in
-      // Users should stay where they are or be manually redirected
+      
+      if (event === "SIGNED_IN") {
+        // Don't auto-redirect, let the user flow naturally
+        checkSession();
+      }
     });
 
     return () => {
