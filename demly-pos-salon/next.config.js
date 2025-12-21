@@ -1,17 +1,20 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Disable automatic trailing slash redirects
+  // CRITICAL: Disable automatic trailing slash redirects
   skipTrailingSlashRedirect: true,
+  
+  // Don't add trailing slashes automatically
+  trailingSlash: false,
   
   async headers() {
     return [
       {
-        // Match webhook endpoint with or without trailing slash
-        source: '/api/webhooks/stripe/:path*',
+        // Apply to ALL routes
+        source: '/:path*',
         headers: [
           {
-            key: 'Cache-Control',
-            value: 'no-store, must-revalidate',
+            key: 'X-Frame-Options',
+            value: 'DENY',
           },
         ],
       },
