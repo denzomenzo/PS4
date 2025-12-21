@@ -1,167 +1,273 @@
+// app/activate/page.tsx
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
+import { Key, Loader2, CheckCircle, AlertCircle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
-export default function PaymentPage() {
-  const [email, setEmail] = useState("");
+export default function ActivatePage() {
+  const [licenseKey, setLicenseKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const router = useRouter();
 
-  const handleCheckout = async (e: React.FormEvent) => {
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      router.push("/login");
+      return;
+    }
+
+    setUserEmail(session.user.email || "");
+
+    // Check if already has active license
+    const { data: license } = await supabase
+      .from("licenses")
+      .select("status")
+      .eq("user_id", session.user.id)
+      .eq("status", "active")
+      .single();
+
+    if (license) {
+      router.push("/dashboard");
+    }
+  };
+
+  const handleActivate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setError("Failed to create checkout session");
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setError("Please log in first");
         setLoading(false);
+        return;
       }
-    } catch (err) {
-      setError("An error occurred");
+
+      // Normalize license key (remove spaces, uppercase)
+      const normalizedKey = licenseKey.trim().toUpperCase().replace(/\s+/g, '-');
+
+      // Check if license exists and is valid
+      const { data: license, error: fetchError } = await supabase
+        .from("licenses")
+        .select("*")
+        .eq("license_key", normalizedKey)
+        .single();
+
+      if (fetchError || !license) {
+        setError("Invalid license key. Please check and try again.");
+        setLoading(false);
+        return;
+      }
+
+      if (license.user_id) {
+        setError("This license key has already been activated.");
+        setLoading(false);
+        return;
+      }
+
+      if (license.status !== "active") {
+        setError("This license is not active. Please contact support.");
+        setLoading(false);
+        return;
+      }
+
+      // Check if license is expired
+      if (new Date(license.expires_at) < new Date()) {
+        setError("This license has expired. Please renew your subscription.");
+        setLoading(false);
+        return;
+      }
+
+      // Activate the license by assigning it to the user
+      const { error: updateError } = await supabase
+        .from("licenses")
+        .update({ user_id: session.user.id })
+        .eq("license_key", normalizedKey);
+
+      if (updateError) {
+        setError("Failed to activate license. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      // Create settings entry with business name from license email or default
+      const { error: settingsError } = await supabase
+        .from("settings")
+        .insert({
+          user_id: session.user.id,
+          business_name: "My Business",
+          vat_enabled: true,
+        });
+
+      if (settingsError) {
+        console.error("Settings creation error:", settingsError);
+        // Don't fail activation if settings creation fails
+      }
+
+      setSuccess(true);
+      setLoading(false);
+
+      // Redirect to dashboard after 2 seconds
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+
+    } catch (err: any) {
+      console.error("Activation error:", err);
+      setError(err.message || "An error occurred during activation");
       setLoading(false);
     }
   };
 
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-4">
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-12 max-w-md w-full border border-slate-800/50 text-center shadow-2xl">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-green-500 blur-3xl opacity-20 animate-pulse"></div>
+            <CheckCircle className="w-24 h-24 text-emerald-400 mx-auto relative z-10" />
+          </div>
+          
+          <h1 className="text-5xl font-black text-white mb-4">
+            License Activated!
+          </h1>
+          
+          <p className="text-xl text-slate-300 mb-8">
+            Your Demly POS account is now active
+          </p>
+
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 mb-6">
+            <p className="text-emerald-400 font-bold text-lg">
+              Redirecting to dashboard...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-4">
-      <div className="max-w-5xl w-full">
-        <div className="text-center mb-12">
-          <h1 className="text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400 mb-4">
-            Demly POS
-          </h1>
-          <p className="text-2xl text-white font-semibold">
-            Complete Business Management System
-          </p>
-          <p className="text-lg text-slate-400 mt-2">
-            Perfect for Salons, Barbers, Retailers, Service Businesses & More
-          </p>
+      <div className="w-full max-w-4xl">
+        
+        <div className="mb-8">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+            Back
+          </Link>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Features */}
-          <div className="bg-slate-800/30 backdrop-blur-xl rounded-3xl p-8 border border-slate-700/50 shadow-2xl">
-            <h2 className="text-3xl font-bold text-white mb-6">What's Included</h2>
-            <ul className="space-y-3">
-              {[
-                "Complete POS System",
-                "Customer Management",
-                "Appointment Booking",
-                "Sales Reports & Analytics",
-                "Staff/Team Management",
-                "Service & Pricing Control",
-                "Customer Display Screen",
-                "VAT/Tax Management",
-                "White-Label Customization",
-                "Unlimited Transactions",
-                "Unlimited Customers",
-                "Unlimited Staff",
-                "Works for ANY Business Type",
-                "Lifetime Updates",
-                "Email Support",
-              ].map((feature) => (
-                <li key={feature} className="flex items-center gap-3 text-slate-300">
-                  <Check className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 border border-slate-800/50 shadow-2xl">
+          
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20">
+              <Key className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-5xl font-black bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-4">
+              Activate Your License
+            </h1>
+            <p className="text-slate-400 text-lg">
+              Enter your license key to unlock Demly POS
+            </p>
           </div>
 
-          {/* Purchase */}
-          <div className="space-y-6">
-            <div className="bg-slate-800/30 backdrop-blur-xl rounded-3xl p-8 border border-slate-700/50 shadow-2xl">
-              <div className="text-center mb-6">
-                <p className="text-slate-400 text-lg mb-2">Lifetime Access</p>
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-6xl font-black text-white">£299</span>
-                  <span className="text-xl text-slate-400">one-time</span>
-                </div>
-                <p className="text-emerald-400 font-bold mt-2">Save £1,188/year vs monthly plans</p>
-              </div>
+          {/* Current User Info */}
+          <div className="bg-slate-800/30 rounded-xl p-4 mb-8 border border-slate-700/50">
+            <p className="text-slate-400 text-sm mb-1">Activating for:</p>
+            <p className="text-white font-bold text-lg">{userEmail}</p>
+          </div>
 
-              <form onSubmit={handleCheckout} className="space-y-4">
-                {error && (
-                  <div className="bg-red-500/20 backdrop-blur-lg border border-red-500/50 rounded-xl p-4 text-red-400">
-                    {error}
-                  </div>
-                )}
-
+          {/* Activation Form */}
+          <form onSubmit={handleActivate} className="space-y-6">
+            {error && (
+              <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 flex items-start gap-3 text-red-400">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                 <div>
-                  <label className="block text-white mb-2 text-sm font-semibold">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    required
-                    className="w-full bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 rounded-xl px-4 py-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  />
-                  <p className="text-slate-500 text-sm mt-2">
-                    Your license key will be sent to this email
-                  </p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl flex items-center justify-center gap-2 shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    "Purchase License - £299"
-                  )}
-                </button>
-              </form>
-
-              <div className="mt-6 space-y-3 text-sm text-slate-400">
-                <div className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Secure payment via Stripe</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Instant license delivery</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span>No monthly fees ever</span>
+                  <p className="font-bold mb-1">Activation Failed</p>
+                  <p className="text-sm">{error}</p>
                 </div>
               </div>
+            )}
+
+            <div>
+              <label className="block text-white mb-3 text-sm font-semibold">
+                License Key
+              </label>
+              <input
+                type="text"
+                value={licenseKey}
+                onChange={(e) => setLicenseKey(e.target.value)}
+                placeholder="XXXX-XXXX-XXXX-XXXX"
+                required
+                className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-5 text-center text-2xl font-bold tracking-widest text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all uppercase"
+                maxLength={19}
+                autoFocus
+              />
+              <p className="text-slate-500 text-sm mt-3 text-center">
+                Your license key was sent to your email after purchase
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || licenseKey.length < 10}
+              className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/20"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  Activating License...
+                </>
+              ) : (
+                <>
+                  <Key className="w-6 h-6" />
+                  Activate License
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Help Section */}
+          <div className="mt-8 pt-8 border-t border-slate-700/50 space-y-4">
+            <div className="bg-slate-800/30 rounded-xl p-6 border border-slate-700/50">
+              <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+                <span className="text-xl">💡</span>
+                Don't have a license key?
+              </h3>
+              <p className="text-slate-400 mb-4">
+                Purchase a license to unlock full access to Demly POS
+              </p>
+              <Link
+                href="/pay"
+                className="inline-block bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400 px-6 py-3 rounded-xl font-bold transition-all"
+              >
+                Purchase License
+              </Link>
             </div>
 
             <div className="text-center">
-              <p className="text-slate-400 mb-3">Already have an account?</p>
-              <Link
-                href="/login"
-                className="inline-block bg-slate-800/50 hover:bg-slate-700/50 px-6 py-3 rounded-xl transition-all font-bold text-white border border-slate-700/50 hover:border-slate-600/50"
-              >
-                Sign In
-              </Link>
+              <p className="text-slate-500 text-sm">
+                Having trouble? Check your spam folder or{" "}
+                <a href="mailto:support@demly.com" className="text-emerald-400 hover:text-emerald-300 font-semibold">
+                  contact support
+                </a>
+              </p>
             </div>
           </div>
-        </div>
-
-        <div className="mt-12 text-center text-slate-500 text-sm">
-          <p>Questions? Email us at support@demly.com</p>
         </div>
       </div>
     </div>
