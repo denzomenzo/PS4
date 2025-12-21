@@ -56,8 +56,82 @@ export default function ActivatePage() {
         return;
       }
 
-      // Normalize license key (remove spaces, uppercase)
-      const normalizedKey = licenseKey.trim().toUpperCase().replace(/\s+/g, '-');
+      // Normalize license key - try multiple formats
+      const userInput = licenseKey.trim();
+      const upperInput = userInput.toUpperCase();
+      const cleanedKey = upperInput.replace(/[\s-]/g, '');
+      
+      console.log('🔍 User entered:', userInput);
+      console.log('🔍 Uppercase:', upperInput);
+      console.log('🔍 Cleaned (no dashes):', cleanedKey);
+      
+      // Try multiple query attempts
+      let license = null;
+      let fetchError = null;
+      
+      // Attempt 1: Exact match as entered
+      console.log('Attempt 1: Exact match');
+      let result = await supabase
+        .from("licenses")
+        .select("*")
+        .eq("license_key", userInput)
+        .maybeSingle();
+      
+      if (result.data) {
+        license = result.data;
+        console.log('✅ Found with exact match');
+      }
+      
+      // Attempt 2: Uppercase
+      if (!license) {
+        console.log('Attempt 2: Uppercase');
+        result = await supabase
+          .from("licenses")
+          .select("*")
+          .eq("license_key", upperInput)
+          .maybeSingle();
+        
+        if (result.data) {
+          license = result.data;
+          console.log('✅ Found with uppercase');
+        }
+      }
+      
+      // Attempt 3: Try with standard XXXX-XXXX-XXXX-XXXX format (4 segments)
+      if (!license && cleanedKey.length >= 16) {
+        const segments = cleanedKey.match(/.{1,4}/g) || [];
+        const withDashes = segments.join('-');
+        console.log('Attempt 3: Standard 4-segment format:', withDashes);
+        result = await supabase
+          .from("licenses")
+          .select("*")
+          .eq("license_key", withDashes)
+          .maybeSingle();
+        
+        if (result.data) {
+          license = result.data;
+          console.log('✅ Found with 4-segment format');
+        }
+      }
+      
+      // Attempt 4: Search for any key containing the cleaned input (partial match)
+      if (!license) {
+        console.log('Attempt 4: Partial match search');
+        result = await supabase
+          .from("licenses")
+          .select("*")
+          .ilike("license_key", `%${cleanedKey}%`)
+          .maybeSingle();
+        
+        if (result.data) {
+          license = result.data;
+          console.log('✅ Found with partial match:', license.license_key);
+        }
+      }
+      
+      fetchError = result.error;
+
+      console.log('📋 Final result:', { found: !!license, license, fetchError });
 
       // Check if license exists and is valid
       const { data: license, error: fetchError } = await supabase
@@ -66,14 +140,27 @@ export default function ActivatePage() {
         .eq("license_key", normalizedKey)
         .single();
 
+      console.log('📋 License lookup result:', { license, fetchError });
+
       if (fetchError || !license) {
-        setError("Invalid license key. Please check and try again.");
+        console.error('❌ License not found after trying all formats:', fetchError);
+        setError(`Invalid license key. Please check and try again. (Tried: ${licenseKey.trim()})`);
         setLoading(false);
         return;
       }
 
-      if (license.user_id) {
-        setError("This license key has already been activated.");
+      console.log('✅ Found license:', license.license_key);
+
+      // Check if already activated by this user
+      if (license.user_id === session.user.id) {
+        console.log('✅ License already activated by this user, redirecting...');
+        router.push("/dashboard");
+        return;
+      }
+
+      // Check if activated by someone else
+      if (license.user_id && license.user_id !== session.user.id) {
+        setError("This license key has already been activated by another account.");
         setLoading(false);
         return;
       }
@@ -91,17 +178,22 @@ export default function ActivatePage() {
         return;
       }
 
+      console.log('🔑 Activating license for user:', session.user.id);
+
       // Activate the license by assigning it to the user
       const { error: updateError } = await supabase
         .from("licenses")
         .update({ user_id: session.user.id })
-        .eq("license_key", normalizedKey);
+        .eq("license_key", license.license_key); // Use the exact key from DB
 
       if (updateError) {
+        console.error('❌ Update error:', updateError);
         setError("Failed to activate license. Please try again.");
         setLoading(false);
         return;
       }
+
+      console.log('✅ License activated successfully');
 
       // Create settings entry with business name from license email or default
       const { error: settingsError } = await supabase
