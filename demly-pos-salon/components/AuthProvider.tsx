@@ -65,7 +65,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             return;
           }
 
-          // Has license, allow access
+          // Has license, allow access to any /dashboard/* page
           setLoading(false);
           return;
         }
@@ -84,7 +84,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           console.log('🔍 Activate page - license check:', { hasLicense });
 
           if (hasLicense) {
-            // Already has license, go to dashboard
+            // Already has license, redirect to /dashboard (the home page)
+            console.log('✅ User has license, redirecting to /dashboard');
             router.push("/dashboard");
             return;
           }
