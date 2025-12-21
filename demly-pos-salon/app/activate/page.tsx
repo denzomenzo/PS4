@@ -115,10 +115,10 @@ export default function ActivatePage() {
       setSuccess(true);
       setLoading(false);
 
-      // Redirect to dashboard after 2 seconds
+      // Redirect to dashboard after 1.5 seconds with hard navigation
       setTimeout(() => {
-        router.push("/dashboard");
-      }, 2000);
+        window.location.href = "/dashboard";
+      }, 1500);
 
     } catch (err: any) {
       console.error("Activation error:", err);
