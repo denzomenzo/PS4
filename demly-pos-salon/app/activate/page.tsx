@@ -56,86 +56,34 @@ export default function ActivatePage() {
         return;
       }
 
+      // First, let's see ALL available licenses for debugging
+      const { data: allLicenses } = await supabase
+        .from("licenses")
+        .select("license_key, user_id, status")
+        .limit(10);
+      
+      console.log('📋 All licenses in database:', allLicenses);
+
       // Normalize license key - try multiple formats
       const userInput = licenseKey.trim();
       const upperInput = userInput.toUpperCase();
-      const cleanedKey = upperInput.replace(/[\s-]/g, '');
       
       console.log('🔍 User entered:', userInput);
-      console.log('🔍 Uppercase:', upperInput);
-      console.log('🔍 Cleaned (no dashes):', cleanedKey);
+      console.log('🔍 Looking for (uppercase):', upperInput);
       
-      // Try multiple query attempts
-      let license = null;
-      let fetchError = null;
-      
-      // Attempt 1: Exact match as entered
-      console.log('Attempt 1: Exact match');
-      let result = await supabase
+      // Simple direct query first
+      const { data: license, error: fetchError } = await supabase
         .from("licenses")
         .select("*")
-        .eq("license_key", userInput)
+        .eq("license_key", upperInput)
         .maybeSingle();
       
-      if (result.data) {
-        license = result.data;
-        console.log('✅ Found with exact match');
-      }
-      
-      // Attempt 2: Uppercase
-      if (!license) {
-        console.log('Attempt 2: Uppercase');
-        result = await supabase
-          .from("licenses")
-          .select("*")
-          .eq("license_key", upperInput)
-          .maybeSingle();
-        
-        if (result.data) {
-          license = result.data;
-          console.log('✅ Found with uppercase');
-        }
-      }
-      
-      // Attempt 3: Try with standard XXXX-XXXX-XXXX-XXXX format (4 segments)
-      if (!license && cleanedKey.length >= 16) {
-        const segments = cleanedKey.match(/.{1,4}/g) || [];
-        const withDashes = segments.join('-');
-        console.log('Attempt 3: Standard 4-segment format:', withDashes);
-        result = await supabase
-          .from("licenses")
-          .select("*")
-          .eq("license_key", withDashes)
-          .maybeSingle();
-        
-        if (result.data) {
-          license = result.data;
-          console.log('✅ Found with 4-segment format');
-        }
-      }
-      
-      // Attempt 4: Search for any key containing the cleaned input (partial match)
-      if (!license) {
-        console.log('Attempt 4: Partial match search');
-        result = await supabase
-          .from("licenses")
-          .select("*")
-          .ilike("license_key", `%${cleanedKey}%`)
-          .maybeSingle();
-        
-        if (result.data) {
-          license = result.data;
-          console.log('✅ Found with partial match:', license.license_key);
-        }
-      }
-      
-      fetchError = result.error;
-
-      console.log('📋 Final result:', { found: !!license, license, fetchError });
+      console.log('📋 Query result:', { license, fetchError });
 
       if (!license) {
-        console.error('❌ License not found after trying all formats');
-        setError(`Invalid license key. Please check and try again.`);
+        console.error('❌ License not found');
+        console.log('💡 Available keys:', allLicenses?.map(l => l.license_key));
+        setError(`Invalid license key. Please check and try again. Available keys in DB: ${allLicenses?.length || 0}`);
         setLoading(false);
         return;
       }
