@@ -36,36 +36,12 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (userId) {
-      checkAuth();
+      loadData();
     }
   }, [userId]);
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      router.push("/login");
-      return;
-    }
-
-    // Check license
-    const { data: license } = await supabase
-      .from("licenses")
-      .select("status")
-      .eq("user_id", session.user.id)
-      .eq("status", "active")
-      .single();
-
-    if (!license) {
-      router.push("/activate");
-      return;
-    }
-
-    loadBusinessName();
-    setLoading(false);
-  };
-
-  const loadBusinessName = async () => {
+  const loadData = async () => {
+    // Load business name
     const { data } = await supabase
       .from("settings")
       .select("business_name")
@@ -75,6 +51,8 @@ export default function DashboardLayout({
     if (data?.business_name) {
       setBusinessName(data.business_name);
     }
+    
+    setLoading(false);
   };
 
   const handleLogout = async () => {
@@ -86,7 +64,7 @@ export default function DashboardLayout({
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
         <div className="text-center">
-          <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
+          <Loader2 className="w-16 h-16 animate-spin text-emerald-400 mx-auto mb-4" />
           <p className="text-xl text-slate-400">Loading...</p>
         </div>
       </div>
@@ -99,7 +77,7 @@ export default function DashboardLayout({
       <aside className="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col shadow-2xl">
         
         <div className="p-6 border-b border-slate-800/50">
-          <div className="bg-gradient-to-r from-cyan-500 to-emerald-500 bg-clip-text text-transparent">
+          <div className="bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent">
             <h1 className="text-4xl font-black tracking-tight">
               {businessName}
             </h1>
@@ -116,11 +94,11 @@ export default function DashboardLayout({
                 href={item.href}
                 className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-semibold group ${
                   isActive
-                    ? "bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 text-white border border-cyan-500/30 shadow-lg shadow-cyan-500/10"
+                    ? "bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-white border border-emerald-500/30 shadow-lg shadow-emerald-500/10"
                     : "text-slate-400 hover:text-white hover:bg-slate-800/50 hover:border hover:border-slate-700/50"
                 }`}
               >
-                <item.icon className={`w-5 h-5 ${isActive ? "text-cyan-400" : "text-slate-500 group-hover:text-cyan-400"} transition-colors`} />
+                <item.icon className={`w-5 h-5 ${isActive ? "text-emerald-400" : "text-slate-500 group-hover:text-emerald-400"} transition-colors`} />
                 <span className="text-base">{item.name}</span>
               </Link>
             );
