@@ -1,5 +1,6 @@
+// lib/settingsAuth.ts - FIXED WITH PROPER IMPORTS
 import { supabase } from "./supabaseClient";
-import crypto from "crypto";
+import { logAuditAction } from "./auditLogger"; // ← ADDED THIS IMPORT
 
 export async function requestSettingsAccess(email: string): Promise<{ success: boolean; error?: string }> {
   try {
@@ -18,8 +19,8 @@ export async function requestSettingsAccess(email: string): Promise<{ success: b
       return { success: false, error: "Email doesn't match license holder" };
     }
 
-    // Generate access token
-    const accessToken = crypto.randomBytes(32).toString("hex");
+    // Generate access token and verification code
+    const accessToken = generateRandomToken();
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     // Store in database
@@ -42,8 +43,10 @@ export async function requestSettingsAccess(email: string): Promise<{ success: b
     });
 
     // Store verification code temporarily (in production, use Redis or similar)
-    sessionStorage.setItem(`settings_verification_${accessToken}`, verificationCode);
-    sessionStorage.setItem("settings_access_token", accessToken);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(`settings_verification_${accessToken}`, verificationCode);
+      sessionStorage.setItem("settings_access_token", accessToken);
+    }
 
     return { success: true };
   } catch (error: any) {
@@ -53,6 +56,10 @@ export async function requestSettingsAccess(email: string): Promise<{ success: b
 
 export async function verifySettingsAccess(code: string): Promise<{ success: boolean; error?: string }> {
   try {
+    if (typeof sessionStorage === 'undefined') {
+      return { success: false, error: "Session storage not available" };
+    }
+
     const accessToken = sessionStorage.getItem("settings_access_token");
     if (!accessToken) {
       return { success: false, error: "No access request found" };
@@ -76,10 +83,12 @@ export async function verifySettingsAccess(code: string): Promise<{ success: boo
     }
 
     // Store in localStorage with expiration
-    localStorage.setItem("settings_access", JSON.stringify({
-      token: accessToken,
-      expiresAt: access.expires_at,
-    }));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem("settings_access", JSON.stringify({
+        token: accessToken,
+        expiresAt: access.expires_at,
+      }));
+    }
 
     // Log the access
     await logAuditAction({
@@ -93,6 +102,8 @@ export async function verifySettingsAccess(code: string): Promise<{ success: boo
 }
 
 export function hasSettingsAccess(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  
   try {
     const stored = localStorage.getItem("settings_access");
     if (!stored) return false;
@@ -105,6 +116,24 @@ export function hasSettingsAccess(): boolean {
 }
 
 export function clearSettingsAccess() {
-  localStorage.removeItem("settings_access");
-  sessionStorage.removeItem("settings_access_token");
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem("settings_access");
+  }
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem("settings_access_token");
+  }
+}
+
+// Helper function to generate random token (since crypto is not available in all environments)
+function generateRandomToken(): string {
+  const array = new Uint8Array(32);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(array);
+  } else {
+    // Fallback for environments without crypto
+    for (let i = 0; i < array.length; i++) {
+      array[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
