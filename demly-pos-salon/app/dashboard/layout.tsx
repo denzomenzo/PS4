@@ -9,7 +9,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check
 } from "lucide-react";
 
 const navigation = [
@@ -33,13 +33,15 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const userId = useUserId();
-  const { staff, loading: authLoading, logout, hasPermission } = useStaffAuth();
+  const { staff, loading: authLoading, login, logout, hasPermission } = useStaffAuth();
   
   const [businessName, setBusinessName] = useState("Demly POS");
   const [loading, setLoading] = useState(true);
   const [showPinModal, setShowPinModal] = useState(false);
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
+  const [staffList, setStaffList] = useState<Array<{ id: number; name: string; role: string }>>([]);
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -58,6 +60,7 @@ export default function DashboardLayout({
   };
 
   const loadData = async () => {
+    // Load business name
     const { data } = await supabase
       .from("settings")
       .select("business_name, shop_name")
@@ -69,17 +72,33 @@ export default function DashboardLayout({
     } else if (data?.shop_name) {
       setBusinessName(data.shop_name);
     }
+
+    // Load staff list for selection
+    const { data: staffData } = await supabase
+      .from("staff")
+      .select("id, name, role")
+      .eq("user_id", userId)
+      .order("name");
+    
+    if (staffData) {
+      setStaffList(staffData);
+    }
     
     setLoading(false);
   };
 
   const handlePinSubmit = async () => {
+    if (!selectedStaffId) {
+      setPinError("Please select a staff member");
+      return;
+    }
+
     if (pinInput.length < 4) {
       setPinError("PIN must be at least 4 digits");
       return;
     }
 
-    const result = await useStaffAuth().login(pinInput);
+    const result = await login(pinInput);
     
     if (!result.success) {
       setPinError(result.error || "Invalid PIN");
@@ -87,9 +106,18 @@ export default function DashboardLayout({
       return;
     }
 
+    // Verify the logged-in staff matches selected staff
+    if (result.staff && result.staff.id !== selectedStaffId) {
+      setPinError("PIN doesn't match selected staff member");
+      setPinInput("");
+      await logout();
+      return;
+    }
+
     setShowPinModal(false);
     setPinError("");
     setPinInput("");
+    setSelectedStaffId(null);
   };
 
   const handleLogout = async () => {
@@ -122,7 +150,7 @@ export default function DashboardLayout({
             <h1 className="text-4xl font-black bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-2">
               Staff Login
             </h1>
-            <p className="text-slate-400 text-lg">Enter your PIN to access the system</p>
+            <p className="text-slate-400 text-lg">Select your name and enter your PIN</p>
           </div>
 
           {pinError && (
@@ -131,30 +159,80 @@ export default function DashboardLayout({
             </div>
           )}
 
-          <div className="mb-6">
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={pinInput}
-              onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, "");
-                setPinInput(value);
-                setPinError("");
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
-              placeholder="••••"
-              className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-6 text-center text-4xl font-bold tracking-widest text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-              autoFocus
-            />
+          <div className="space-y-6">
+            {/* Staff Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-3">
+                Select Staff Member
+              </label>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {staffList.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <p className="mb-2">No staff members found</p>
+                    <p className="text-sm">Please create staff in Settings first</p>
+                  </div>
+                ) : (
+                  staffList.map((staffMember) => (
+                    <button
+                      key={staffMember.id}
+                      onClick={() => {
+                        setSelectedStaffId(staffMember.id);
+                        setPinError("");
+                      }}
+                      className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
+                        selectedStaffId === staffMember.id
+                          ? "bg-emerald-500/20 border-emerald-500 shadow-lg shadow-emerald-500/20"
+                          : "bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-white text-lg">{staffMember.name}</p>
+                          <p className="text-xs text-slate-400 capitalize">{staffMember.role}</p>
+                        </div>
+                        {selectedStaffId === staffMember.id && (
+                          <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* PIN Input */}
+            {selectedStaffId && (
+              <div style={{ animation: "fadeIn 0.3s ease-in" }}>
+                <label className="block text-sm font-medium text-slate-300 mb-3">
+                  Enter PIN for {staffList.find(s => s.id === selectedStaffId)?.name}
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={pinInput}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, "");
+                    setPinInput(value);
+                    setPinError("");
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
+                  placeholder="••••"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-5 text-center text-3xl font-bold tracking-widest text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  autoFocus
+                />
+              </div>
+            )}
           </div>
 
           <button
             onClick={handlePinSubmit}
-            disabled={pinInput.length < 4}
-            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
+            disabled={!selectedStaffId || pinInput.length < 4}
+            className="w-full mt-8 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-5 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
           >
-            Login
+            Login to POS
           </button>
         </div>
       </div>
