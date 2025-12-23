@@ -1,11 +1,13 @@
-// COMPLETE FIXED components/POS.tsx - Copy this ENTIRE file
+// components/POS.tsx - UPDATED TO USE LAYOUT AUTH
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
-import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X, Lock, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { logAuditAction } from "@/lib/auditLogger";
+import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X, Settings as SettingsIcon } from "lucide-react";
 import Link from "next/link";
 
 interface Product {
@@ -19,13 +21,6 @@ interface Product {
   stock_quantity: number;
   category?: string | null;
   image_url?: string | null;
-}
-
-interface Staff {
-  id: number;
-  name: string;
-  pin: string;
-  role: "staff" | "manager";
 }
 
 interface Customer {
@@ -43,30 +38,23 @@ interface Transaction {
   id: string;
   name: string;
   cart: CartItem[];
-  staffId: string;
   customerId: string;
   createdAt: number;
 }
 
 export default function POS() {
   const userId = useUserId();
+  const { staff: currentStaff, hasPermission } = useStaffAuth();
+  
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentStaff, setCurrentStaff] = useState<Staff | null>(null);
-  const [showPinModal, setShowPinModal] = useState(true);
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState("");
   
   const [transactions, setTransactions] = useState<Transaction[]>([
     {
       id: "1",
       name: "Transaction 1",
       cart: [],
-      staffId: "",
       customerId: "",
       createdAt: Date.now()
     }
@@ -82,7 +70,6 @@ export default function POS() {
 
   const activeTransaction = transactions.find(t => t.id === activeTransactionId);
   const cart = activeTransaction?.cart || [];
-  const staffId = activeTransaction?.staffId || "";
   const customerId = activeTransaction?.customerId || "";
 
   const setCart = (newCart: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
@@ -93,12 +80,6 @@ export default function POS() {
     ));
   };
 
-  const setStaffId = (id: string) => {
-    setTransactions(prev => prev.map(t => 
-      t.id === activeTransactionId ? { ...t, staffId: id } : t
-    ));
-  };
-
   const setCustomerId = (id: string) => {
     setTransactions(prev => prev.map(t => 
       t.id === activeTransactionId ? { ...t, customerId: id } : t
@@ -106,20 +87,21 @@ export default function POS() {
   };
 
   const handleBarcodeScan = useCallback((barcode: string) => {
-    if (!isAuthenticated) return;
     const product = products.find((p) => p.barcode === barcode || p.sku === barcode);
     if (product) addToCart(product);
-  }, [products, isAuthenticated]);
+  }, [products]);
 
   const { isScanning } = useBarcodeScanner({
-    enabled: isAuthenticated && hardwareSettings?.barcode_scanner_enabled !== false,
+    enabled: hardwareSettings?.barcode_scanner_enabled !== false,
     onScan: handleBarcodeScan,
     playSoundOnScan: hardwareSettings?.scanner_sound_enabled !== false,
   });
 
   useEffect(() => {
-    if (userId) loadData();
-  }, [userId]);
+    if (userId && currentStaff) {
+      loadData();
+    }
+  }, [userId, currentStaff]);
 
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const vat = vatEnabled ? total * 0.2 : 0;
@@ -127,7 +109,7 @@ export default function POS() {
 
   // Broadcast cart updates to customer display
   useEffect(() => {
-    if (!isAuthenticated || !hardwareSettings?.customer_display_enabled) return;
+    if (!hardwareSettings?.customer_display_enabled) return;
     
     const channelName = hardwareSettings.display_sync_channel || 'customer-display';
     const channel = supabase.channel(channelName);
@@ -152,10 +134,10 @@ export default function POS() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [cart, total, vat, grandTotal, activeTransactionId, activeTransaction, isAuthenticated, hardwareSettings]);
+  }, [cart, total, vat, grandTotal, activeTransactionId, activeTransaction, hardwareSettings]);
 
   useEffect(() => {
-    if (searchQuery.trim() && isAuthenticated) {
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       setFilteredProducts(
         products.filter((p) =>
@@ -167,7 +149,7 @@ export default function POS() {
     } else {
       setFilteredProducts(products);
     }
-  }, [searchQuery, products, isAuthenticated]);
+  }, [searchQuery, products]);
 
   const loadData = async () => {
     setLoading(true);
@@ -201,14 +183,6 @@ export default function POS() {
       setFilteredProducts(productsData);
     }
 
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
-    
-    if (staffData) setStaff(staffData);
-
     const { data: customersData } = await supabase
       .from("customers")
       .select("*")
@@ -220,47 +194,7 @@ export default function POS() {
     setLoading(false);
   };
 
-  const handlePinSubmit = () => {
-    if (pinInput.length !== 4) {
-      setPinError("PIN must be 4 digits");
-      return;
-    }
-
-    const staffMember = staff.find(s => s.pin === pinInput);
-    
-    if (!staffMember) {
-      setPinError("Invalid PIN. Please try again.");
-      setPinInput("");
-      return;
-    }
-
-    setCurrentStaff(staffMember);
-    setIsAuthenticated(true);
-    setShowPinModal(false);
-    setPinError("");
-    setPinInput("");
-    setStaffId(staffMember.id.toString());
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentStaff(null);
-    setShowPinModal(true);
-    setPinInput("");
-    setTransactions([{
-      id: "1",
-      name: "Transaction 1",
-      cart: [],
-      staffId: "",
-      customerId: "",
-      createdAt: Date.now()
-    }]);
-    setActiveTransactionId("1");
-  };
-
   const addToCart = (product: Product) => {
-    if (!isAuthenticated) return;
-    
     if (product.track_inventory && product.stock_quantity <= 0) {
       alert(`${product.name} is out of stock`);
       return;
@@ -305,7 +239,6 @@ export default function POS() {
       id: newId,
       name: `Transaction ${newId}`,
       cart: [],
-      staffId: currentStaff?.id.toString() || "",
       customerId: "",
       createdAt: Date.now()
     };
@@ -358,6 +291,7 @@ export default function POS() {
 
       if (transactionError) throw transactionError;
 
+      // Update stock
       const stockUpdates = cart
         .filter(item => item.track_inventory)
         .map(item => ({
@@ -366,24 +300,35 @@ export default function POS() {
         }));
 
       for (const update of stockUpdates) {
-        const { error: stockError } = await supabase
+        await supabase
           .from("products")
           .update({ stock_quantity: update.newStock })
           .eq("id", update.id);
-
-        if (stockError) {
-          console.error(`Failed to update stock for product ${update.id}:`, stockError);
-        }
       }
+
+      // Log the transaction
+      await logAuditAction({
+        action: "TRANSACTION_COMPLETED",
+        entityType: "transaction",
+        entityId: transaction.id.toString(),
+        newValues: {
+          total: grandTotal,
+          items: cart.length,
+          customer_id: customerId,
+        },
+        staffId: currentStaff?.id,
+      });
 
       alert(`✅ £${grandTotal.toFixed(2)} charged successfully!`);
       
+      // Clear cart
       setTransactions(prev => prev.map(t => 
         t.id === activeTransactionId 
           ? { ...t, cart: [], customerId: "" }
           : t
       ));
       
+      // Clear display
       if (hardwareSettings?.customer_display_enabled) {
         const channel = supabase.channel(hardwareSettings.display_sync_channel || 'customer-display');
         await channel.send({
@@ -411,7 +356,7 @@ export default function POS() {
     }
   };
 
-  if (!userId) return null;
+  if (!userId || !currentStaff) return null;
 
   if (loading) {
     return (
@@ -424,104 +369,10 @@ export default function POS() {
     );
   }
 
-  if (showPinModal || !isAuthenticated) {
-    return (
-      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-6">
-        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 shadow-2xl">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20">
-              <Lock className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-4xl font-black bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-2">
-              Staff Login
-            </h1>
-            <p className="text-slate-400 text-lg">Enter your 4-digit PIN to access POS</p>
-          </div>
-
-          {pinError && (
-            <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-400 mb-6 text-center">
-              {pinError}
-            </div>
-          )}
-
-          <div className="mb-6">
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              value={pinInput}
-              onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, "");
-                setPinInput(value);
-                setPinError("");
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
-              placeholder="••••"
-              className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-6 text-center text-4xl font-bold tracking-widest text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-              autoFocus
-            />
-            <p className="text-center text-slate-500 text-sm mt-3">
-              {staff.length === 0 ? "No staff members found. Please create staff in Settings." : `${staff.length} staff member${staff.length !== 1 ? 's' : ''} available`}
-            </p>
-          </div>
-
-          <button
-            onClick={handlePinSubmit}
-            disabled={pinInput.length !== 4}
-            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
-          >
-            Enter POS
-          </button>
-
-          <div className="mt-6 pt-6 border-t border-slate-700/50">
-            <Link
-              href="/dashboard/settings"
-              className="block text-center text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors"
-            >
-              <SettingsIcon className="w-4 h-4 inline mr-2" />
-              Need to manage staff & PINs? Go to Settings
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen flex bg-gradient-to-br from-slate-950 via-slate-900 to-black">
       <div className="flex-1 flex flex-col p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 rounded-xl px-6 py-3">
-              <p className="text-sm text-slate-400">Logged in as</p>
-              <div className="flex items-center gap-2">
-                <p className="text-lg font-bold text-white">{currentStaff?.name}</p>
-                {currentStaff?.role === "manager" && (
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/30">
-                    MANAGER
-                  </span>
-                )}
-              </div>
-            </div>
-            {currentStaff?.role === "manager" && (
-              <Link
-                href="/dashboard"
-                className="bg-slate-900/50 hover:bg-slate-800/50 backdrop-blur-xl border border-slate-800/50 hover:border-emerald-500/50 rounded-xl px-6 py-3 transition-all flex items-center gap-2"
-              >
-                <SettingsIcon className="w-5 h-5 text-emerald-400" />
-                <span className="font-semibold text-white">Dashboard</span>
-              </Link>
-            )}
-          </div>
-          <button
-            onClick={handleLogout}
-            className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/50 text-red-400 px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2"
-          >
-            <LogOut className="w-5 h-5" />
-            Logout
-          </button>
-        </div>
-
+        
         <div className="mb-6">
           <div className="relative">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
