@@ -1,3 +1,4 @@
+// app/dashboard/layout.tsx - UPDATED WITH PERSISTENT AUTH
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,22 +6,23 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock
 } from "lucide-react";
 
 const navigation = [
-  { name: "POS", href: "/dashboard", icon: Home },
-  { name: "Customers", href: "/dashboard/customers", icon: Users },
-  { name: "Appointments", href: "/dashboard/appointments", icon: Calendar },
-  { name: "Inventory", href: "/dashboard/inventory", icon: Package },
-  { name: "Returns", href: "/dashboard/returns", icon: RotateCcw },
-  { name: "Reports", href: "/dashboard/reports", icon: TrendingUp },
-  { name: "Display", href: "/dashboard/display", icon: Monitor },
-  { name: "Settings", href: "/dashboard/settings", icon: Settings },
-  { name: "Hardware", href: "/dashboard/hardware", icon: Printer },
-  { name: "Card Terminal", href: "/dashboard/card-terminal", icon: CreditCard },
+  { name: "POS", href: "/dashboard", icon: Home, permission: "pos" as const },
+  { name: "Customers", href: "/dashboard/customers", icon: Users, permission: "pos" as const },
+  { name: "Appointments", href: "/dashboard/appointments", icon: Calendar, permission: "pos" as const },
+  { name: "Inventory", href: "/dashboard/inventory", icon: Package, permission: "inventory" as const },
+  { name: "Returns", href: "/dashboard/returns", icon: RotateCcw, permission: "pos" as const },
+  { name: "Reports", href: "/dashboard/reports", icon: TrendingUp, permission: "reports" as const },
+  { name: "Display", href: "/dashboard/display", icon: Monitor, permission: "pos" as const },
+  { name: "Settings", href: "/dashboard/settings", icon: Settings, ownerOnly: true },
+  { name: "Hardware", href: "/dashboard/hardware", icon: Printer, permission: "reports" as const },
+  { name: "Card Terminal", href: "/dashboard/card-terminal", icon: CreditCard, permission: "reports" as const },
 ];
 
 export default function DashboardLayout({
@@ -31,41 +33,129 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const userId = useUserId();
+  const { staff, loading: authLoading, logout, hasPermission } = useStaffAuth();
+  
   const [businessName, setBusinessName] = useState("Demly POS");
   const [loading, setLoading] = useState(true);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
 
   useEffect(() => {
-    if (userId) {
+    if (userId && !authLoading) {
       loadData();
+      checkAuthRequired();
     }
-  }, [userId]);
+  }, [userId, authLoading, pathname]);
+
+  const checkAuthRequired = () => {
+    // Check if we need to show PIN modal for this route
+    if (!staff && pathname !== "/dashboard/display") {
+      setShowPinModal(true);
+    } else {
+      setShowPinModal(false);
+    }
+  };
 
   const loadData = async () => {
-    // Load business name
     const { data } = await supabase
       .from("settings")
-      .select("business_name")
+      .select("business_name, shop_name")
       .eq("user_id", userId)
       .single();
     
     if (data?.business_name) {
       setBusinessName(data.business_name);
+    } else if (data?.shop_name) {
+      setBusinessName(data.shop_name);
     }
     
     setLoading(false);
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+  const handlePinSubmit = async () => {
+    if (pinInput.length < 4) {
+      setPinError("PIN must be at least 4 digits");
+      return;
+    }
+
+    const result = await useStaffAuth().login(pinInput);
+    
+    if (!result.success) {
+      setPinError(result.error || "Invalid PIN");
+      setPinInput("");
+      return;
+    }
+
+    setShowPinModal(false);
+    setPinError("");
+    setPinInput("");
   };
 
-  if (loading) {
+  const handleLogout = async () => {
+    if (confirm("Are you sure you want to logout?")) {
+      await logout();
+      setShowPinModal(true);
+    }
+  };
+
+  if (authLoading || loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-emerald-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Loading...</p>
+          <p className="text-white text-xl font-semibold">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show PIN modal if not authenticated (except for display page)
+  if (showPinModal && pathname !== "/dashboard/display") {
+    return (
+      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-6">
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20">
+              <Lock className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-4xl font-black bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent mb-2">
+              Staff Login
+            </h1>
+            <p className="text-slate-400 text-lg">Enter your PIN to access the system</p>
+          </div>
+
+          {pinError && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-400 mb-6 text-center">
+              {pinError}
+            </div>
+          )}
+
+          <div className="mb-6">
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={pinInput}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, "");
+                setPinInput(value);
+                setPinError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
+              placeholder="••••"
+              className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-6 py-6 text-center text-4xl font-bold tracking-widest text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              autoFocus
+            />
+          </div>
+
+          <button
+            onClick={handlePinSubmit}
+            disabled={pinInput.length < 4}
+            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-6 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
+          >
+            Login
+          </button>
         </div>
       </div>
     );
@@ -83,11 +173,44 @@ export default function DashboardLayout({
             </h1>
           </div>
           <p className="text-slate-400 text-sm mt-2 font-medium">Point of Sale System</p>
+          
+          {/* Staff Info */}
+          {staff && (
+            <div className="mt-4 bg-slate-800/50 rounded-xl p-3">
+              <p className="text-xs text-slate-500">Logged in as</p>
+              <p className="text-sm font-bold text-white flex items-center gap-2">
+                {staff.name}
+                {staff.role === "owner" && (
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full border border-emerald-500/30">
+                    OWNER
+                  </span>
+                )}
+                {staff.role === "manager" && (
+                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full border border-blue-500/30">
+                    MANAGER
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navigation.map((item) => {
             const isActive = pathname === item.href;
+            
+            // Check permissions
+            let hasAccess = true;
+            if (staff) {
+              if (item.ownerOnly) {
+                hasAccess = staff.role === "owner";
+              } else if (item.permission) {
+                hasAccess = hasPermission(item.permission);
+              }
+            }
+
+            if (!hasAccess) return null;
+
             return (
               <Link
                 key={item.name}
