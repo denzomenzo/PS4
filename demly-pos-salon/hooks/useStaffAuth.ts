@@ -1,9 +1,9 @@
-// hooks/useStaffAuth.ts - UPDATED VERSION
+// hooks/useStaffAuth.ts - Complete Implementation
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { logAuditAction } from "@/lib/auditLogger";
+import { logLogin, logLogout } from "@/lib/auditLogger";
 
-interface Staff {
+export interface Staff {
   id: number;
   name: string;
   email: string | null;
@@ -48,6 +48,11 @@ export function useStaffAuth() {
 
   const loadStaffFromStorage = () => {
     try {
+      if (typeof localStorage === 'undefined') {
+        setLoading(false);
+        return;
+      }
+
       const stored = localStorage.getItem("authenticated_staff");
       if (stored) {
         const data = JSON.parse(stored);
@@ -103,19 +108,18 @@ export function useStaffAuth() {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 8); // 8 hour session
 
-      localStorage.setItem("authenticated_staff", JSON.stringify({
-        staff: staffMember,
-        expiresAt: expiresAt.toISOString(),
-      }));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem("authenticated_staff", JSON.stringify({
+          staff: staffMember,
+          expiresAt: expiresAt.toISOString(),
+        }));
+      }
 
       // Update global state
       notifyListeners(staffMember);
 
       // Log the login
-      await logAuditAction({
-        action: "STAFF_LOGIN",
-        staffId: staffMember.id,
-      });
+      await logLogin(staffMember.id);
 
       return { success: true, staff: staffMember };
     } catch (error: any) {
@@ -126,12 +130,13 @@ export function useStaffAuth() {
 
   const logout = async () => {
     if (staff) {
-      await logAuditAction({
-        action: "STAFF_LOGOUT",
-        staffId: staff.id,
-      });
+      await logLogout(staff.id);
     }
-    localStorage.removeItem("authenticated_staff");
+    
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem("authenticated_staff");
+    }
+    
     notifyListeners(null);
   };
 
@@ -146,12 +151,32 @@ export function useStaffAuth() {
     loadStaffFromStorage();
   };
 
+  const isOwner = (): boolean => {
+    return staff?.role === "owner";
+  };
+
+  const isManager = (): boolean => {
+    return staff?.role === "manager" || staff?.role === "owner";
+  };
+
   return { 
     staff, 
     loading, 
     login, 
     logout, 
     hasPermission,
-    refreshAuth 
+    refreshAuth,
+    isOwner,
+    isManager,
   };
+}
+
+// Export a utility function to get current staff without hook
+export function getCurrentStaff(): Staff | null {
+  return globalStaff;
+}
+
+// Export a utility function to check if user is authenticated
+export function isAuthenticated(): boolean {
+  return globalStaff !== null;
 }
