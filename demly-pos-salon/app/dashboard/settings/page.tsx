@@ -159,22 +159,21 @@ export default function SecureSettings() {
     setAuthError("");
 
     try {
-      // Check if email matches license holder
-      const { data: license, error: licenseError } = await supabase
-        .from("licenses")
-        .select("email")
-        .eq("user_id", userId)
-        .eq("status", "active")
-        .single();
-
-      if (licenseError || !license) {
-        setAuthError("No active license found");
+      // Get the current user's email from auth
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        setAuthError("Not authenticated");
         setAuthLoading(false);
         return;
       }
 
-      if (license.email.toLowerCase() !== licenseEmail.toLowerCase()) {
-        setAuthError("Email doesn't match license holder");
+      console.log("Current user email:", user.email);
+      console.log("Entered email:", licenseEmail);
+
+      // Check if the entered email matches the authenticated user's email
+      if (user.email?.toLowerCase() !== licenseEmail.toLowerCase()) {
+        setAuthError("Email doesn't match your account email");
         setAuthLoading(false);
         return;
       }
@@ -196,6 +195,7 @@ export default function SecureSettings() {
       );
 
       if (emailError) {
+        console.error("Email send error:", emailError);
         setAuthError("Failed to send verification email");
         setAuthLoading(false);
         return;
@@ -210,6 +210,7 @@ export default function SecureSettings() {
 
       alert(`✅ Verification code sent to ${licenseEmail}`);
     } catch (error: any) {
+      console.error("Verification error:", error);
       setAuthError(error.message || "Failed to send email");
     } finally {
       setAuthLoading(false);
@@ -372,12 +373,24 @@ export default function SecureSettings() {
             </div>
           )}
 
+          {authStep === "email" && !authError && (
+            <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl p-4 text-blue-400 mb-6 text-sm flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold mb-1">First Time Setup</p>
+                <p className="text-blue-300">
+                  Enter your account email (the one you used to sign up) to verify your identity and access settings.
+                </p>
+              </div>
+            </div>
+          )}
+
           {authStep === "email" && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
                   <Mail className="w-4 h-4 inline mr-2" />
-                  License Holder Email
+                  Your Account Email
                 </label>
                 <input
                   type="email"
@@ -390,6 +403,9 @@ export default function SecureSettings() {
                   className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20"
                   autoFocus
                 />
+                <p className="text-xs text-slate-400 mt-2">
+                  Enter the email address you used to sign up with
+                </p>
               </div>
               <button
                 onClick={sendVerificationEmail}
