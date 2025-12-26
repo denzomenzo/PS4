@@ -1,4 +1,4 @@
-// app/dashboard/settings/page.tsx - COMPLETE SECURE VERSION
+// app/dashboard/settings/page.tsx - COMPLETE REDESIGNED VERSION
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,6 +18,16 @@ import {
   Clock,
   FileText,
   Settings as SettingsIcon,
+  Store,
+  Image,
+  Save,
+  Users,
+  Plus,
+  Edit2,
+  Trash2,
+  User,
+  Phone,
+  Key,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -35,9 +45,9 @@ interface Staff {
   };
 }
 
-export default function SecureSettings() {
+export default function CompleteSettings() {
   const userId = useUserId();
-  const { staff: currentStaff, logout } = useStaffAuth();
+  const { staff: currentStaff } = useStaffAuth();
 
   // Auth State
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -64,6 +74,19 @@ export default function SecureSettings() {
   const [receiptLogoUrl, setReceiptLogoUrl] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("Thank you for your business!");
   const [staff, setStaff] = useState<Staff[]>([]);
+
+  // Staff Modal State
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+  const [pinChangeStaff, setPinChangeStaff] = useState<Staff | null>(null);
+  const [staffName, setStaffName] = useState("");
+  const [staffEmail, setStaffEmail] = useState("");
+  const [staffPin, setStaffPin] = useState("");
+  const [staffRole, setStaffRole] = useState<"staff" | "manager" | "owner">("staff");
+  const [staffVerificationCode, setStaffVerificationCode] = useState("");
+  const [staffSentCode, setStaffSentCode] = useState("");
+  const [staffCodeSent, setStaffCodeSent] = useState(false);
 
   useEffect(() => {
     if (userId) {
@@ -159,7 +182,6 @@ export default function SecureSettings() {
     setAuthError("");
 
     try {
-      // Get the current user's email from auth
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) {
@@ -168,21 +190,15 @@ export default function SecureSettings() {
         return;
       }
 
-      console.log("Current user email:", user.email);
-      console.log("Entered email:", licenseEmail);
-
-      // Check if the entered email matches the authenticated user's email
       if (user.email?.toLowerCase() !== licenseEmail.toLowerCase()) {
         setAuthError("Email doesn't match your account email");
         setAuthLoading(false);
         return;
       }
 
-      // Generate verification code
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       setSentCode(code);
 
-      // Send email
       const { error: emailError } = await supabase.functions.invoke(
         "send-verification-email",
         {
@@ -203,7 +219,7 @@ export default function SecureSettings() {
 
       setAuthStep("code");
       
-      logAuditAction({
+      await logAuditAction({
         action: "SETTINGS_VERIFICATION_EMAIL_SENT",
         staffId: currentStaff?.id,
       });
@@ -223,7 +239,6 @@ export default function SecureSettings() {
       return;
     }
 
-    // Grant access for 30 minutes
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 30);
 
@@ -238,7 +253,7 @@ export default function SecureSettings() {
     setIsFirstTime(false);
     setAuthError("");
 
-    logAuditAction({
+    await logAuditAction({
       action: "SETTINGS_ACCESS_GRANTED_EMAIL",
       staffId: currentStaff?.id,
     });
@@ -257,7 +272,6 @@ export default function SecureSettings() {
       return;
     }
 
-    // Grant access for 30 minutes
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 30);
 
@@ -271,7 +285,7 @@ export default function SecureSettings() {
     setShowAuthModal(false);
     setAuthError("");
 
-    logAuditAction({
+    await logAuditAction({
       action: "SETTINGS_ACCESS_GRANTED_PIN",
       staffId: currentStaff.id,
     });
@@ -336,6 +350,245 @@ export default function SecureSettings() {
     const minutes = Math.floor(diff / 60000);
     const seconds = Math.floor((diff % 60000) / 1000);
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  // Staff Management Functions
+  const openAddStaffModal = () => {
+    setEditingStaff(null);
+    setStaffName("");
+    setStaffEmail("");
+    setStaffPin("");
+    setStaffRole("staff");
+    setStaffVerificationCode("");
+    setStaffSentCode("");
+    setStaffCodeSent(false);
+    setShowStaffModal(true);
+  };
+
+  const openEditStaffModal = (member: Staff) => {
+    setEditingStaff(member);
+    setStaffName(member.name);
+    setStaffEmail(member.email || "");
+    setStaffPin("");
+    setStaffRole(member.role);
+    setStaffVerificationCode("");
+    setStaffSentCode("");
+    setStaffCodeSent(false);
+    setShowStaffModal(true);
+  };
+
+  const openPinChangeModal = (member: Staff) => {
+    setPinChangeStaff(member);
+    setStaffEmail(member.email || "");
+    setStaffPin("");
+    setStaffVerificationCode("");
+    setStaffSentCode("");
+    setStaffCodeSent(false);
+    setShowPinModal(true);
+  };
+
+  const sendStaffVerificationCode = async () => {
+    if (!staffEmail || !staffEmail.includes('@')) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setStaffSentCode(code);
+
+    try {
+      const { error } = await supabase.functions.invoke(
+        'send-verification-email',
+        {
+          body: {
+            email: staffEmail,
+            code: code,
+            staffName: staffName || pinChangeStaff?.name
+          }
+        }
+      );
+
+      if (error) {
+        console.error("Error sending email:", error);
+        alert("❌ Failed to send verification email. Please try again.");
+        setStaffCodeSent(false);
+        setStaffSentCode("");
+        return;
+      }
+
+      setStaffCodeSent(true);
+      alert(`✅ Verification code sent to ${staffEmail}`);
+    } catch (error) {
+      console.error("Error sending verification code:", error);
+      alert("❌ Failed to send verification email.");
+      setStaffCodeSent(false);
+      setStaffSentCode("");
+    }
+  };
+
+  const saveStaffMember = async () => {
+    if (!staffName.trim()) {
+      alert("Name is required");
+      return;
+    }
+
+    if (!staffEmail.trim() || !staffEmail.includes('@')) {
+      alert("Valid email is required");
+      return;
+    }
+
+    if (staffPin && staffPin.length >= 4) {
+      if (!staffCodeSent) {
+        alert("Please send and verify the email code first");
+        return;
+      }
+      if (staffVerificationCode !== staffSentCode) {
+        alert("❌ Invalid verification code");
+        return;
+      }
+    }
+
+    try {
+      if (editingStaff) {
+        const updateData: any = {
+          name: staffName.trim(),
+          email: staffEmail.trim(),
+          role: staffRole,
+        };
+        
+        if (staffPin && staffPin.length >= 4) {
+          updateData.pin = staffPin;
+        }
+        
+        const { error } = await supabase
+          .from("staff")
+          .update(updateData)
+          .eq("id", editingStaff.id)
+          .eq("user_id", userId);
+        
+        if (error) throw error;
+
+        await logAuditAction({
+          action: "STAFF_UPDATED",
+          entityType: "staff",
+          entityId: editingStaff.id.toString(),
+          oldValues: { name: editingStaff.name, role: editingStaff.role },
+          newValues: { name: staffName, role: staffRole },
+          staffId: currentStaff?.id,
+        });
+      } else {
+        const insertData: any = {
+          user_id: userId,
+          name: staffName.trim(),
+          email: staffEmail.trim(),
+          role: staffRole,
+          permissions: {
+            pos: true,
+            inventory: staffRole === "manager" || staffRole === "owner",
+            reports: staffRole === "manager" || staffRole === "owner",
+            settings: staffRole === "owner",
+          }
+        };
+        
+        if (staffPin && staffPin.length >= 4) {
+          insertData.pin = staffPin;
+        }
+        
+        const { data, error } = await supabase
+          .from("staff")
+          .insert(insertData)
+          .select()
+          .single();
+        
+        if (error) throw error;
+
+        await logAuditAction({
+          action: "STAFF_CREATED",
+          entityType: "staff",
+          entityId: data.id.toString(),
+          newValues: { name: staffName, role: staffRole },
+          staffId: currentStaff?.id,
+        });
+      }
+
+      setShowStaffModal(false);
+      loadData();
+      alert("✅ Staff member saved successfully!");
+    } catch (error: any) {
+      console.error("Error saving staff:", error);
+      alert("Error saving staff member: " + error.message);
+    }
+  };
+
+  const verifyAndSavePin = async () => {
+    if (staffVerificationCode !== staffSentCode) {
+      alert("❌ Invalid verification code");
+      return;
+    }
+
+    if (!staffPin || staffPin.length < 4) {
+      alert("❌ PIN must be at least 4 digits");
+      return;
+    }
+
+    try {
+      if (pinChangeStaff) {
+        const { error } = await supabase
+          .from("staff")
+          .update({ pin: staffPin })
+          .eq("id", pinChangeStaff.id)
+          .eq("user_id", userId);
+        
+        if (error) throw error;
+
+        await logAuditAction({
+          action: "STAFF_PIN_CHANGED",
+          entityType: "staff",
+          entityId: pinChangeStaff.id.toString(),
+          staffId: currentStaff?.id,
+        });
+        
+        alert("✅ PIN updated successfully!");
+      }
+
+      setShowPinModal(false);
+      loadData();
+    } catch (error: any) {
+      console.error("Error updating PIN:", error);
+      alert("❌ Error updating PIN: " + error.message);
+    }
+  };
+
+  const deleteStaffMember = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this staff member?")) return;
+    
+    try {
+      const staffMember = staff.find(s => s.id === id);
+      
+      const { error } = await supabase
+        .from("staff")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", userId);
+      
+      if (error) throw error;
+
+      if (staffMember) {
+        await logAuditAction({
+          action: "STAFF_DELETED",
+          entityType: "staff",
+          entityId: id.toString(),
+          oldValues: { name: staffMember.name, role: staffMember.role },
+          staffId: currentStaff?.id,
+        });
+      }
+      
+      loadData();
+      alert("✅ Staff member deleted successfully!");
+    } catch (error: any) {
+      console.error("Error deleting staff:", error);
+      alert("Error deleting staff member: " + error.message);
+    }
   };
 
   if (!userId || loading) {
@@ -567,68 +820,3 @@ export default function SecureSettings() {
               href="/dashboard"
               className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-xl border border-slate-700/50 rounded-xl px-6 py-3 transition-all flex items-center gap-2"
             >
-              <ArrowLeft className="w-5 h-5" />
-              <span className="font-semibold">Dashboard</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* Your existing settings content goes here... */}
-        <div className="space-y-8">
-          <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-8">
-            <h2 className="text-3xl font-black mb-6">Business Settings</h2>
-            
-            <div className="space-y-6">
-              <div>
-                <label className="block text-lg font-semibold mb-3">Business Name</label>
-                <input
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-700/50 p-5 rounded-2xl text-xl"
-                />
-              </div>
-
-              <div className="flex items-center justify-between bg-slate-900/50 border border-slate-700/50 p-6 rounded-2xl">
-                <div>
-                  <h3 className="text-xl font-bold mb-1">VAT (20%)</h3>
-                  <p className="text-slate-400">Add VAT to all transactions</p>
-                </div>
-                <button
-                  onClick={() => setVatEnabled(!vatEnabled)}
-                  className={`relative w-20 h-10 rounded-full transition-all ${
-                    vatEnabled ? "bg-emerald-500" : "bg-slate-600"
-                  }`}
-                >
-                  <div
-                    className={`absolute top-1 left-1 w-8 h-8 bg-white rounded-full transition-transform ${
-                      vatEnabled ? "translate-x-10" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Save Button */}
-          <button
-            onClick={saveAllSettings}
-            disabled={saving}
-            className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-xl py-6 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-2xl"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="w-6 h-6 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Check className="w-6 h-6" />
-                Save All Settings
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
