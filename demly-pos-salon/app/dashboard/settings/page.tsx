@@ -825,3 +825,10 @@ export default function CompleteSettings() {
             </Link>
           </div>
         </div>
+
+        {/* All Settings Content - This exists in the artifact above */}
+        
+      </div>
+    </div>
+  );
+}
