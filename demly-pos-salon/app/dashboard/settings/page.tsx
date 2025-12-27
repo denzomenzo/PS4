@@ -823,3 +823,5 @@ export default function CompleteSettings() {
               <ArrowLeft className="w-5 h-5" />
               <span className="font-semibold">Dashboard</span>
             </Link>
+          </div>
+        </div>
