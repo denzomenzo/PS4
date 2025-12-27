@@ -820,3 +820,6 @@ export default function CompleteSettings() {
               href="/dashboard"
               className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-xl border border-slate-700/50 rounded-xl px-6 py-3 transition-all flex items-center gap-2"
             >
+              <ArrowLeft className="w-5 h-5" />
+              <span className="font-semibold">Dashboard</span>
+            </Link>
