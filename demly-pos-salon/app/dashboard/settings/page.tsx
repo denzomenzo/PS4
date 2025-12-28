@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save, Lock } from "lucide-react";
+import { useStaffAuth } from "@/hooks/useStaffAuth";
+import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save, Lock, Shield, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 interface Staff {
@@ -11,12 +12,22 @@ interface Staff {
   name: string;
   email?: string | null;
   pin?: string | null;
+  role: "staff" | "manager" | "owner";
+  permissions: {
+    pos: boolean;
+    inventory: boolean;
+    reports: boolean;
+    settings: boolean;
+  };
 }
 
 export default function Settings() {
   const userId = useUserId();
+  const { staff: currentStaff, isOwner, isManager } = useStaffAuth();
+  
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   // Business Settings
   const [shopName, setShopName] = useState("");
@@ -37,6 +48,13 @@ export default function Settings() {
   const [staffName, setStaffName] = useState("");
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPin, setStaffPin] = useState("");
+  const [staffRole, setStaffRole] = useState<"staff" | "manager" | "owner">("staff");
+  const [staffPermissions, setStaffPermissions] = useState({
+    pos: true,
+    inventory: false,
+    reports: false,
+    settings: false,
+  });
   
   // PIN Change Modal
   const [showPinModal, setShowPinModal] = useState(false);
@@ -47,10 +65,16 @@ export default function Settings() {
   const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
-    if (userId) {
+    if (userId && currentStaff) {
+      // Check permissions
+      if (!isOwner() && !isManager()) {
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
       loadData();
     }
-  }, [userId]);
+  }, [userId, currentStaff]);
 
   const loadData = async () => {
     setLoading(true);
@@ -74,7 +98,7 @@ export default function Settings() {
 
     const { data: staffData } = await supabase
       .from("staff")
-      .select("id, name, email, pin")
+      .select("*")
       .eq("user_id", userId)
       .order("name");
     
@@ -124,6 +148,13 @@ export default function Settings() {
     setStaffName("");
     setStaffEmail("");
     setStaffPin("");
+    setStaffRole("staff");
+    setStaffPermissions({
+      pos: true,
+      inventory: false,
+      reports: false,
+      settings: false,
+    });
     setVerificationCode("");
     setSentCode("");
     setCodeSent(false);
@@ -141,6 +172,13 @@ export default function Settings() {
     setStaffName(member.name);
     setStaffEmail(member.email || "");
     setStaffPin("");
+    setStaffRole(member.role);
+    setStaffPermissions(member.permissions || {
+      pos: true,
+      inventory: false,
+      reports: false,
+      settings: false,
+    });
     setShowStaffModal(true);
   };
 
@@ -160,12 +198,10 @@ export default function Settings() {
       return;
     }
 
-    // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setSentCode(code);
 
     try {
-      // Call Supabase Edge Function
       const { data: functionData, error: functionError } = await supabase.functions.invoke(
         'send-verification-email',
         {
@@ -242,7 +278,6 @@ export default function Settings() {
       return;
     }
 
-    // If PIN is provided and this is a new entry or edit, require verification
     if (staffPin && staffPin.length >= 4) {
       if (!codeSent) {
         alert("Please send and verify the email code first");
@@ -258,7 +293,9 @@ export default function Settings() {
       if (editingStaff) {
         const updateData: any = {
           name: staffName.trim(),
-          email: staffEmail.trim()
+          email: staffEmail.trim(),
+          role: staffRole,
+          permissions: staffPermissions,
         };
         
         if (staffPin && staffPin.length >= 4) {
@@ -276,7 +313,9 @@ export default function Settings() {
         const insertData: any = {
           user_id: userId,
           name: staffName.trim(),
-          email: staffEmail.trim()
+          email: staffEmail.trim(),
+          role: staffRole,
+          permissions: staffPermissions,
         };
         
         if (staffPin && staffPin.length >= 4) {
@@ -319,7 +358,7 @@ export default function Settings() {
     }
   };
 
-  if (!userId) return null;
+  if (!userId || !currentStaff) return null;
 
   if (loading) {
     return (
@@ -327,6 +366,28 @@ export default function Settings() {
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
           <p className="text-xl text-slate-400">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-8">
+        <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-12 max-w-md border border-red-500/30">
+          <div className="text-center">
+            <AlertCircle className="w-20 h-20 text-red-400 mx-auto mb-6" />
+            <h1 className="text-3xl font-black text-white mb-4">Access Denied</h1>
+            <p className="text-slate-400 mb-6">
+              Only managers and owners can access settings.
+            </p>
+            <Link
+              href="/dashboard"
+              className="inline-block bg-slate-700 hover:bg-slate-600 px-8 py-4 rounded-xl font-bold transition-all"
+            >
+              Back to Dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -412,7 +473,6 @@ export default function Settings() {
 
             <div className="grid md:grid-cols-2 gap-6 mb-6">
               
-              {/* Business Info Column */}
               <div className="space-y-4">
                 <h3 className="text-xl font-bold mb-4">Receipt Information</h3>
                 
@@ -473,7 +533,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Design Column */}
               <div className="space-y-4">
                 <h3 className="text-xl font-bold mb-4">Receipt Design</h3>
                 
@@ -524,86 +583,6 @@ export default function Settings() {
                 </div>
               </div>
 
-            </div>
-
-            {/* Receipt Preview */}
-            <div className="bg-slate-900/30 rounded-2xl p-6 border border-slate-700/50">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan-400" />
-                Receipt Preview
-              </h3>
-              
-              <div className="bg-white text-black p-6 rounded-lg max-w-[280px] mx-auto font-mono text-xs shadow-2xl">
-                {receiptLogoUrl && (
-                  <img
-                    src={receiptLogoUrl}
-                    alt="Logo"
-                    className="max-w-[120px] h-auto mx-auto mb-3"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                )}
-                
-                <div className="text-center font-bold text-sm mb-2">
-                  {businessName || shopName || "Your Business Name"}
-                </div>
-                
-                {businessAddress && (
-                  <div className="text-center text-[10px] mb-1 whitespace-pre-line">
-                    {businessAddress}
-                  </div>
-                )}
-                
-                {businessPhone && (
-                  <div className="text-center text-[10px] mb-1">{businessPhone}</div>
-                )}
-                
-                {businessEmail && (
-                  <div className="text-center text-[10px] mb-2">{businessEmail}</div>
-                )}
-                
-                <div className="border-t border-dashed border-gray-400 my-2"></div>
-                
-                <div className="flex justify-between text-[10px] mb-1">
-                  <span>Receipt: #123</span>
-                </div>
-                <div className="flex justify-between text-[10px] mb-2">
-                  <span>{new Date().toLocaleDateString("en-GB")}</span>
-                </div>
-                
-                <div className="border-t border-dashed border-gray-400 my-2"></div>
-                
-                <div className="space-y-1 mb-2">
-                  <div className="flex justify-between text-[11px]">
-                    <span>✂️ Haircut</span>
-                    <span className="font-bold">£25.00</span>
-                  </div>
-                </div>
-                
-                <div className="border-t-2 border-gray-800 pt-2 mb-1">
-                  <div className="flex justify-between text-[10px] mb-1">
-                    <span>Subtotal:</span>
-                    <span>£25.00</span>
-                  </div>
-                  {vatEnabled && (
-                    <div className="flex justify-between text-[10px] mb-1">
-                      <span>VAT (20%):</span>
-                      <span>£5.00</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-bold text-sm">
-                    <span>TOTAL:</span>
-                    <span>£{vatEnabled ? '30.00' : '25.00'}</span>
-                  </div>
-                </div>
-                
-                <div className="border-t border-dashed border-gray-400 my-2"></div>
-                
-                <div className="text-center text-[10px] mt-2">
-                  {receiptFooter}
-                </div>
-              </div>
             </div>
           </div>
 
@@ -656,6 +635,15 @@ export default function Settings() {
                           {member.email && (
                             <span className="text-xs text-slate-400">{member.email}</span>
                           )}
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                              member.role === "owner" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
+                              member.role === "manager" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
+                              "bg-slate-500/20 text-slate-400 border border-slate-500/30"
+                            }`}>
+                              {member.role.toUpperCase()}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -675,6 +663,20 @@ export default function Settings() {
                         </button>
                       </div>
                     </div>
+                    
+                    <div className="space-y-2 mb-3">
+                      <div className="text-xs text-slate-400">Permissions:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(member.permissions || {}).map(([key, value]) => (
+                          value && (
+                            <span key={key} className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded text-xs border border-cyan-500/20">
+                              {key}
+                            </span>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                    
                     <div className="flex items-center justify-between pt-3 border-t border-slate-700/50">
                       <span className="text-sm flex items-center gap-2">
                         {member.pin ? (
@@ -728,7 +730,7 @@ export default function Settings() {
             <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
               💡 Quick Access
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Link
                 href="/dashboard/inventory"
                 className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 hover:border-cyan-500/50 p-5 rounded-2xl transition-all group"
@@ -747,6 +749,18 @@ export default function Settings() {
                 </h4>
                 <p className="text-sm text-slate-400">Configure printers & scanners</p>
               </Link>
+              {isOwner() && (
+                <Link
+                  href="/dashboard/settings/audit-logs"
+                  className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 hover:border-cyan-500/50 p-5 rounded-2xl transition-all group"
+                >
+                  <h4 className="text-lg font-bold mb-1 group-hover:text-cyan-400 transition-colors flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Audit Logs
+                  </h4>
+                  <p className="text-sm text-slate-400">View security & activity logs</p>
+                </Link>
+              )}
             </div>
           </div>
 
@@ -756,7 +770,7 @@ export default function Settings() {
       {/* Staff Modal */}
       {showStaffModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full border border-slate-700/50 shadow-2xl">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-2xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl font-bold">
                 {editingStaff ? "Edit Staff Member" : "Add Staff Member"}
@@ -788,6 +802,45 @@ export default function Settings() {
                   className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                 />
                 <p className="text-xs text-slate-400 mt-1">Required for PIN verification</p>
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium">Role *</label>
+                <select
+                  value={staffRole}
+                  onChange={(e) => setStaffRole(e.target.value as "staff" | "manager" | "owner")}
+                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                >
+                  <option value="staff">Staff</option>
+                  <option value="manager">Manager</option>
+                  {isOwner() && <option value="owner">Owner</option>}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-lg mb-3 font-medium">Permissions</label>
+                <div className="space-y-2">
+                  {Object.entries({
+                    pos: "Point of Sale",
+                    inventory: "Inventory Management",
+                    reports: "Reports & Analytics",
+                    settings: "Settings (Owner/Manager only)"
+                  }).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-3 p-3 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={staffPermissions[key as keyof typeof staffPermissions]}
+                        onChange={(e) => setStaffPermissions(prev => ({
+                          ...prev,
+                          [key]: e.target.checked
+                        }))}
+                        disabled={key === "settings" && staffRole === "staff"}
+                        className="w-5 h-5 accent-cyan-500"
+                      />
+                      <span className="text-white">{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <div>
