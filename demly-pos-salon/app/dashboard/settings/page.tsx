@@ -31,6 +31,7 @@ export default function Settings() {
 
   // Business Settings
   const [shopName, setShopName] = useState("");
+  const [businessLogoUrl, setBusinessLogoUrl] = useState("");
   const [vatEnabled, setVatEnabled] = useState(true);
   
   // Receipt Settings
@@ -86,7 +87,8 @@ export default function Settings() {
       .maybeSingle();
     
     if (settingsData) {
-      setShopName(settingsData.shop_name || "");
+      setShopName(settingsData.shop_name || settingsData.business_name || "");
+      setBusinessLogoUrl(settingsData.business_logo_url || "");
       setVatEnabled(settingsData.vat_enabled !== undefined ? settingsData.vat_enabled : true);
       setBusinessName(settingsData.business_name || settingsData.shop_name || "");
       setBusinessAddress(settingsData.business_address || "");
@@ -116,8 +118,9 @@ export default function Settings() {
           {
             user_id: userId,
             shop_name: shopName,
+            business_logo_url: businessLogoUrl,
             vat_enabled: vatEnabled,
-            business_name: businessName || shopName,
+            business_name: businessName,
             business_address: businessAddress,
             business_phone: businessPhone,
             business_email: businessEmail,
@@ -423,17 +426,45 @@ export default function Settings() {
 
             <div className="space-y-6">
               <div>
-                <label className="block text-lg font-semibold mb-3 text-slate-300">Business Name</label>
+                <label className="block text-lg font-semibold mb-3 text-slate-300">Business Name (POS Display)</label>
                 <input
                   value={shopName}
-                  onChange={(e) => {
-                    const newName = e.target.value;
-                    setShopName(newName);
-                    if (!businessName) setBusinessName(newName);
-                  }}
+                  onChange={(e) => setShopName(e.target.value)}
                   placeholder="e.g. Your Business Name"
                   className="w-full bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 p-5 rounded-2xl text-xl placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                 />
+                <p className="text-sm text-slate-400 mt-2">This name appears on the POS sidebar</p>
+              </div>
+
+              <div>
+                <label className="block text-lg font-semibold mb-3 text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <Image className="w-5 h-5" />
+                    Business Logo (Optional)
+                  </div>
+                </label>
+                <input
+                  type="url"
+                  value={businessLogoUrl}
+                  onChange={(e) => setBusinessLogoUrl(e.target.value)}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 p-5 rounded-2xl text-xl placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+                <p className="text-sm text-slate-400 mt-2">Logo will display at the top of the POS sidebar</p>
+                
+                {businessLogoUrl && (
+                  <div className="mt-4 bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
+                    <p className="text-sm text-slate-400 mb-2">Logo Preview:</p>
+                    <img
+                      src={businessLogoUrl}
+                      alt="Business logo preview"
+                      className="max-w-[200px] max-h-[100px] object-contain mx-auto"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 p-6 rounded-2xl hover:border-slate-600/50 transition-all">
@@ -482,15 +513,12 @@ export default function Settings() {
                   </label>
                   <input
                     type="text"
-                    value={businessName || shopName}
-                    onChange={(e) => {
-                      const newName = e.target.value;
-                      setBusinessName(newName);
-                      setShopName(newName);
-                    }}
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
                     className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                     placeholder="My Salon"
                   />
+                  <p className="text-xs text-slate-400 mt-1">Separate from POS display name</p>
                 </div>
 
                 <div>
