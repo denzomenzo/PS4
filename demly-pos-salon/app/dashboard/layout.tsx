@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - UPDATED WITH PERSISTENT AUTH
+// app/dashboard/layout.tsx - UPDATED WITH LOGO SUPPORT
 "use client";
 
 import { useEffect, useState } from "react";
@@ -36,6 +36,7 @@ export default function DashboardLayout({
   const { staff, loading: authLoading, login, logout, hasPermission } = useStaffAuth();
   
   const [businessName, setBusinessName] = useState("Demly POS");
+  const [businessLogoUrl, setBusinessLogoUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [showPinModal, setShowPinModal] = useState(false);
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
@@ -60,17 +61,21 @@ export default function DashboardLayout({
   };
 
   const loadData = async () => {
-    // Load business name
+    // Load business name and logo
     const { data } = await supabase
       .from("settings")
-      .select("business_name, shop_name")
+      .select("business_name, shop_name, business_logo_url")
       .eq("user_id", userId)
       .single();
     
-    if (data?.business_name) {
-      setBusinessName(data.business_name);
-    } else if (data?.shop_name) {
+    if (data?.shop_name) {
       setBusinessName(data.shop_name);
+    } else if (data?.business_name) {
+      setBusinessName(data.business_name);
+    }
+    
+    if (data?.business_logo_url) {
+      setBusinessLogoUrl(data.business_logo_url);
     }
 
     // Load staff list for selection
@@ -245,12 +250,27 @@ export default function DashboardLayout({
       <aside className="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col shadow-2xl">
         
         <div className="p-6 border-b border-slate-800/50">
+          {/* Business Logo */}
+          {businessLogoUrl && (
+            <div className="mb-4 flex items-center justify-center">
+              <img
+                src={businessLogoUrl}
+                alt={businessName}
+                className="max-w-full max-h-20 object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+          
+          {/* Business Name */}
           <div className="bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent">
-            <h1 className="text-4xl font-black tracking-tight">
+            <h1 className="text-4xl font-black tracking-tight text-center">
               {businessName}
             </h1>
           </div>
-          <p className="text-slate-400 text-sm mt-2 font-medium">Point of Sale System</p>
+          <p className="text-slate-400 text-sm mt-2 font-medium text-center">Point of Sale System</p>
           
           {/* Staff Info */}
           {staff && (
