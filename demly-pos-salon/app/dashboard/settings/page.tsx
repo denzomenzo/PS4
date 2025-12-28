@@ -612,6 +612,137 @@ export default function Settings() {
               </div>
 
             </div>
+
+            {/* Receipt Preview */}
+            <div className="bg-slate-900/30 rounded-2xl p-6 border border-slate-700/50">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-cyan-400" />
+                Receipt Preview
+              </h3>
+              
+              <div className="bg-white text-black p-6 rounded-lg max-w-[280px] mx-auto font-mono text-xs shadow-2xl">
+                {receiptLogoUrl && (
+                  <img
+                    src={receiptLogoUrl}
+                    alt="Logo"
+                    className="max-w-[120px] h-auto mx-auto mb-3"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+                
+                <div className="text-center font-bold text-sm mb-2">
+                  {businessName || shopName || "Your Business Name"}
+                </div>
+                
+                {businessAddress && (
+                  <div className="text-center text-[10px] mb-1 whitespace-pre-line">
+                    {businessAddress}
+                  </div>
+                )}
+                
+                {businessPhone && (
+                  <div className="text-center text-[10px] mb-1">{businessPhone}</div>
+                )}
+                
+                {businessEmail && (
+                  <div className="text-center text-[10px] mb-2">{businessEmail}</div>
+                )}
+                
+                <div className="border-t border-dashed border-gray-400 my-2"></div>
+                
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span>Receipt: #12345</span>
+                </div>
+                <div className="flex justify-between text-[10px] mb-2">
+                  <span>{new Date().toLocaleDateString("en-GB")}</span>
+                </div>
+                
+                <div className="border-t border-dashed border-gray-400 my-2"></div>
+                
+                <div className="space-y-1 mb-2">
+                  <div className="flex justify-between text-[11px]">
+                    <span>✂️ Haircut</span>
+                    <span className="font-bold">£25.00</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>🧴 Shampoo</span>
+                    <span className="font-bold">£8.99</span>
+                  </div>
+                </div>
+                
+                <div className="border-t-2 border-gray-800 pt-2 mb-1">
+                  <div className="flex justify-between text-[10px] mb-1">
+                    <span>Subtotal:</span>
+                    <span>£33.99</span>
+                  </div>
+                  {vatEnabled && (
+                    <div className="flex justify-between text-[10px] mb-1">
+                      <span>VAT (20%):</span>
+                      <span>£6.80</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-sm">
+                    <span>TOTAL:</span>
+                    <span>£{vatEnabled ? '40.79' : '33.99'}</span>
+                  </div>
+                </div>
+                
+                <div className="border-t border-dashed border-gray-400 my-2"></div>
+                
+                <div className="text-center text-[10px] mt-2 mb-3">
+                  {receiptFooter}
+                </div>
+
+                {/* Barcode */}
+                <div className="flex flex-col items-center mt-3">
+                  <svg width="200" height="50" className="mx-auto">
+                    <rect x="0" y="0" width="4" height="40" fill="black"/>
+                    <rect x="6" y="0" width="2" height="40" fill="black"/>
+                    <rect x="10" y="0" width="4" height="40" fill="black"/>
+                    <rect x="16" y="0" width="2" height="40" fill="black"/>
+                    <rect x="20" y="0" width="6" height="40" fill="black"/>
+                    <rect x="28" y="0" width="2" height="40" fill="black"/>
+                    <rect x="32" y="0" width="4" height="40" fill="black"/>
+                    <rect x="38" y="0" width="2" height="40" fill="black"/>
+                    <rect x="42" y="0" width="2" height="40" fill="black"/>
+                    <rect x="46" y="0" width="6" height="40" fill="black"/>
+                    <rect x="54" y="0" width="2" height="40" fill="black"/>
+                    <rect x="58" y="0" width="4" height="40" fill="black"/>
+                    <rect x="64" y="0" width="2" height="40" fill="black"/>
+                    <rect x="68" y="0" width="4" height="40" fill="black"/>
+                    <rect x="74" y="0" width="6" height="40" fill="black"/>
+                    <rect x="82" y="0" width="2" height="40" fill="black"/>
+                    <rect x="86" y="0" width="4" height="40" fill="black"/>
+                    <rect x="92" y="0" width="2" height="40" fill="black"/>
+                    <rect x="96" y="0" width="2" height="40" fill="black"/>
+                    <rect x="100" y="0" width="4" height="40" fill="black"/>
+                    <rect x="106" y="0" width="2" height="40" fill="black"/>
+                    <rect x="110" y="0" width="6" height="40" fill="black"/>
+                    <rect x="118" y="0" width="2" height="40" fill="black"/>
+                    <rect x="122" y="0" width="4" height="40" fill="black"/>
+                    <rect x="128" y="0" width="2" height="40" fill="black"/>
+                    <rect x="132" y="0" width="2" height="40" fill="black"/>
+                    <rect x="136" y="0" width="6" height="40" fill="black"/>
+                    <rect x="144" y="0" width="2" height="40" fill="black"/>
+                    <rect x="148" y="0" width="4" height="40" fill="black"/>
+                    <rect x="154" y="0" width="2" height="40" fill="black"/>
+                    <rect x="158" y="0" width="4" height="40" fill="black"/>
+                    <rect x="164" y="0" width="6" height="40" fill="black"/>
+                    <rect x="172" y="0" width="2" height="40" fill="black"/>
+                    <rect x="176" y="0" width="4" height="40" fill="black"/>
+                    <rect x="182" y="0" width="2" height="40" fill="black"/>
+                    <rect x="186" y="0" width="2" height="40" fill="black"/>
+                    <rect x="190" y="0" width="4" height="40" fill="black"/>
+                    <rect x="196" y="0" width="2" height="40" fill="black"/>
+                  </svg>
+                  <div className="text-[9px] text-center mt-1 font-mono">
+                    *12345*
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Staff Members */}
