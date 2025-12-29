@@ -671,7 +671,7 @@ export default function Customers() {
                 onClick={adjustBalance}
                 disabled={!balanceAmount || parseFloat(balanceAmount) <= 0}
                 className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:
-                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50"
+          
               >
                 Confirm
               </button>
@@ -682,3 +682,4 @@ export default function Customers() {
     </div>
   );
 }
+
