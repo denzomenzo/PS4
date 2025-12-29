@@ -186,8 +186,8 @@ const adjustBalance = async () => {
     return;
   }
 
-  // Ensure balance is a number
-  const currentBalance = parseFloat(balanceCustomer.balance) || 0;
+  // Ensure balance is a number, handling null/undefined
+  const currentBalance = balanceCustomer.balance ?? 0;
   const newBalance = balanceAction === "add" 
     ? currentBalance + amount 
     : currentBalance - amount;
@@ -669,5 +669,6 @@ const adjustBalance = async () => {
     </div>
   );
 }
+
 
 
