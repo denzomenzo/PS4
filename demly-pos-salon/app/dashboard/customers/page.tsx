@@ -186,9 +186,11 @@ const adjustBalance = async () => {
     return;
   }
 
+  // Ensure balance is a number
+  const currentBalance = parseFloat(balanceCustomer.balance) || 0;
   const newBalance = balanceAction === "add" 
-    ? balanceCustomer.balance + amount 
-    : balanceCustomer.balance - amount;
+    ? currentBalance + amount 
+    : currentBalance - amount;
 
   try {
     const { error } = await supabase
@@ -207,7 +209,7 @@ const adjustBalance = async () => {
       user_id: userId,
       customer_id: balanceCustomer.id,
       amount: balanceAction === "add" ? amount : -amount,
-      previous_balance: balanceCustomer.balance,
+      previous_balance: currentBalance,
       new_balance: newBalance,
       note: balanceNote || null,
     });
@@ -667,4 +669,5 @@ const adjustBalance = async () => {
     </div>
   );
 }
+
 
