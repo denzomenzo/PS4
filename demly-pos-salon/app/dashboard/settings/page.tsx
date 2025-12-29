@@ -39,8 +39,14 @@ export default function Settings() {
   const [businessAddress, setBusinessAddress] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
   const [businessEmail, setBusinessEmail] = useState("");
+  const [businessWebsite, setBusinessWebsite] = useState("");
+  const [taxNumber, setTaxNumber] = useState("");
   const [receiptLogoUrl, setReceiptLogoUrl] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("Thank you for your business!");
+  const [refundDays, setRefundDays] = useState("");
+  const [showTaxBreakdown, setShowTaxBreakdown] = useState(true);
+  const [receiptFontSize, setReceiptFontSize] = useState("12");
+  const [barcodeType, setBarcodeType] = useState("code128");
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -94,8 +100,14 @@ export default function Settings() {
       setBusinessAddress(settingsData.business_address || "");
       setBusinessPhone(settingsData.business_phone || "");
       setBusinessEmail(settingsData.business_email || "");
+      setBusinessWebsite(settingsData.business_website || "");
+      setTaxNumber(settingsData.tax_number || "");
       setReceiptLogoUrl(settingsData.receipt_logo_url || "");
       setReceiptFooter(settingsData.receipt_footer || "Thank you for your business!");
+      setRefundDays(settingsData.refund_days?.toString() || "");
+      setShowTaxBreakdown(settingsData.show_tax_breakdown !== false);
+      setReceiptFontSize(settingsData.receipt_font_size?.toString() || "12");
+      setBarcodeType(settingsData.barcode_type || "code128");
     }
 
     const { data: staffData } = await supabase
@@ -124,8 +136,14 @@ export default function Settings() {
             business_address: businessAddress,
             business_phone: businessPhone,
             business_email: businessEmail,
+            business_website: businessWebsite,
+            tax_number: taxNumber,
             receipt_logo_url: receiptLogoUrl,
             receipt_footer: receiptFooter,
+            refund_days: refundDays ? parseInt(refundDays) : null,
+            show_tax_breakdown: showTaxBreakdown,
+            receipt_font_size: parseInt(receiptFontSize),
+            barcode_type: barcodeType,
           },
           {
             onConflict: 'user_id',
@@ -579,7 +597,7 @@ export default function Settings() {
                     placeholder="https://example.com/logo.png"
                   />
                   <p className="text-xs text-slate-400 mt-2">
-                    Enter a URL to display a logo on receipts
+                    💡 Recommended: 200-300px wide, transparent PNG for best results
                   </p>
                 </div>
 
@@ -599,7 +617,33 @@ export default function Settings() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Receipt Footer Message
+                    Tax/VAT Number
+                  </label>
+                  <input
+                    type="text"
+                    value={taxNumber}
+                    onChange={(e) => setTaxNumber(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    placeholder="GB123456789"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Website
+                  </label>
+                  <input
+                    type="url"
+                    value={businessWebsite}
+                    onChange={(e) => setBusinessWebsite(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    placeholder="www.yourshop.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Receipt Message
                   </label>
                   <textarea
                     value={receiptFooter}
@@ -608,6 +652,73 @@ export default function Settings() {
                     className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
                     placeholder="Thank you for your business!"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Refund Days (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    value={refundDays}
+                    onChange={(e) => setRefundDays(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    placeholder="e.g., 30"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Leave blank if no refunds offered</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-slate-900/50 border border-slate-700/50 p-4 rounded-xl">
+                    <div>
+                      <label className="font-medium text-white">Show Tax Breakdown</label>
+                      <p className="text-xs text-slate-400">Display detailed tax info on receipts</p>
+                    </div>
+                    <button
+                      onClick={() => setShowTaxBreakdown(!showTaxBreakdown)}
+                      className={`relative w-14 h-7 rounded-full transition-all ${
+                        showTaxBreakdown ? 'bg-emerald-500' : 'bg-slate-600'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                          showTaxBreakdown ? 'translate-x-7' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Receipt Font Size
+                    </label>
+                    <select
+                      value={receiptFontSize}
+                      onChange={(e) => setReceiptFontSize(e.target.value)}
+                      className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    >
+                      <option value="10">Small (10px)</option>
+                      <option value="12">Medium (12px)</option>
+                      <option value="14">Large (14px)</option>
+                      <option value="16">Extra Large (16px)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Barcode Type
+                    </label>
+                    <select
+                      value={barcodeType}
+                      onChange={(e) => setBarcodeType(e.target.value)}
+                      className="w-full bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    >
+                      <option value="code128">Code 128 (Recommended)</option>
+                      <option value="code39">Code 39</option>
+                      <option value="ean13">EAN-13</option>
+                      <option value="qr">QR Code</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -620,7 +731,7 @@ export default function Settings() {
                 Receipt Preview
               </h3>
               
-              <div className="bg-white text-black p-6 rounded-lg max-w-[280px] mx-auto font-mono text-xs shadow-2xl">
+              <div className="bg-white text-black p-6 rounded-lg max-w-[280px] mx-auto font-mono shadow-2xl" style={{ fontSize: `${receiptFontSize}px` }}>
                 {receiptLogoUrl && (
                   <img
                     src={receiptLogoUrl}
@@ -632,58 +743,80 @@ export default function Settings() {
                   />
                 )}
                 
-                <div className="text-center font-bold text-sm mb-2">
+                <div className="text-center font-bold mb-2" style={{ fontSize: `${parseInt(receiptFontSize) + 2}px` }}>
                   {businessName || shopName || "Your Business Name"}
                 </div>
                 
                 {businessAddress && (
-                  <div className="text-center text-[10px] mb-1 whitespace-pre-line">
+                  <div className="text-center mb-1 whitespace-pre-line" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                     {businessAddress}
                   </div>
                 )}
                 
                 {businessPhone && (
-                  <div className="text-center text-[10px] mb-1">{businessPhone}</div>
+                  <div className="text-center" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>{businessPhone}</div>
                 )}
                 
                 {businessEmail && (
-                  <div className="text-center text-[10px] mb-2">{businessEmail}</div>
+                  <div className="text-center" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>{businessEmail}</div>
+                )}
+
+                {businessWebsite && (
+                  <div className="text-center" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>{businessWebsite}</div>
+                )}
+
+                {taxNumber && (
+                  <div className="text-center mb-2" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
+                    Tax No: {taxNumber}
+                  </div>
                 )}
                 
                 <div className="border-t border-dashed border-gray-400 my-2"></div>
                 
-                <div className="flex justify-between text-[10px] mb-1">
+                <div className="flex justify-between mb-1" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                   <span>Receipt: #12345</span>
                 </div>
-                <div className="flex justify-between text-[10px] mb-2">
+                <div className="flex justify-between mb-2" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                   <span>{new Date().toLocaleDateString("en-GB")}</span>
                 </div>
                 
                 <div className="border-t border-dashed border-gray-400 my-2"></div>
                 
                 <div className="space-y-1 mb-2">
-                  <div className="flex justify-between text-[11px]">
+                  <div className="flex justify-between" style={{ fontSize: `${parseInt(receiptFontSize) - 1}px` }}>
                     <span>✂️ Haircut</span>
                     <span className="font-bold">£25.00</span>
                   </div>
-                  <div className="flex justify-between text-[11px]">
+                  <div className="flex justify-between" style={{ fontSize: `${parseInt(receiptFontSize) - 1}px` }}>
                     <span>🧴 Shampoo</span>
                     <span className="font-bold">£8.99</span>
                   </div>
                 </div>
                 
                 <div className="border-t-2 border-gray-800 pt-2 mb-1">
-                  <div className="flex justify-between text-[10px] mb-1">
+                  <div className="flex justify-between mb-1" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                     <span>Subtotal:</span>
                     <span>£33.99</span>
                   </div>
-                  {vatEnabled && (
-                    <div className="flex justify-between text-[10px] mb-1">
+                  {vatEnabled && showTaxBreakdown && (
+                    <>
+                      <div className="flex justify-between mb-1" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
+                        <span>VAT (20%):</span>
+                        <span>£6.80</span>
+                      </div>
+                      <div className="flex justify-between mb-1 text-gray-600" style={{ fontSize: `${parseInt(receiptFontSize) - 3}px` }}>
+                        <span className="ml-2">Net: £28.33</span>
+                        <span>Tax: £5.66</span>
+                      </div>
+                    </>
+                  )}
+                  {vatEnabled && !showTaxBreakdown && (
+                    <div className="flex justify-between mb-1" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                       <span>VAT (20%):</span>
                       <span>£6.80</span>
                     </div>
                   )}
-                  <div className="flex justify-between font-bold text-sm">
+                  <div className="flex justify-between font-bold" style={{ fontSize: `${parseInt(receiptFontSize) + 2}px` }}>
                     <span>TOTAL:</span>
                     <span>£{vatEnabled ? '40.79' : '33.99'}</span>
                   </div>
@@ -691,55 +824,87 @@ export default function Settings() {
                 
                 <div className="border-t border-dashed border-gray-400 my-2"></div>
                 
-                <div className="text-center text-[10px] mt-2 mb-3">
+                {refundDays && (
+                  <div className="text-center mb-2" style={{ fontSize: `${parseInt(receiptFontSize) - 3}px` }}>
+                    Returns accepted within {refundDays} days
+                  </div>
+                )}
+
+                <div className="text-center mt-2 mb-3" style={{ fontSize: `${parseInt(receiptFontSize) - 2}px` }}>
                   {receiptFooter}
                 </div>
 
                 {/* Barcode */}
                 <div className="flex flex-col items-center mt-3">
-                  <svg width="200" height="50" className="mx-auto">
-                    <rect x="0" y="0" width="4" height="40" fill="black"/>
-                    <rect x="6" y="0" width="2" height="40" fill="black"/>
-                    <rect x="10" y="0" width="4" height="40" fill="black"/>
-                    <rect x="16" y="0" width="2" height="40" fill="black"/>
-                    <rect x="20" y="0" width="6" height="40" fill="black"/>
-                    <rect x="28" y="0" width="2" height="40" fill="black"/>
-                    <rect x="32" y="0" width="4" height="40" fill="black"/>
-                    <rect x="38" y="0" width="2" height="40" fill="black"/>
-                    <rect x="42" y="0" width="2" height="40" fill="black"/>
-                    <rect x="46" y="0" width="6" height="40" fill="black"/>
-                    <rect x="54" y="0" width="2" height="40" fill="black"/>
-                    <rect x="58" y="0" width="4" height="40" fill="black"/>
-                    <rect x="64" y="0" width="2" height="40" fill="black"/>
-                    <rect x="68" y="0" width="4" height="40" fill="black"/>
-                    <rect x="74" y="0" width="6" height="40" fill="black"/>
-                    <rect x="82" y="0" width="2" height="40" fill="black"/>
-                    <rect x="86" y="0" width="4" height="40" fill="black"/>
-                    <rect x="92" y="0" width="2" height="40" fill="black"/>
-                    <rect x="96" y="0" width="2" height="40" fill="black"/>
-                    <rect x="100" y="0" width="4" height="40" fill="black"/>
-                    <rect x="106" y="0" width="2" height="40" fill="black"/>
-                    <rect x="110" y="0" width="6" height="40" fill="black"/>
-                    <rect x="118" y="0" width="2" height="40" fill="black"/>
-                    <rect x="122" y="0" width="4" height="40" fill="black"/>
-                    <rect x="128" y="0" width="2" height="40" fill="black"/>
-                    <rect x="132" y="0" width="2" height="40" fill="black"/>
-                    <rect x="136" y="0" width="6" height="40" fill="black"/>
-                    <rect x="144" y="0" width="2" height="40" fill="black"/>
-                    <rect x="148" y="0" width="4" height="40" fill="black"/>
-                    <rect x="154" y="0" width="2" height="40" fill="black"/>
-                    <rect x="158" y="0" width="4" height="40" fill="black"/>
-                    <rect x="164" y="0" width="6" height="40" fill="black"/>
-                    <rect x="172" y="0" width="2" height="40" fill="black"/>
-                    <rect x="176" y="0" width="4" height="40" fill="black"/>
-                    <rect x="182" y="0" width="2" height="40" fill="black"/>
-                    <rect x="186" y="0" width="2" height="40" fill="black"/>
-                    <rect x="190" y="0" width="4" height="40" fill="black"/>
-                    <rect x="196" y="0" width="2" height="40" fill="black"/>
-                  </svg>
-                  <div className="text-[9px] text-center mt-1 font-mono">
-                    *12345*
-                  </div>
+                  {barcodeType === "qr" ? (
+                    <>
+                      <div className="w-24 h-24 bg-gray-900 rounded-lg mb-1 flex items-center justify-center">
+                        <svg viewBox="0 0 100 100" className="w-full h-full p-2">
+                          <rect x="0" y="0" width="20" height="20" fill="black"/>
+                          <rect x="0" y="30" width="10" height="10" fill="black"/>
+                          <rect x="20" y="30" width="10" height="10" fill="black"/>
+                          <rect x="40" y="0" width="20" height="20" fill="black"/>
+                          <rect x="70" y="0" width="30" height="30" fill="black"/>
+                          <rect x="0" y="50" width="30" height="10" fill="black"/>
+                          <rect x="40" y="40" width="20" height="20" fill="black"/>
+                          <rect x="70" y="40" width="10" height="20" fill="black"/>
+                          <rect x="0" y="70" width="20" height="30" fill="black"/>
+                          <rect x="30" y="70" width="10" height="30" fill="black"/>
+                          <rect x="50" y="70" width="20" height="10" fill="black"/>
+                          <rect x="80" y="70" width="20" height="30" fill="black"/>
+                        </svg>
+                      </div>
+                      <div className="text-center mt-1 font-mono" style={{ fontSize: `${parseInt(receiptFontSize) - 3}px` }}>
+                        Scan for details
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="200" height="50" className="mx-auto">
+                        <rect x="0" y="0" width="4" height="40" fill="black"/>
+                        <rect x="6" y="0" width="2" height="40" fill="black"/>
+                        <rect x="10" y="0" width="4" height="40" fill="black"/>
+                        <rect x="16" y="0" width="2" height="40" fill="black"/>
+                        <rect x="20" y="0" width="6" height="40" fill="black"/>
+                        <rect x="28" y="0" width="2" height="40" fill="black"/>
+                        <rect x="32" y="0" width="4" height="40" fill="black"/>
+                        <rect x="38" y="0" width="2" height="40" fill="black"/>
+                        <rect x="42" y="0" width="2" height="40" fill="black"/>
+                        <rect x="46" y="0" width="6" height="40" fill="black"/>
+                        <rect x="54" y="0" width="2" height="40" fill="black"/>
+                        <rect x="58" y="0" width="4" height="40" fill="black"/>
+                        <rect x="64" y="0" width="2" height="40" fill="black"/>
+                        <rect x="68" y="0" width="4" height="40" fill="black"/>
+                        <rect x="74" y="0" width="6" height="40" fill="black"/>
+                        <rect x="82" y="0" width="2" height="40" fill="black"/>
+                        <rect x="86" y="0" width="4" height="40" fill="black"/>
+                        <rect x="92" y="0" width="2" height="40" fill="black"/>
+                        <rect x="96" y="0" width="2" height="40" fill="black"/>
+                        <rect x="100" y="0" width="4" height="40" fill="black"/>
+                        <rect x="106" y="0" width="2" height="40" fill="black"/>
+                        <rect x="110" y="0" width="6" height="40" fill="black"/>
+                        <rect x="118" y="0" width="2" height="40" fill="black"/>
+                        <rect x="122" y="0" width="4" height="40" fill="black"/>
+                        <rect x="128" y="0" width="2" height="40" fill="black"/>
+                        <rect x="132" y="0" width="2" height="40" fill="black"/>
+                        <rect x="136" y="0" width="6" height="40" fill="black"/>
+                        <rect x="144" y="0" width="2" height="40" fill="black"/>
+                        <rect x="148" y="0" width="4" height="40" fill="black"/>
+                        <rect x="154" y="0" width="2" height="40" fill="black"/>
+                        <rect x="158" y="0" width="4" height="40" fill="black"/>
+                        <rect x="164" y="0" width="6" height="40" fill="black"/>
+                        <rect x="172" y="0" width="2" height="40" fill="black"/>
+                        <rect x="176" y="0" width="4" height="40" fill="black"/>
+                        <rect x="182" y="0" width="2" height="40" fill="black"/>
+                        <rect x="186" y="0" width="2" height="40" fill="black"/>
+                        <rect x="190" y="0" width="4" height="40" fill="black"/>
+                        <rect x="196" y="0" width="2" height="40" fill="black"/>
+                      </svg>
+                      <div className="text-center mt-1 font-mono" style={{ fontSize: `${parseInt(receiptFontSize) - 3}px` }}>
+                        *12345* ({barcodeType.toUpperCase()})
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
