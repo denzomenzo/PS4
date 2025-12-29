@@ -174,52 +174,63 @@ export default function Customers() {
     }
   };
 
-  const adjustBalance = async () => {
-    if (!balanceCustomer || !balanceAmount) {
-      alert("Please enter an amount");
+const adjustBalance = async () => {
+  if (!balanceCustomer || !balanceAmount) {
+    alert("Please enter an amount");
+    return;
+  }
+
+  const amount = parseFloat(balanceAmount);
+  if (isNaN(amount) || amount <= 0) {
+    alert("Please enter a valid amount");
+    return;
+  }
+
+  const newBalance = balanceAction === "add" 
+    ? balanceCustomer.balance + amount 
+    : balanceCustomer.balance - amount;
+
+  try {
+    const { error } = await supabase
+      .from("customers")
+      .update({ balance: newBalance })
+      .eq("id", balanceCustomer.id);
+
+    if (error) {
+      console.error("Error updating balance:", error);
+      alert("Error updating balance: " + error.message);
       return;
     }
 
-    const amount = parseFloat(balanceAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
+    // Log balance transaction
+    await supabase.from("customer_balance_history").insert({
+      user_id: userId,
+      customer_id: balanceCustomer.id,
+      amount: balanceAction === "add" ? amount : -amount,
+      previous_balance: balanceCustomer.balance,
+      new_balance: newBalance,
+      note: balanceNote || null,
+    });
 
-    const newBalance = balanceAction === "add" 
-      ? balanceCustomer.balance + amount 
-      : balanceCustomer.balance - amount;
+    // Update the balanceCustomer state with the new balance
+    setBalanceCustomer({
+      ...balanceCustomer,
+      balance: newBalance
+    });
 
-    try {
-      const { error } = await supabase
-        .from("customers")
-        .update({ balance: newBalance })
-        .eq("id", balanceCustomer.id);
+    // Reset the form
+    setBalanceAmount("");
+    setBalanceNote("");
 
-      if (error) {
-        console.error("Error updating balance:", error);
-        alert("Error updating balance: " + error.message);
-        return;
-      }
-
-      // Log balance transaction
-      await supabase.from("customer_balance_history").insert({
-        user_id: userId,
-        customer_id: balanceCustomer.id,
-        amount: balanceAction === "add" ? amount : -amount,
-        previous_balance: balanceCustomer.balance,
-        new_balance: newBalance,
-        note: balanceNote || null,
-      });
-
-      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
-      setShowBalanceModal(false);
-      loadCustomers();
-    } catch (error) {
-      console.error("Error:", error);
-      alert("Error adjusting balance");
-    }
-  };
+    alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
+    
+    // Reload customers to update the main list
+    loadCustomers();
+  } catch (error) {
+    console.error("Error:", error);
+    alert("Error adjusting balance");
+  }
+};
 
   const deleteCustomer = async (id: number) => {
     if (!confirm("Are you sure you want to delete this customer?")) return;
@@ -656,3 +667,4 @@ export default function Customers() {
     </div>
   );
 }
+
