@@ -565,7 +565,7 @@ const adjustBalance = async () => {
                 £{((balanceCustomer?.balance ?? 0)).toFixed(2)}
               </span>
             </div>
-          </div>>
+          </div>
 
             <div className="space-y-5">
               <div>
@@ -669,6 +669,7 @@ const adjustBalance = async () => {
     </div>
   );
 }
+
 
 
 
