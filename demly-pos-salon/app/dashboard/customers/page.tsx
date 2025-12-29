@@ -27,6 +27,13 @@ export default function Customers() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [balanceCustomer, setBalanceCustomer] = useState<Customer | null>(null);
 
+  // Helper function to ensure balance is always a number
+  const getBalance = (balance: any): number => {
+    if (balance === null || balance === undefined) return 0;
+    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
+    return isNaN(num) ? 0 : num;
+  };
+
   // Form states
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
@@ -80,8 +87,13 @@ export default function Customers() {
         console.error("Error loading customers:", error);
       } else {
         if (data) {
-          setCustomers(data);
-          setFilteredCustomers(data);
+          // Normalize balance to ensure it's always a number
+          const normalizedData = data.map(customer => ({
+            ...customer,
+            balance: getBalance(customer.balance)
+          }));
+          setCustomers(normalizedData);
+          setFilteredCustomers(normalizedData);
         }
       }
     } catch (error) {
@@ -107,7 +119,7 @@ export default function Customers() {
     setFormPhone(customer.phone || "");
     setFormEmail(customer.email || "");
     setFormNotes(customer.notes || "");
-    setFormBalance((customer.balance ?? 0).toString());
+    setFormBalance(getBalance(customer.balance).toString());
     setShowModal(true);
   };
 
@@ -187,7 +199,7 @@ export default function Customers() {
     }
 
     // Ensure balance is a number, handling null/undefined
-    const currentBalance = balanceCustomer.balance ?? 0;
+    const currentBalance = getBalance(balanceCustomer.balance);
     const newBalance = balanceAction === "add" 
       ? currentBalance + amount 
       : currentBalance - amount;
@@ -264,8 +276,8 @@ export default function Customers() {
     );
   }
 
-  const totalBalance = customers.reduce((sum, c) => sum + (c.balance ?? 0), 0);
-  const customersWithBalance = customers.filter(c => (c.balance ?? 0) > 0).length;
+  const totalBalance = customers.reduce((sum, c) => sum + getBalance(c.balance), 0);
+  const customersWithBalance = customers.filter(c => getBalance(c.balance) > 0).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white p-8">
@@ -416,9 +428,9 @@ export default function Customers() {
                       <span className="text-sm text-slate-400 font-medium">Balance</span>
                     </div>
                     <span className={`text-2xl font-black ${
-                      (customer.balance ?? 0) > 0 ? "text-emerald-400" : "text-slate-500"
+                      getBalance(customer.balance) > 0 ? "text-emerald-400" : "text-slate-500"
                     }`}>
-                      £{(customer.balance ?? 0).toFixed(2)}
+                      £{getBalance(customer.balance).toFixed(2)}
                     </span>
                   </div>
                   
@@ -562,7 +574,7 @@ export default function Customers() {
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Current Balance:</span>
                 <span className="text-3xl font-black text-emerald-400">
-                  £{(balanceCustomer.balance ?? 0).toFixed(2)}
+                  £{getBalance(balanceCustomer.balance).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -613,7 +625,7 @@ export default function Customers() {
                 <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-400">Current Balance:</span>
-                    <span className="font-bold">£{(balanceCustomer.balance ?? 0).toFixed(2)}</span>
+                    <span className="font-bold">£{getBalance(balanceCustomer.balance).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-400">
@@ -628,7 +640,7 @@ export default function Customers() {
                       <span className="font-bold">New Balance:</span>
                       <span className="text-xl font-black text-cyan-400">
                         £{(
-                          (balanceCustomer.balance ?? 0) + 
+                          getBalance(balanceCustomer.balance) + 
                           (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount || "0")
                         ).toFixed(2)}
                       </span>
@@ -658,6 +670,7 @@ export default function Customers() {
               <button
                 onClick={adjustBalance}
                 disabled={!balanceAmount || parseFloat(balanceAmount) <= 0}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:
                 className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50"
               >
                 Confirm
@@ -669,10 +682,3 @@ export default function Customers() {
     </div>
   );
 }
-
-
-
-
-
-
-
