@@ -70,6 +70,9 @@ export default function POS() {
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
   const [lastScannedProduct, setLastScannedProduct] = useState<Product | null>(null);
   
+  // Receipt settings from settings table
+  const [receiptSettings, setReceiptSettings] = useState<any>(null);
+  
   // Modal states
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showMiscModal, setShowMiscModal] = useState(false);
@@ -174,12 +177,17 @@ export default function POS() {
     
     const { data: settingsData } = await supabase
       .from("settings")
-      .select("vat_enabled")
+      .select("vat_enabled, business_name, business_address, business_phone, business_email, business_website, tax_number, receipt_logo_url, receipt_footer, refund_days, show_tax_breakdown, receipt_font_size, barcode_type")
       .eq("user_id", userId)
       .single();
     
     if (settingsData?.vat_enabled !== undefined) {
       setVatEnabled(settingsData.vat_enabled);
+    }
+    
+    // Store receipt settings
+    if (settingsData) {
+      setReceiptSettings(settingsData);
     }
 
     const { data: hardwareData } = await supabase
@@ -345,42 +353,224 @@ export default function POS() {
     const receiptWindow = window.open('', '_blank');
     if (!receiptWindow) return;
 
+    const fontSize = receiptSettings?.receipt_font_size || 12;
+    const businessName = receiptSettings?.business_name || "Your Business";
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const businessWebsite = receiptSettings?.business_website || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const receiptLogoUrl = receiptSettings?.receipt_logo_url || "";
+    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+    const refundDays = receiptSettings?.refund_days || null;
+    const showTaxBreakdown = receiptSettings?.show_tax_breakdown !== false;
+    const barcodeType = receiptSettings?.barcode_type || "code128";
+
+    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+
     const receiptHTML = `
       <!DOCTYPE html>
       <html>
       <head>
         <title>Receipt</title>
         <style>
-          body { font-family: monospace; padding: 20px; max-width: 300px; margin: 0 auto; }
-          h1 { text-align: center; font-size: 18px; margin-bottom: 10px; }
-          .line { border-bottom: 1px dashed #000; margin: 10px 0; }
-          .item { display: flex; justify-content: space-between; margin: 5px 0; }
-          .totals { margin-top: 10px; font-weight: bold; }
-          .total-line { display: flex; justify-content: space-between; margin: 3px 0; }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 300px; 
+            margin: 0 auto;
+            font-size: ${fontSize}px;
+          }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 6}px; 
+            margin-bottom: 10px;
+            font-weight: bold;
+          }
+          .logo {
+            text-align: center;
+            margin-bottom: 10px;
+          }
+          .logo img {
+            max-width: 150px;
+            height: auto;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 10px 0; 
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+            font-size: ${fontSize - 1}px;
+          }
+          .totals { 
+            margin-top: 10px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 3px 0; 
+          }
+          .text-center { 
+            text-align: center; 
+          }
+          .small { 
+            font-size: ${fontSize - 2}px; 
+          }
+          .tiny { 
+            font-size: ${fontSize - 3}px; 
+          }
+          .barcode-container {
+            text-align: center;
+            margin-top: 15px;
+          }
+          .barcode {
+            margin: 10px auto;
+          }
         </style>
       </head>
       <body>
-        <h1>DEMLY POS</h1>
-        <p style="text-align: center; font-size: 12px;">Receipt (No Payment)</p>
+        ${receiptLogoUrl ? `<div class="logo"><img src="${receiptLogoUrl}" alt="Logo" /></div>` : ''}
+        
+        <h1>${businessName}</h1>
+        <div class="text-center small">
+          ${businessAddress ? `<div style="white-space: pre-line; margin-bottom: 3px;">${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${businessWebsite ? `<div>${businessWebsite}</div>` : ''}
+          ${taxNumber ? `<div style="margin-top: 5px;">Tax No: ${taxNumber}</div>` : ''}
+        </div>
+        
         <div class="line"></div>
-        <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-        ${customerId ? `<p><strong>Customer:</strong> ${customers.find(c => c.id.toString() === customerId)?.name || 'N/A'}</p>` : ''}
+        
+        <div class="small">
+          <div><strong>Receipt #${Date.now().toString().slice(-8)}</strong></div>
+          <div>${new Date().toLocaleString('en-GB')}</div>
+          ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
+        </div>
+        
         <div class="line"></div>
+        
         ${cart.map(item => `
           <div class="item">
             <span>${item.name} x${item.quantity}</span>
-            <span>£${(item.price * item.quantity - (item.discount || 0)).toFixed(2)}</span>
+            <span><strong>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</strong></span>
           </div>
-          ${item.discount ? `<div class="item" style="font-size: 11px; color: #666;"><span>  Discount</span><span>-£${item.discount.toFixed(2)}</span></div>` : ''}
+          ${item.discount && item.discount > 0 ? `
+            <div class="item tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Discount</span>
+              <span>-£${item.discount.toFixed(2)}</span>
+            </div>
+          ` : ''}
         `).join('')}
+        
         <div class="line"></div>
+        
         <div class="totals">
-          <div class="total-line"><span>Subtotal:</span><span>£${subtotal.toFixed(2)}</span></div>
-          ${vatEnabled ? `<div class="total-line"><span>VAT (20%):</span><span>£${vat.toFixed(2)}</span></div>` : ''}
-          <div class="total-line" style="font-size: 16px;"><span>TOTAL:</span><span>£${grandTotal.toFixed(2)}</span></div>
+          <div class="total-line small">
+            <span>Subtotal:</span>
+            <span>£${subtotal.toFixed(2)}</span>
+          </div>
+          ${vatEnabled && showTaxBreakdown ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${vat.toFixed(2)}</span>
+            </div>
+            <div class="total-line tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Net: £${(subtotal / 1.2).toFixed(2)}</span>
+              <span>Tax: £${(subtotal * 0.2 / 1.2).toFixed(2)}</span>
+            </div>
+          ` : vatEnabled ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${vat.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line" style="font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 5px; margin-top: 5px;">
+            <span>TOTAL:</span>
+            <span>£${grandTotal.toFixed(2)}</span>
+          </div>
         </div>
+        
         <div class="line"></div>
-        <p style="text-align: center; font-size: 11px; margin-top: 20px;">Thank you for your business!</p>
+        
+        ${refundDays ? `
+          <div class="text-center tiny" style="margin: 10px 0;">
+            Returns accepted within ${refundDays} days
+          </div>
+        ` : ''}
+        
+        <div class="text-center small" style="margin-top: 10px;">
+          ${receiptFooter}
+        </div>
+
+        ${barcodeType === "qr" ? `
+          <div class="barcode-container">
+            <svg viewBox="0 0 100 100" width="100" height="100" class="barcode">
+              <rect x="0" y="0" width="20" height="20" fill="black"/>
+              <rect x="0" y="30" width="10" height="10" fill="black"/>
+              <rect x="20" y="30" width="10" height="10" fill="black"/>
+              <rect x="40" y="0" width="20" height="20" fill="black"/>
+              <rect x="70" y="0" width="30" height="30" fill="black"/>
+              <rect x="0" y="50" width="30" height="10" fill="black"/>
+              <rect x="40" y="40" width="20" height="20" fill="black"/>
+              <rect x="70" y="40" width="10" height="20" fill="black"/>
+              <rect x="0" y="70" width="20" height="30" fill="black"/>
+              <rect x="30" y="70" width="10" height="30" fill="black"/>
+              <rect x="50" y="70" width="20" height="10" fill="black"/>
+              <rect x="80" y="70" width="20" height="30" fill="black"/>
+            </svg>
+            <div class="tiny">Scan for details</div>
+          </div>
+        ` : `
+          <div class="barcode-container">
+            <svg width="200" height="50" class="barcode">
+              <rect x="0" y="0" width="4" height="40" fill="black"/>
+              <rect x="6" y="0" width="2" height="40" fill="black"/>
+              <rect x="10" y="0" width="4" height="40" fill="black"/>
+              <rect x="16" y="0" width="2" height="40" fill="black"/>
+              <rect x="20" y="0" width="6" height="40" fill="black"/>
+              <rect x="28" y="0" width="2" height="40" fill="black"/>
+              <rect x="32" y="0" width="4" height="40" fill="black"/>
+              <rect x="38" y="0" width="2" height="40" fill="black"/>
+              <rect x="42" y="0" width="2" height="40" fill="black"/>
+              <rect x="46" y="0" width="6" height="40" fill="black"/>
+              <rect x="54" y="0" width="2" height="40" fill="black"/>
+              <rect x="58" y="0" width="4" height="40" fill="black"/>
+              <rect x="64" y="0" width="2" height="40" fill="black"/>
+              <rect x="68" y="0" width="4" height="40" fill="black"/>
+              <rect x="74" y="0" width="6" height="40" fill="black"/>
+              <rect x="82" y="0" width="2" height="40" fill="black"/>
+              <rect x="86" y="0" width="4" height="40" fill="black"/>
+              <rect x="92" y="0" width="2" height="40" fill="black"/>
+              <rect x="96" y="0" width="2" height="40" fill="black"/>
+              <rect x="100" y="0" width="4" height="40" fill="black"/>
+              <rect x="106" y="0" width="2" height="40" fill="black"/>
+              <rect x="110" y="0" width="6" height="40" fill="black"/>
+              <rect x="118" y="0" width="2" height="40" fill="black"/>
+              <rect x="122" y="0" width="4" height="40" fill="black"/>
+              <rect x="128" y="0" width="2" height="40" fill="black"/>
+              <rect x="132" y="0" width="2" height="40" fill="black"/>
+              <rect x="136" y="0" width="6" height="40" fill="black"/>
+              <rect x="144" y="0" width="2" height="40" fill="black"/>
+              <rect x="148" y="0" width="4" height="40" fill="black"/>
+              <rect x="154" y="0" width="2" height="40" fill="black"/>
+              <rect x="158" y="0" width="4" height="40" fill="black"/>
+              <rect x="164" y="0" width="6" height="40" fill="black"/>
+              <rect x="172" y="0" width="2" height="40" fill="black"/>
+              <rect x="176" y="0" width="4" height="40" fill="black"/>
+              <rect x="182" y="0" width="2" height="40" fill="black"/>
+              <rect x="186" y="0" width="2" height="40" fill="black"/>
+              <rect x="190" y="0" width="4" height="40" fill="black"/>
+              <rect x="196" y="0" width="2" height="40" fill="black"/>
+            </svg>
+            <div class="tiny">*${Date.now().toString().slice(-8)}* (${barcodeType.toUpperCase()})</div>
+          </div>
+        `}
+        
         <script>window.print(); window.onafterprint = () => window.close();</script>
       </body>
       </html>
