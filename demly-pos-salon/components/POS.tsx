@@ -1,4 +1,4 @@
-// components/POS.tsx - UPDATED TO USE LAYOUT AUTH
+// components/POS.tsx - ENHANCED VERSION
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -7,8 +7,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
-import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X, Settings as SettingsIcon } from "lucide-react";
-import Link from "next/link";
+import { Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, Minus, Layers, X, Printer, Tag, DollarSign, Package } from "lucide-react";
 
 interface Product {
   id: number;
@@ -32,6 +31,8 @@ interface Customer {
 interface CartItem extends Product {
   cartId: string;
   quantity: number;
+  discount?: number;
+  isMisc?: boolean;
 }
 
 interface Transaction {
@@ -67,6 +68,15 @@ export default function POS() {
   const [hardwareSettings, setHardwareSettings] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
+  const [lastScannedProduct, setLastScannedProduct] = useState<Product | null>(null);
+  
+  // Modal states
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [showMiscModal, setShowMiscModal] = useState(false);
+  const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
+  const [discountValue, setDiscountValue] = useState("");
+  const [miscProductName, setMiscProductName] = useState("");
+  const [miscProductPrice, setMiscProductPrice] = useState("");
 
   const activeTransaction = transactions.find(t => t.id === activeTransactionId);
   const cart = activeTransaction?.cart || [];
@@ -88,7 +98,11 @@ export default function POS() {
 
   const handleBarcodeScan = useCallback((barcode: string) => {
     const product = products.find((p) => p.barcode === barcode || p.sku === barcode);
-    if (product) addToCart(product);
+    if (product) {
+      addToCart(product);
+      setLastScannedProduct(product);
+      setTimeout(() => setLastScannedProduct(null), 3000);
+    }
   }, [products]);
 
   const { isScanning } = useBarcodeScanner({
@@ -103,9 +117,13 @@ export default function POS() {
     }
   }, [userId, currentStaff]);
 
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const vat = vatEnabled ? total * 0.2 : 0;
-  const grandTotal = total + vat;
+  const subtotal = cart.reduce((sum, item) => {
+    const itemTotal = item.price * item.quantity;
+    const itemDiscount = item.discount || 0;
+    return sum + (itemTotal - itemDiscount);
+  }, 0);
+  const vat = vatEnabled ? subtotal * 0.2 : 0;
+  const grandTotal = subtotal + vat;
 
   // Broadcast cart updates to customer display
   useEffect(() => {
@@ -121,7 +139,7 @@ export default function POS() {
           event: 'cart-update',
           payload: {
             cart: cart,
-            total: total,
+            total: subtotal,
             vat: vat,
             grandTotal: grandTotal,
             transactionName: activeTransaction?.name || "Transaction 1",
@@ -134,7 +152,7 @@ export default function POS() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [cart, total, vat, grandTotal, activeTransactionId, activeTransaction, hardwareSettings]);
+  }, [cart, subtotal, vat, grandTotal, activeTransactionId, activeTransaction, hardwareSettings]);
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -200,7 +218,7 @@ export default function POS() {
       return;
     }
 
-    const existingItem = cart.find((item) => item.id === product.id);
+    const existingItem = cart.find((item) => item.id === product.id && !item.isMisc);
     
     if (existingItem) {
       const newQuantity = existingItem.quantity + 1;
@@ -211,11 +229,68 @@ export default function POS() {
       }
       
       setCart(cart.map((item) => 
-        item.id === product.id ? { ...item, quantity: newQuantity } : item
+        item.id === product.id && !item.isMisc ? { ...item, quantity: newQuantity } : item
       ));
     } else {
       setCart([...cart, { ...product, cartId: `${product.id}-${Date.now()}`, quantity: 1 }]);
     }
+  };
+
+  const addMiscProduct = () => {
+    if (!miscProductName.trim() || !miscProductPrice) {
+      alert("Please enter product name and price");
+      return;
+    }
+
+    const price = parseFloat(miscProductPrice);
+    if (isNaN(price) || price <= 0) {
+      alert("Please enter a valid price");
+      return;
+    }
+
+    const miscProduct: CartItem = {
+      id: Date.now(),
+      cartId: `misc-${Date.now()}`,
+      name: miscProductName,
+      price: price,
+      quantity: 1,
+      icon: "📦",
+      track_inventory: false,
+      stock_quantity: 0,
+      isMisc: true,
+    };
+
+    setCart([...cart, miscProduct]);
+    setMiscProductName("");
+    setMiscProductPrice("");
+    setShowMiscModal(false);
+  };
+
+  const applyDiscount = () => {
+    if (!discountValue || cart.length === 0) return;
+
+    const value = parseFloat(discountValue);
+    if (isNaN(value) || value <= 0) {
+      alert("Please enter a valid discount");
+      return;
+    }
+
+    const itemTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const discountAmount = discountType === "percentage" 
+      ? (itemTotal * value) / 100 
+      : value;
+
+    // Apply discount proportionally to all items
+    const updatedCart = cart.map(item => {
+      const itemSubtotal = item.price * item.quantity;
+      const itemProportion = itemSubtotal / itemTotal;
+      const itemDiscount = discountAmount * itemProportion;
+      return { ...item, discount: (item.discount || 0) + itemDiscount };
+    });
+
+    setCart(updatedCart);
+    setDiscountValue("");
+    setShowDiscountModal(false);
   };
 
   const removeFromCart = (cartId: string) => setCart(cart.filter((item) => item.cartId !== cartId));
@@ -261,6 +336,78 @@ export default function POS() {
     }
   };
 
+  const printReceipt = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
+
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) return;
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt</title>
+        <style>
+          body { font-family: monospace; padding: 20px; max-width: 300px; margin: 0 auto; }
+          h1 { text-align: center; font-size: 18px; margin-bottom: 10px; }
+          .line { border-bottom: 1px dashed #000; margin: 10px 0; }
+          .item { display: flex; justify-content: space-between; margin: 5px 0; }
+          .totals { margin-top: 10px; font-weight: bold; }
+          .total-line { display: flex; justify-content: space-between; margin: 3px 0; }
+        </style>
+      </head>
+      <body>
+        <h1>DEMLY POS</h1>
+        <p style="text-align: center; font-size: 12px;">Receipt (No Payment)</p>
+        <div class="line"></div>
+        <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+        ${customerId ? `<p><strong>Customer:</strong> ${customers.find(c => c.id.toString() === customerId)?.name || 'N/A'}</p>` : ''}
+        <div class="line"></div>
+        ${cart.map(item => `
+          <div class="item">
+            <span>${item.name} x${item.quantity}</span>
+            <span>£${(item.price * item.quantity - (item.discount || 0)).toFixed(2)}</span>
+          </div>
+          ${item.discount ? `<div class="item" style="font-size: 11px; color: #666;"><span>  Discount</span><span>-£${item.discount.toFixed(2)}</span></div>` : ''}
+        `).join('')}
+        <div class="line"></div>
+        <div class="totals">
+          <div class="total-line"><span>Subtotal:</span><span>£${subtotal.toFixed(2)}</span></div>
+          ${vatEnabled ? `<div class="total-line"><span>VAT (20%):</span><span>£${vat.toFixed(2)}</span></div>` : ''}
+          <div class="total-line" style="font-size: 16px;"><span>TOTAL:</span><span>£${grandTotal.toFixed(2)}</span></div>
+        </div>
+        <div class="line"></div>
+        <p style="text-align: center; font-size: 11px; margin-top: 20px;">Thank you for your business!</p>
+        <script>window.print(); window.onafterprint = () => window.close();</script>
+      </body>
+      </html>
+    `;
+
+    receiptWindow.document.write(receiptHTML);
+    receiptWindow.document.close();
+  };
+
+  const noSale = async () => {
+    if (!confirm("Open cash drawer without recording a sale?")) return;
+
+    try {
+      await logAuditAction({
+        action: "NO_SALE",
+        entityType: "transaction",
+        entityId: "no-sale",
+        newValues: { reason: "No Sale - Cash Drawer Opened" },
+        staffId: currentStaff?.id,
+      });
+
+      alert("✅ Cash drawer opened (No Sale)");
+    } catch (error) {
+      console.error("No sale error:", error);
+    }
+  };
+
   const checkout = async () => {
     if (cart.length === 0) return alert("Cart is empty");
     
@@ -280,9 +427,10 @@ export default function POS() {
             price: item.price,
             icon: item.icon,
             quantity: item.quantity,
-            total: item.price * item.quantity,
+            discount: item.discount || 0,
+            total: (item.price * item.quantity) - (item.discount || 0),
           })),
-          subtotal: total,
+          subtotal: subtotal,
           vat: vat,
           total: grandTotal,
         })
@@ -291,9 +439,9 @@ export default function POS() {
 
       if (transactionError) throw transactionError;
 
-      // Update stock
+      // Update stock for non-misc items
       const stockUpdates = cart
-        .filter(item => item.track_inventory)
+        .filter(item => item.track_inventory && !item.isMisc)
         .map(item => ({
           id: item.id,
           newStock: item.stock_quantity - item.quantity
@@ -392,6 +540,24 @@ export default function POS() {
           </div>
         </div>
 
+        {/* Last Scanned Product Banner */}
+        {lastScannedProduct && (
+          <div className="mb-6 bg-emerald-500/20 border border-emerald-500/50 rounded-2xl p-4 flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+            {lastScannedProduct.image_url && (
+              <img 
+                src={lastScannedProduct.image_url} 
+                alt={lastScannedProduct.name}
+                className="w-16 h-16 rounded-xl object-cover border-2 border-emerald-500/50"
+              />
+            )}
+            <div className="flex-1">
+              <p className="text-sm text-emerald-400 font-semibold">✓ Scanned</p>
+              <p className="text-white font-bold">{lastScannedProduct.name}</p>
+            </div>
+            <p className="text-2xl font-black text-emerald-400">£{lastScannedProduct.price.toFixed(2)}</p>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto bg-slate-900/30 backdrop-blur-xl rounded-3xl p-6 border border-slate-800/50 shadow-2xl">
           {filteredProducts.length === 0 ? (
             <div className="flex items-center justify-center h-full">
@@ -408,17 +574,29 @@ export default function POS() {
                   key={product.id}
                   onClick={() => addToCart(product)}
                   disabled={product.track_inventory && product.stock_quantity <= 0}
-                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-5 hover:border-emerald-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
+                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-4 hover:border-emerald-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
                 >
-                  {product.icon && (
-                    <span className="text-5xl block mb-3 group-hover:scale-110 transition-transform duration-200">
+                  {product.image_url ? (
+                    <div className="relative w-full aspect-square mb-3 rounded-xl overflow-hidden bg-slate-700/30">
+                      <img 
+                        src={product.image_url} 
+                        alt={product.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
+                      />
+                    </div>
+                  ) : product.icon ? (
+                    <span className="text-4xl block mb-3 group-hover:scale-110 transition-transform duration-200">
                       {product.icon}
                     </span>
+                  ) : (
+                    <div className="w-full aspect-square mb-3 rounded-xl bg-slate-700/30 flex items-center justify-center text-3xl">
+                      📦
+                    </div>
                   )}
                   <p className="font-bold text-white text-sm mb-2 line-clamp-2 leading-tight">
                     {product.name}
                   </p>
-                  <p className="text-2xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
+                  <p className="text-xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                     £{product.price.toFixed(2)}
                   </p>
                   {product.track_inventory && (
@@ -530,6 +708,9 @@ export default function POS() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-white text-base truncate">{item.name}</h3>
                     <p className="text-sm text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
+                    {item.discount && item.discount > 0 && (
+                      <p className="text-xs text-emerald-400 font-semibold">-£{item.discount.toFixed(2)} discount</p>
+                    )}
                   </div>
                   <button 
                     onClick={() => removeFromCart(item.cartId)} 
@@ -557,7 +738,7 @@ export default function POS() {
                     </button>
                   </div>
                   <span className="text-xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
-                    £{(item.price * item.quantity).toFixed(2)}
+                    £{((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -583,7 +764,7 @@ export default function POS() {
           <div className="space-y-3 bg-slate-800/40 backdrop-blur-lg rounded-2xl p-5 border border-slate-700/50">
             <div className="flex justify-between text-slate-300 text-base">
               <span className="font-medium">Subtotal</span>
-              <span className="font-bold">£{total.toFixed(2)}</span>
+              <span className="font-bold">£{subtotal.toFixed(2)}</span>
             </div>
             {vatEnabled && (
               <div className="flex justify-between text-slate-300 text-base">
@@ -600,6 +781,43 @@ export default function POS() {
             </div>
           </div>
 
+          {/* Action Buttons Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setShowDiscountModal(true)}
+              disabled={cart.length === 0}
+              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <Tag className="w-5 h-5" />
+              Discount
+            </button>
+            
+            <button
+              onClick={() => setShowMiscModal(true)}
+              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <Package className="w-5 h-5" />
+              Misc Item
+            </button>
+
+            <button
+              onClick={printReceipt}
+              disabled={cart.length === 0}
+              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <Printer className="w-5 h-5" />
+              Print
+            </button>
+
+            <button
+              onClick={noSale}
+              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <DollarSign className="w-5 h-5" />
+              No Sale
+            </button>
+          </div>
+
           <button
             onClick={checkout}
             disabled={checkingOut || cart.length === 0}
@@ -613,12 +831,159 @@ export default function POS() {
             ) : (
               <>
                 <CreditCard className="w-6 h-6" />
-                Charge £{grandTotal.toFixed(2)}
+                PAY £{grandTotal.toFixed(2)}
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* Discount Modal */}
+      {showDiscountModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold text-white">Apply Discount</h2>
+              <button onClick={() => setShowDiscountModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-lg mb-3 font-medium text-white">Discount Type</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setDiscountType("percentage")}
+                    className={`py-3 rounded-xl font-bold border-2 transition-all ${
+                      discountType === "percentage"
+                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                        : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+                    }`}
+                  >
+                    Percentage %
+                  </button>
+                  <button
+                    onClick={() => setDiscountType("fixed")}
+                    className={`py-3 rounded-xl font-bold border-2 transition-all ${
+                      discountType === "fixed"
+                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                        : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+                    }`}
+                  >
+                    Fixed £
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium text-white">
+                  {discountType === "percentage" ? "Discount %" : "Discount Amount £"}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                  placeholder={discountType === "percentage" ? "10" : "5.00"}
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-4 rounded-xl text-2xl text-center font-bold focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  autoFocus
+                />
+              </div>
+
+              {discountValue && (
+                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                  <div className="flex justify-between text-sm mb-2 text-slate-300">
+                    <span>Current Total:</span>
+                    <span className="font-bold">£{(cart.reduce((s, i) => s + i.price * i.quantity, 0)).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-emerald-400">Discount:</span>
+                    <span className="text-emerald-400 font-bold">
+                      -£{(discountType === "percentage" 
+                        ? (cart.reduce((s, i) => s + i.price * i.quantity, 0) * parseFloat(discountValue || "0")) / 100
+                        : parseFloat(discountValue || "0")
+                      ).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4 mt-8">
+              <button
+                onClick={() => setShowDiscountModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyDiscount}
+                disabled={!discountValue || parseFloat(discountValue) <= 0}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50 text-white"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Misc Product Modal */}
+      {showMiscModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold text-white">Add Misc Item</h2>
+              <button onClick={() => setShowMiscModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <label className="block text-lg mb-2 font-medium text-white">Product Name</label>
+                <input
+                  type="text"
+                  value={miscProductName}
+                  onChange={(e) => setMiscProductName(e.target.value)}
+                  placeholder="Enter product name"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-4 rounded-xl text-lg focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-lg mb-2 font-medium text-white">Price £</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={miscProductPrice}
+                  onChange={(e) => setMiscProductPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-4 rounded-xl text-2xl text-center font-bold focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4 mt-8">
+              <button
+                onClick={() => setShowMiscModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addMiscProduct}
+                disabled={!miscProductName.trim() || !miscProductPrice}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50 text-white"
+              >
+                Add Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
