@@ -107,7 +107,7 @@ export default function Customers() {
     setFormPhone(customer.phone || "");
     setFormEmail(customer.email || "");
     setFormNotes(customer.notes || "");
-    setFormBalance(customer.balance?.toString() || "0");
+    setFormBalance((customer.balance ?? 0).toString());
     setShowModal(true);
   };
 
@@ -174,65 +174,65 @@ export default function Customers() {
     }
   };
 
-const adjustBalance = async () => {
-  if (!balanceCustomer || !balanceAmount) {
-    alert("Please enter an amount");
-    return;
-  }
-
-  const amount = parseFloat(balanceAmount);
-  if (isNaN(amount) || amount <= 0) {
-    alert("Please enter a valid amount");
-    return;
-  }
-
-  // Ensure balance is a number, handling null/undefined
-  const currentBalance = balanceCustomer.balance ?? 0;
-  const newBalance = balanceAction === "add" 
-    ? currentBalance + amount 
-    : currentBalance - amount;
-
-  try {
-    const { error } = await supabase
-      .from("customers")
-      .update({ balance: newBalance })
-      .eq("id", balanceCustomer.id);
-
-    if (error) {
-      console.error("Error updating balance:", error);
-      alert("Error updating balance: " + error.message);
+  const adjustBalance = async () => {
+    if (!balanceCustomer || !balanceAmount) {
+      alert("Please enter an amount");
       return;
     }
 
-    // Log balance transaction
-    await supabase.from("customer_balance_history").insert({
-      user_id: userId,
-      customer_id: balanceCustomer.id,
-      amount: balanceAction === "add" ? amount : -amount,
-      previous_balance: currentBalance,
-      new_balance: newBalance,
-      note: balanceNote || null,
-    });
+    const amount = parseFloat(balanceAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
 
-    // Update the balanceCustomer state with the new balance
-    setBalanceCustomer({
-      ...balanceCustomer,
-      balance: newBalance
-    });
+    // Ensure balance is a number, handling null/undefined
+    const currentBalance = balanceCustomer.balance ?? 0;
+    const newBalance = balanceAction === "add" 
+      ? currentBalance + amount 
+      : currentBalance - amount;
 
-    // Reset the form
-    setBalanceAmount("");
-    setBalanceNote("");
+    try {
+      const { error } = await supabase
+        .from("customers")
+        .update({ balance: newBalance })
+        .eq("id", balanceCustomer.id);
 
-    alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
-    
-    // Reload customers to update the main list
-    loadCustomers();
-  } catch (error) {
-    console.error("Error:", error);
-    alert("Error adjusting balance");
-  }
-};
+      if (error) {
+        console.error("Error updating balance:", error);
+        alert("Error updating balance: " + error.message);
+        return;
+      }
+
+      // Log balance transaction
+      await supabase.from("customer_balance_history").insert({
+        user_id: userId,
+        customer_id: balanceCustomer.id,
+        amount: balanceAction === "add" ? amount : -amount,
+        previous_balance: currentBalance,
+        new_balance: newBalance,
+        note: balanceNote || null,
+      });
+
+      // Update the balanceCustomer state with the new balance
+      setBalanceCustomer({
+        ...balanceCustomer,
+        balance: newBalance
+      });
+
+      // Reset the form
+      setBalanceAmount("");
+      setBalanceNote("");
+
+      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
+      
+      // Reload customers to update the main list
+      loadCustomers();
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error adjusting balance");
+    }
+  };
 
   const deleteCustomer = async (id: number) => {
     if (!confirm("Are you sure you want to delete this customer?")) return;
@@ -264,8 +264,8 @@ const adjustBalance = async () => {
     );
   }
 
-  const totalBalance = customers.reduce((sum, c) => sum + (c.balance || 0), 0);
-  const customersWithBalance = customers.filter(c => (c.balance || 0) > 0).length;
+  const totalBalance = customers.reduce((sum, c) => sum + (c.balance ?? 0), 0);
+  const customersWithBalance = customers.filter(c => (c.balance ?? 0) > 0).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white p-8">
@@ -416,9 +416,9 @@ const adjustBalance = async () => {
                       <span className="text-sm text-slate-400 font-medium">Balance</span>
                     </div>
                     <span className={`text-2xl font-black ${
-                      (customer.balance || 0) > 0 ? "text-emerald-400" : "text-slate-500"
+                      (customer.balance ?? 0) > 0 ? "text-emerald-400" : "text-slate-500"
                     }`}>
-                      £{(customer.balance || 0).toFixed(2)}
+                      £{(customer.balance ?? 0).toFixed(2)}
                     </span>
                   </div>
                   
@@ -554,18 +554,18 @@ const adjustBalance = async () => {
               </button>
             </div>
 
-          <div className="bg-slate-800/50 rounded-xl p-5 mb-6 border border-slate-700/50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-slate-400">Customer:</span>
-              <span className="font-bold text-white text-lg">{balanceCustomer.name}</span>
+            <div className="bg-slate-800/50 rounded-xl p-5 mb-6 border border-slate-700/50">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-400">Customer:</span>
+                <span className="font-bold text-white text-lg">{balanceCustomer.name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Current Balance:</span>
+                <span className="text-3xl font-black text-emerald-400">
+                  £{(balanceCustomer.balance ?? 0).toFixed(2)}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Current Balance:</span>
-              <span className="text-3xl font-black text-emerald-400">
-                £{((balanceCustomer?.balance ?? 0)).toFixed(2)}
-              </span>
-            </div>
-          </div>
 
             <div className="space-y-5">
               <div>
@@ -609,33 +609,33 @@ const adjustBalance = async () => {
                 />
               </div>
 
-{balanceAmount && (
-  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-    <div className="flex justify-between text-sm mb-2">
-      <span className="text-slate-400">Current Balance:</span>
-      <span className="font-bold">£{((balanceCustomer?.balance ?? 0)).toFixed(2)}</span>
-    </div>
-    <div className="flex justify-between text-sm mb-2">
-      <span className="text-slate-400">
-        {balanceAction === "add" ? "Adding:" : "Deducting:"}
-      </span>
-      <span className={balanceAction === "add" ? "text-emerald-400" : "text-red-400"}>
-        {balanceAction === "add" ? "+" : "-"}£{parseFloat(balanceAmount || "0").toFixed(2)}
-      </span>
-    </div>
-    <div className="border-t border-slate-700/50 pt-2 mt-2">
-      <div className="flex justify-between">
-        <span className="font-bold">New Balance:</span>
-        <span className="text-xl font-black text-cyan-400">
-          £{(
-            (balanceCustomer?.balance ?? 0) + 
-            (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount || "0")
-          ).toFixed(2)}
-        </span>
-      </div>
-    </div>
-  </div>
- )}
+              {balanceAmount && (
+                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400">Current Balance:</span>
+                    <span className="font-bold">£{(balanceCustomer.balance ?? 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400">
+                      {balanceAction === "add" ? "Adding:" : "Deducting:"}
+                    </span>
+                    <span className={balanceAction === "add" ? "text-emerald-400" : "text-red-400"}>
+                      {balanceAction === "add" ? "+" : "-"}£{parseFloat(balanceAmount || "0").toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="border-t border-slate-700/50 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="font-bold">New Balance:</span>
+                      <span className="text-xl font-black text-cyan-400">
+                        £{(
+                          (balanceCustomer.balance ?? 0) + 
+                          (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount || "0")
+                        ).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-lg mb-2 font-medium">Note (Optional)</label>
@@ -658,7 +658,7 @@ const adjustBalance = async () => {
               <button
                 onClick={adjustBalance}
                 disabled={!balanceAmount || parseFloat(balanceAmount) <= 0}
-                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50"
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:
               >
                 Confirm
               </button>
@@ -669,6 +669,7 @@ const adjustBalance = async () => {
     </div>
   );
 }
+
 
 
 
