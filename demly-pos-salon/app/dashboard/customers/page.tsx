@@ -554,18 +554,18 @@ const adjustBalance = async () => {
               </button>
             </div>
 
-            <div className="bg-slate-800/50 rounded-xl p-5 mb-6 border border-slate-700/50">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-slate-400">Customer:</span>
-                <span className="font-bold text-white text-lg">{balanceCustomer.name}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Current Balance:</span>
-                <span className="text-3xl font-black text-emerald-400">
-                  £{(balanceCustomer.balance || 0).toFixed(2)}
-                </span>
-              </div>
+          <div className="bg-slate-800/50 rounded-xl p-5 mb-6 border border-slate-700/50">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-slate-400">Customer:</span>
+              <span className="font-bold text-white text-lg">{balanceCustomer.name}</span>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Current Balance:</span>
+              <span className="text-3xl font-black text-emerald-400">
+                £{((balanceCustomer?.balance ?? 0)).toFixed(2)}
+              </span>
+            </div>
+          </div>>
 
             <div className="space-y-5">
               <div>
@@ -609,33 +609,33 @@ const adjustBalance = async () => {
                 />
               </div>
 
-              {balanceAmount && (
-                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-slate-400">Current Balance:</span>
-                    <span className="font-bold">£{(balanceCustomer.balance || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-slate-400">
-                      {balanceAction === "add" ? "Adding:" : "Deducting:"}
-                    </span>
-                    <span className={balanceAction === "add" ? "text-emerald-400" : "text-red-400"}>
-                      {balanceAction === "add" ? "+" : "-"}£{parseFloat(balanceAmount || "0").toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="border-t border-slate-700/50 pt-2 mt-2">
-                    <div className="flex justify-between">
-                      <span className="font-bold">New Balance:</span>
-                      <span className="text-xl font-black text-cyan-400">
-                        £{(
-                          (balanceCustomer.balance || 0) + 
-                          (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount || "0")
-                        ).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+{balanceAmount && (
+  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+    <div className="flex justify-between text-sm mb-2">
+      <span className="text-slate-400">Current Balance:</span>
+      <span className="font-bold">£{((balanceCustomer?.balance ?? 0)).toFixed(2)}</span>
+    </div>
+    <div className="flex justify-between text-sm mb-2">
+      <span className="text-slate-400">
+        {balanceAction === "add" ? "Adding:" : "Deducting:"}
+      </span>
+      <span className={balanceAction === "add" ? "text-emerald-400" : "text-red-400"}>
+        {balanceAction === "add" ? "+" : "-"}£{parseFloat(balanceAmount || "0").toFixed(2)}
+      </span>
+    </div>
+    <div className="border-t border-slate-700/50 pt-2 mt-2">
+      <div className="flex justify-between">
+        <span className="font-bold">New Balance:</span>
+        <span className="text-xl font-black text-cyan-400">
+          £{(
+            (balanceCustomer?.balance ?? 0) + 
+            (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount || "0")
+          ).toFixed(2)}
+        </span>
+      </div>
+    </div>
+  </div>
+ )}
 
               <div>
                 <label className="block text-lg mb-2 font-medium">Note (Optional)</label>
@@ -669,6 +669,7 @@ const adjustBalance = async () => {
     </div>
   );
 }
+
 
 
 
