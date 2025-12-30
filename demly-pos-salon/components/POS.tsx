@@ -1829,14 +1829,11 @@ export default function POS() {
                         <Printer className="w-4 h-4" />
                         Re-print
                       </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+                )}
+              </div>
+            );
+          }
