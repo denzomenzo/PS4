@@ -729,7 +729,7 @@ export default function POS() {
         <div class="receipt-header">
           <div><strong>Receipt #PREVIEW</strong></div>
           <div>${new Date().toLocaleString('en-GB')}</div>
-          ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
+          ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
         </div>
         
         <div class="line"></div>
@@ -963,6 +963,212 @@ export default function POS() {
         <div class="thank-you">THANK YOU!</div>
         
         ${receiptFooter ? `<div class="footer">${receiptFooter}</div>` : ''}
+        
+        <script>
+          window.onload = () => {
+            window.print();
+          };
+          window.onafterprint = () => {
+            window.close();
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    receiptWindow.document.write(receiptHTML);
+    receiptWindow.document.close();
+  };
+
+  // ADD THIS MISSING FUNCTION
+  const printReceipt = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
+
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) return;
+
+    const fontSize = receiptSettings?.receipt_font_size || 12;
+    const businessName = receiptSettings?.business_name || "Your Business";
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const logoUrl = receiptSettings?.receipt_logo_url || "";
+    
+    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt Preview</title>
+        <style>
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 80mm; 
+            margin: 0 auto; 
+            font-size: ${fontSize}px;
+            line-height: 1.4;
+          }
+          .logo { text-align: center; margin-bottom: 15px; }
+          .logo img { max-width: 150px; max-height: 80px; }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 8}px; 
+            margin: 10px 0; 
+            font-weight: bold; 
+            text-transform: uppercase;
+          }
+          .business-info { 
+            text-align: center; 
+            font-size: ${fontSize - 1}px; 
+            margin-bottom: 15px; 
+            line-height: 1.5;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 12px 0; 
+          }
+          .receipt-header {
+            font-size: ${fontSize - 1}px;
+            margin-bottom: 10px;
+          }
+          .receipt-header div {
+            margin: 3px 0;
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 6px 0;
+            font-size: ${fontSize}px;
+          }
+          .item-name {
+            flex: 1;
+            padding-right: 10px;
+          }
+          .item-price {
+            white-space: nowrap;
+            font-weight: bold;
+          }
+          .totals { 
+            margin-top: 12px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+            font-size: ${fontSize}px;
+          }
+          .grand-total {
+            font-size: ${fontSize + 4}px;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .payment-info {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            text-align: center;
+            font-weight: bold;
+            font-size: ${fontSize + 1}px;
+          }
+          .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            font-size: ${fontSize - 1}px;
+            font-style: italic;
+          }
+          .thank-you {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+            font-size: ${fontSize + 2}px;
+          }
+        </style>
+      </head>
+      <body>
+        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
+        
+        <h1>${businessName}</h1>
+        
+        <div class="business-info">
+          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="receipt-header">
+          <div><strong>Receipt #${"PREVIEW"}</strong></div>
+          <div>${new Date().toLocaleString('en-GB')}</div>
+          ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
+          ${currentStaff ? `<div>Served by: ${currentStaff.name}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div style="margin: 10px 0;">
+          ${cart.map((item: any) => `
+            <div class="item">
+              <div class="item-name">
+                <div>${item.name}</div>
+                <div style="font-size: ${fontSize - 2}px; color: #666;">
+                  ${item.quantity} x £${item.price.toFixed(2)}
+                  ${item.discount && item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+                </div>
+              </div>
+              <div class="item-price">£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</div>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="totals">
+          <div class="total-line">
+            <span>Subtotal:</span>
+            <span>£${subtotal.toFixed(2)}</span>
+          </div>
+          ${vat > 0 ? `
+            <div class="total-line">
+              <span>VAT (20%):</span>
+              <span>£${vat.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line grand-total">
+            <span>TOTAL:</span>
+            <span>£${grandTotal.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <div class="payment-info">
+          PREVIEW - NOT PAID
+        </div>
+        
+        ${selectedCustomer && selectedCustomer.balance > 0 ? `
+          <div style="text-align: center; font-size: ${fontSize - 1}px; margin: 10px 0;">
+            <div>Customer Balance: £${selectedCustomer.balance.toFixed(2)}</div>
+          </div>
+        ` : ''}
+        
+        <div class="line"></div>
+        
+        <div class="thank-you">THANK YOU!</div>
+        
+        ${receiptSettings?.receipt_footer ? `<div class="footer">${receiptSettings.receipt_footer}</div>` : ''}
         
         <script>
           window.onload = () => {
@@ -1700,216 +1906,5 @@ export default function POS() {
       )}
     </div>
   );
-} img { max-width: 150px; max-height: 80px; }
-          h1 { 
-            text-align: center; 
-            font-size: ${fontSize + 8}px; 
-            margin: 10px 0; 
-            font-weight: bold; 
-            text-transform: uppercase;
-          }
-          .business-info { 
-            text-align: center; 
-            font-size: ${fontSize - 1}px; 
-            margin-bottom: 15px; 
-            line-height: 1.5;
-          }
-          .line { 
-            border-bottom: 1px dashed #000; 
-            margin: 12px 0; 
-          }
-          .receipt-header {
-            font-size: ${fontSize - 1}px;
-            margin-bottom: 10px;
-          }
-          .receipt-header div {
-            margin: 3px 0;
-          }
-          .item { 
-            display: flex; 
-            justify-content: space-between; 
-            margin: 6px 0;
-            font-size: ${fontSize}px;
-          }
-          .item-name {
-            flex: 1;
-            padding-right: 10px;
-          }
-          .item-price {
-            white-space: nowrap;
-            font-weight: bold;
-          }
-          .totals { 
-            margin-top: 12px; 
-            font-weight: bold; 
-          }
-          .total-line { 
-            display: flex; 
-            justify-content: space-between; 
-            margin: 5px 0;
-            font-size: ${fontSize}px;
-          }
-          .grand-total {
-            font-size: ${fontSize + 4}px;
-            border-top: 2px solid #000;
-            padding-top: 8px;
-            margin-top: 8px;
-          }
-          .payment-info {
-            margin: 15px 0;
-            padding: 10px;
-            background: #f5f5f5;
-            border: 1px solid #ddd;
-            text-align: center;
-            font-weight: bold;
-            font-size: ${fontSize + 1}px;
-          }
-          .footer { 
-            text-align: center; 
-            margin-top: 20px; 
-            font-size: ${fontSize - 1}px;
-            font-style: italic;
-          }
-          .thank-you {
-            text-align: center;
-            font-weight: bold;
-            margin-top: 15px;
-            font-size: ${fontSize + 2}px;
-          }
-        </style>
-      </head>
-      <body>
-        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
-        
-        <h1>${businessName}</h1>
-        
-        <div class="business-info">
-          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
-          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
-          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
-          ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
-        </div>
-        
-        <div class="line"></div>
-        
-        <div class="receipt-header">
-          <div><strong>Receipt #${transaction.id}</strong></div>
-          <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })}</div>
-          ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
-          ${currentStaff ? `<div>Served by: ${currentStaff.name}</div>` : ''}
-        </div>
-        
-        <div class="line"></div>
-        
-        <div style="margin: 10px 0;">
-          ${transaction.products.map((item: any) => `
-            <div class="item">
-              <div class="item-name">
-                <div>${item.name}</div>
-                <div style="font-size: ${fontSize - 2}px; color: #666;">
-                  ${item.quantity} x £${item.price.toFixed(2)}
-                  ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
-                </div>
-              </div>
-              <div class="item-price">£${item.total.toFixed(2)}</div>
-            </div>
-          `).join('')}
-        </div>
-        
-        <div class="line"></div>
-        
-        <div class="totals">
-          <div class="total-line">
-            <span>Subtotal:</span>
-            <span>£${transaction.subtotal.toFixed(2)}</span>
-          </div>
-          ${transaction.vat > 0 ? `
-            <div class="total-line">
-              <span>VAT (20%):</span>
-              <span>£${transaction.vat.toFixed(2)}</span>
-            </div>
-          ` : ''}
-          <div class="total-line grand-total">
-            <span>TOTAL:</span>
-            <span>£${transaction.total.toFixed(2)}</span>
-          </div>
-        </div>
-
-        <div class="payment-info">
-          PAID VIA ${transaction.payment_method.toUpperCase()}
-        </div>
-        
-        ${transaction.balance_deducted > 0 && customer ? `
-          <div style="text-align: center; font-size: ${fontSize - 1}px; margin: 10px 0;">
-            <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
-            <div>Remaining Balance: £${customer.balance.toFixed(2)}</div>
-          </div>
-        ` : ''}
-        
-        <div class="line"></div>
-        
-        <div class="thank-you">THANK YOU!</div>
-        
-        ${receiptFooter ? `<div class="footer">${receiptFooter}</div>` : ''}
-        
-        <script>
-          window.onload = () => {
-            window.print();
-          };
-          window.onafterprint = () => {
-            window.close();
-          };
-        </script>
-      </body>
-      </html>
-    `;
-
-    receiptWindow.document.write(receiptHTML);
-    receiptWindow.document.close();
-  };
-
-  const printReceipt = () => {
-    if (cart.length === 0) {
-      alert("Cart is empty");
-      return;
-    }
-
-    const receiptWindow = window.open('', '_blank');
-    if (!receiptWindow) return;
-
-    const fontSize = receiptSettings?.receipt_font_size || 12;
-    const businessName = receiptSettings?.business_name || "Your Business";
-    const businessAddress = receiptSettings?.business_address || "";
-    const businessPhone = receiptSettings?.business_phone || "";
-    const businessEmail = receiptSettings?.business_email || "";
-    const taxNumber = receiptSettings?.tax_number || "";
-    const logoUrl = receiptSettings?.receipt_logo_url || "";
-    
-    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
-
-    const receiptHTML = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Receipt Preview</title>
-        <style>
-          @media print {
-            @page { margin: 0; }
-            body { margin: 10mm; }
-          }
-          body { 
-            font-family: 'Courier New', monospace; 
-            padding: 20px; 
-            max-width: 80mm; 
-            margin: 0 auto; 
-            font-size: ${fontSize}px;
-            line-height: 1.4;
-          }
-          .logo { text-align: center; margin-bottom: 15px; }
-          .logo
+}
+// REMOVED THE INVALID CSS THAT WAS HERE
