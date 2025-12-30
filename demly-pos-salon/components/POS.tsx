@@ -1674,6 +1674,176 @@ export default function POS() {
           </div>
         </div>
       )}
+            {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-xl w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold text-white">Complete Payment</h2>
+              <button 
+                onClick={() => setShowPaymentModal(false)} 
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-8 h-8" />
+              </button>
+            </div>
+
+            {/* Total */}
+            <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 border border-emerald-500/30 rounded-2xl p-6 mb-6">
+              <p className="text-slate-300 text-lg mb-2">Total Amount</p>
+              <p className="text-5xl font-black text-emerald-400">£{grandTotal.toFixed(2)}</p>
+            </div>
+
+            {/* Payment Method Selection */}
+            <div className="space-y-4 mb-6">
+              <label className="block text-lg font-medium text-white mb-3">Payment Method</label>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setPaymentMethod("cash")}
+                  className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center ${
+                    paymentMethod === "cash"
+                      ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                      : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600/50"
+                  }`}
+                >
+                  <div className="text-3xl mb-2">💵</div>
+                  <span>Cash</span>
+                </button>
+
+                <button
+                  onClick={() => setPaymentMethod("card")}
+                  className={`p-4 rounded-xl font-bold border-2 transition-all flex flex-col items-center ${
+                    paymentMethod === "card"
+                      ? "bg-blue-500/20 border-blue-500 text-blue-400"
+                      : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600/50"
+                  }`}
+                >
+                  <div className="text-3xl mb-2">💳</div>
+                  <span>Card</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Options */}
+            <div className="space-y-3 mb-6">
+              <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={emailReceipt}
+                  onChange={(e) => setEmailReceipt(e.target.checked)}
+                  disabled={!customerId || !customers.find(c => c.id.toString() === customerId)?.email}
+                  className="w-5 h-5 accent-cyan-500"
+                />
+                <span className="text-white flex-1">Email Receipt</span>
+                {(!customerId || !customers.find(c => c.id.toString() === customerId)?.email) && (
+                  <span className="text-xs text-slate-500">No email</span>
+                )}
+              </label>
+
+              <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={printReceiptOption}
+                  onChange={(e) => setPrintReceiptOption(e.target.checked)}
+                  className="w-5 h-5 accent-cyan-500"
+                />
+                <span className="text-white">Print Receipt</span>
+              </label>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={processPayment}
+                disabled={processingPayment || cart.length === 0}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50 text-white flex items-center justify-center gap-2"
+              >
+                {processingPayment ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  `Pay £${grandTotal.toFixed(2)}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Transactions Modal */}
+      {showTransactionsModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-4xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-3xl font-bold text-white">Recent Transactions</h2>
+              <button onClick={() => setShowTransactionsModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {recentTransactions.length === 0 ? (
+                <div className="text-center py-12">
+                  <DollarSign className="w-20 h-20 mx-auto mb-4 text-slate-700" />
+                  <p className="text-xl text-slate-500 font-semibold">No recent transactions</p>
+                </div>
+              ) : (
+                recentTransactions.map((transaction) => (
+                  <div key={transaction.id} className="bg-slate-800/40 backdrop-blur-lg rounded-2xl p-5 border border-slate-700/50 hover:border-slate-600/50 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-bold text-white text-lg">Transaction #{transaction.id}</p>
+                        <p className="text-sm text-slate-400">
+                          {new Date(transaction.created_at).toLocaleString('en-GB')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-black text-emerald-400">£{transaction.total?.toFixed(2) || '0.00'}</p>
+                        <p className="text-xs text-slate-400 capitalize">{transaction.payment_method || 'cash'}</p>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-300">
+                          {transaction.products?.length || 0} items
+                        </span>
+                        {transaction.customer_id && (
+                          <span className="text-xs bg-slate-700/50 px-2 py-1 rounded-full text-slate-300">
+                            Customer: {customers.find(c => c.id === transaction.customer_id)?.name || 'N/A'}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => printPaidReceiptFromTransaction(transaction)}
+                        className="bg-slate-700/50 hover:bg-slate-700 text-white px-4 py-2 rounded-xl font-medium transition-all flex items-center gap-2"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Re-print
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+      
+    </div>
+  );
+}
+
