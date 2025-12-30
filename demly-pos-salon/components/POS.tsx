@@ -1,4 +1,4 @@
-// components/POS.tsx - FIXED VERSION
+// components/POS.tsx - IMPROVED VERSION
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -93,17 +93,14 @@ export default function POS() {
   const cart = activeTransaction?.cart || [];
   const customerId = activeTransaction?.customerId || "";
 
-  // Helper function to safely get balance as number
   const getBalance = (balance: any): number => {
     if (balance === null || balance === undefined) return 0;
     const num = typeof balance === 'string' ? parseFloat(balance) : balance;
     return isNaN(num) ? 0 : num;
   };
 
-  // Helper function to get storage key for this staff member
   const getStorageKey = () => `pos_transactions_${currentStaff?.id || 'default'}`;
 
-  // Initialize transactions from localStorage
   useEffect(() => {
     if (!currentStaff) return;
     
@@ -113,13 +110,11 @@ export default function POS() {
     if (savedData) {
       try {
         const parsed = JSON.parse(savedData);
-        console.log("Loaded transactions from localStorage:", parsed);
         
         if (parsed.transactions && Array.isArray(parsed.transactions) && parsed.transactions.length > 0) {
           setTransactions(parsed.transactions);
           setActiveTransactionId(parsed.activeTransactionId || parsed.transactions[0].id);
         } else {
-          // Create default transaction
           const defaultTransaction = {
             id: "1",
             name: "Transaction 1",
@@ -131,8 +126,6 @@ export default function POS() {
           setActiveTransactionId("1");
         }
       } catch (error) {
-        console.error("Error loading transactions:", error);
-        // Create default transaction on error
         const defaultTransaction = {
           id: "1",
           name: "Transaction 1",
@@ -144,7 +137,6 @@ export default function POS() {
         setActiveTransactionId("1");
       }
     } else {
-      // Create default transaction if none exists
       const defaultTransaction = {
         id: "1",
         name: "Transaction 1",
@@ -157,7 +149,6 @@ export default function POS() {
     }
   }, [currentStaff]);
 
-  // Save transactions to localStorage whenever they change
   useEffect(() => {
     if (!currentStaff || transactions.length === 0) return;
     
@@ -171,7 +162,6 @@ export default function POS() {
     localStorage.setItem(storageKey, JSON.stringify(dataToSave));
   }, [transactions, activeTransactionId, currentStaff]);
 
-  // Cart management functions
   const setCart = (newCart: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
     setTransactions(prev => prev.map(t => 
       t.id === activeTransactionId 
@@ -230,7 +220,6 @@ export default function POS() {
     setLoading(true);
     
     try {
-      // Load settings
       const { data: settingsData } = await supabase
         .from("settings")
         .select("vat_enabled, business_name, business_address, business_phone, business_email, business_website, tax_number, receipt_logo_url, receipt_footer, refund_days, show_tax_breakdown, receipt_font_size, barcode_type")
@@ -245,7 +234,6 @@ export default function POS() {
         setReceiptSettings(settingsData);
       }
 
-      // Load hardware settings
       const { data: hardwareData } = await supabase
         .from("hardware_settings")
         .select("*")
@@ -254,7 +242,6 @@ export default function POS() {
       
       if (hardwareData) setHardwareSettings(hardwareData);
 
-      // Load products
       const { data: productsData } = await supabase
         .from("products")
         .select("*")
@@ -266,7 +253,6 @@ export default function POS() {
         setFilteredProducts(productsData);
       }
 
-      // Load customers - FIX: Ensure balance is a number
       const { data: customersData } = await supabase
         .from("customers")
         .select("id, name, phone, email, balance")
@@ -274,7 +260,6 @@ export default function POS() {
         .order("name");
       
       if (customersData) {
-        // Convert balance to number
         const normalizedCustomers = customersData.map(customer => ({
           ...customer,
           balance: getBalance(customer.balance)
@@ -282,7 +267,6 @@ export default function POS() {
         setCustomers(normalizedCustomers);
       }
 
-      // Load recent transactions
       const { data: transactionsData } = await supabase
         .from("transactions")
         .select("*")
@@ -385,7 +369,6 @@ export default function POS() {
       return;
     }
 
-    // Apply discount proportionally to all items
     const updatedCart = cart.map(item => {
       const itemSubtotal = item.price * item.quantity;
       const itemProportion = itemSubtotal / itemTotal;
@@ -481,15 +464,7 @@ export default function POS() {
   const checkout = () => {
     if (cart.length === 0) return alert("Cart is empty");
     
-    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
-    
-    // If customer has balance, show balance as payment option
-    if (selectedCustomer && selectedCustomer.balance > 0) {
-      setPaymentMethod("cash");
-    } else {
-      setPaymentMethod("cash");
-    }
-    
+    setPaymentMethod("cash");
     setEmailReceipt(false);
     setPrintReceiptOption(false);
     setShowPaymentModal(true);
@@ -506,7 +481,6 @@ export default function POS() {
       let paymentDetails: any = { method: paymentMethod };
       let balanceDeducted = 0;
 
-      // Handle different payment methods
       if (paymentMethod === "cash") {
         paymentSuccess = true;
         
@@ -545,7 +519,6 @@ export default function POS() {
         return;
       }
 
-      // Record transaction
       const { data: transaction, error: transactionError } = await supabase
         .from("transactions")
         .insert({
@@ -573,7 +546,6 @@ export default function POS() {
 
       if (transactionError) throw transactionError;
 
-      // Update customer balance if balance was used
       if (paymentMethod === "balance" && selectedCustomer && balanceDeducted > 0) {
         const newBalance = selectedCustomer.balance - balanceDeducted;
         
@@ -582,7 +554,6 @@ export default function POS() {
           .update({ balance: newBalance })
           .eq("id", selectedCustomer.id);
         
-        // Log balance transaction
         await supabase.from("customer_balance_history").insert({
           user_id: userId,
           customer_id: selectedCustomer.id,
@@ -593,7 +564,6 @@ export default function POS() {
           transaction_id: transaction.id,
         });
 
-        // Update local customers state
         setCustomers(customers.map(c => 
           c.id === selectedCustomer.id 
             ? { ...c, balance: newBalance }
@@ -601,7 +571,6 @@ export default function POS() {
         ));
       }
 
-      // Update stock for inventory items
       const stockUpdates = cart
         .filter(item => item.track_inventory && !item.isMisc)
         .map(item => ({
@@ -616,7 +585,6 @@ export default function POS() {
           .eq("id", update.id);
       }
 
-      // AUDIT LOG: Transaction completed
       await logAuditAction({
         action: "TRANSACTION_COMPLETED",
         entityType: "transaction",
@@ -631,12 +599,10 @@ export default function POS() {
         staffId: currentStaff?.id,
       });
 
-      // Print receipt if requested
       if (printReceiptOption) {
-        printPaidReceipt(transaction.id, paymentMethod);
+        printCompletedReceipt(transaction, selectedCustomer);
       }
 
-      // Email receipt if requested and customer has email
       if (emailReceipt && selectedCustomer?.email) {
         console.log(`Sending receipt to ${selectedCustomer.email}`);
       }
@@ -644,12 +610,8 @@ export default function POS() {
       alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${paymentMethod}!`);
       
       setShowPaymentModal(false);
-      
-      // Clear cart after successful payment
       setCart([]);
       setCustomerId("");
-      
-      // Reload data
       loadData();
       
     } catch (error: any) {
@@ -660,49 +622,128 @@ export default function POS() {
     }
   };
 
-  // Simple receipt printing function
-  const printPaidReceipt = (transactionId: number, method: string) => {
+  const printCompletedReceipt = (transaction: any, customer: Customer | undefined) => {
     const receiptWindow = window.open('', '_blank');
     if (!receiptWindow) return;
 
     const fontSize = receiptSettings?.receipt_font_size || 12;
     const businessName = receiptSettings?.business_name || "Your Business";
-    
-    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+    const logoUrl = receiptSettings?.receipt_logo_url || "";
 
     const receiptHTML = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Receipt #${transactionId}</title>
+        <title>Receipt #${transaction.id}</title>
         <style>
-          body { font-family: 'Courier New', monospace; padding: 20px; max-width: 300px; margin: 0 auto; font-size: ${fontSize}px; }
-          h1 { text-align: center; font-size: ${fontSize + 6}px; margin-bottom: 10px; font-weight: bold; }
-          .line { border-bottom: 1px dashed #000; margin: 10px 0; }
-          .item { display: flex; justify-content: space-between; margin: 5px 0; }
-          .totals { margin-top: 10px; font-weight: bold; }
-          .total-line { display: flex; justify-content: space-between; margin: 3px 0; }
-          .text-center { text-align: center; }
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 80mm; 
+            margin: 0 auto; 
+            font-size: ${fontSize}px;
+            line-height: 1.4;
+          }
+          .logo { text-align: center; margin-bottom: 15px; }
+          .logo img { max-width: 150px; max-height: 80px; }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 8}px; 
+            margin: 10px 0; 
+            font-weight: bold; 
+            text-transform: uppercase;
+          }
+          .business-info { 
+            text-align: center; 
+            font-size: ${fontSize - 1}px; 
+            margin-bottom: 15px; 
+            line-height: 1.5;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 12px 0; 
+          }
+          .receipt-header {
+            font-size: ${fontSize - 1}px;
+            margin-bottom: 10px;
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 6px 0;
+          }
+          .item-name {
+            flex: 1;
+            padding-right: 10px;
+          }
+          .item-price {
+            white-space: nowrap;
+            font-weight: bold;
+          }
+          .totals { 
+            margin-top: 12px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+          }
+          .grand-total {
+            font-size: ${fontSize + 4}px;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            font-size: ${fontSize - 1}px;
+            font-style: italic;
+          }
         </style>
       </head>
       <body>
+        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
+        
         <h1>${businessName}</h1>
+        
+        <div class="business-info">
+          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
+        </div>
         
         <div class="line"></div>
         
-        <div style="font-size: ${fontSize - 2}px;">
-          <div><strong>Receipt #${transactionId}</strong></div>
+        <div class="receipt-header">
+          <div><strong>Receipt #PREVIEW</strong></div>
           <div>${new Date().toLocaleString('en-GB')}</div>
           ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
-          <div><strong>Paid via: ${method.toUpperCase()}</strong></div>
         </div>
         
         <div class="line"></div>
         
         ${cart.map(item => `
           <div class="item">
-            <span>${item.name} x${item.quantity}</span>
-            <span><strong>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</strong></span>
+            <div class="item-name">
+              <div>${item.name}</div>
+              <div style="font-size: ${fontSize - 2}px; color: #666;">
+                ${item.quantity} x £${item.price.toFixed(2)}
+                ${item.discount && item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+              </div>
+            </div>
+            <div class="item-price">£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</div>
           </div>
         `).join('')}
         
@@ -719,10 +760,15 @@ export default function POS() {
               <span>£${vat.toFixed(2)}</span>
             </div>
           ` : ''}
-          <div class="total-line" style="font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 5px; margin-top: 5px;">
-            <span>PAID:</span>
+          <div class="total-line grand-total">
+            <span>TOTAL:</span>
             <span>£${grandTotal.toFixed(2)}</span>
           </div>
+        </div>
+        
+        <div class="footer">
+          <div style="font-weight: bold; margin: 15px 0;">THANK YOU!</div>
+          ${receiptSettings?.receipt_footer || 'Thank you for your business!'}
         </div>
         
         <script>window.print(); window.onafterprint = () => window.close();</script>
@@ -734,52 +780,151 @@ export default function POS() {
     receiptWindow.document.close();
   };
 
-  const printReceipt = () => {
-    if (cart.length === 0) {
-      alert("Cart is empty");
-      return;
-    }
-
+  const printTransactionReceipt = (transaction: any) => {
     const receiptWindow = window.open('', '_blank');
     if (!receiptWindow) return;
 
     const fontSize = receiptSettings?.receipt_font_size || 12;
     const businessName = receiptSettings?.business_name || "Your Business";
-    
-    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+    const logoUrl = receiptSettings?.receipt_logo_url || "";
+
+    const customer = customers.find(c => c.id === transaction.customer_id);
 
     const receiptHTML = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Receipt</title>
+        <title>Receipt #${transaction.id}</title>
         <style>
-          body { font-family: 'Courier New', monospace; padding: 20px; max-width: 300px; margin: 0 auto; font-size: ${fontSize}px; }
-          h1 { text-align: center; font-size: ${fontSize + 6}px; margin-bottom: 10px; font-weight: bold; }
-          .line { border-bottom: 1px dashed #000; margin: 10px 0; }
-          .item { display: flex; justify-content: space-between; margin: 5px 0; }
-          .totals { margin-top: 10px; font-weight: bold; }
-          .total-line { display: flex; justify-content: space-between; margin: 3px 0; }
-          .text-center { text-align: center; }
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 80mm; 
+            margin: 0 auto; 
+            font-size: ${fontSize}px;
+            line-height: 1.4;
+          }
+          .logo { text-align: center; margin-bottom: 15px; }
+          .logo img { max-width: 150px; max-height: 80px; }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 8}px; 
+            margin: 10px 0; 
+            font-weight: bold; 
+            text-transform: uppercase;
+          }
+          .business-info { 
+            text-align: center; 
+            font-size: ${fontSize - 1}px; 
+            margin-bottom: 15px; 
+            line-height: 1.5;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 12px 0; 
+          }
+          .receipt-header {
+            font-size: ${fontSize - 1}px;
+            margin-bottom: 10px;
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 6px 0;
+          }
+          .item-name {
+            flex: 1;
+            padding-right: 10px;
+          }
+          .item-price {
+            white-space: nowrap;
+            font-weight: bold;
+          }
+          .totals { 
+            margin-top: 12px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+          }
+          .grand-total {
+            font-size: ${fontSize + 4}px;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .payment-info {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            text-align: center;
+            font-weight: bold;
+            font-size: ${fontSize + 1}px;
+          }
+          .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            font-size: ${fontSize - 1}px;
+            font-style: italic;
+          }
+          .thank-you {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+            font-size: ${fontSize + 2}px;
+          }
         </style>
       </head>
       <body>
+        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
+        
         <h1>${businessName}</h1>
         
-        <div class="line"></div>
-        
-        <div style="font-size: ${fontSize - 2}px;">
-          <div><strong>Receipt #${Date.now().toString().slice(-8)}</strong></div>
-          <div>${new Date().toLocaleString('en-GB')}</div>
-          ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
+        <div class="business-info">
+          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
         </div>
         
         <div class="line"></div>
         
-        ${cart.map(item => `
+        <div class="receipt-header">
+          <div><strong>Receipt #${transaction.id}</strong></div>
+          <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          })}</div>
+          ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        ${transaction.products?.map((item: any) => `
           <div class="item">
-            <span>${item.name} x${item.quantity}</span>
-            <span><strong>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</strong></span>
+            <div class="item-name">
+              <div>${item.name}</div>
+              <div style="font-size: ${fontSize - 2}px; color: #666;">
+                ${item.quantity} x £${item.price.toFixed(2)}
+                ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+              </div>
+            </div>
+            <div class="item-price">£${item.total.toFixed(2)}</div>
           </div>
         `).join('')}
         
@@ -788,21 +933,45 @@ export default function POS() {
         <div class="totals">
           <div class="total-line">
             <span>Subtotal:</span>
-            <span>£${subtotal.toFixed(2)}</span>
+            <span>£${(transaction.subtotal || 0).toFixed(2)}</span>
           </div>
-          ${vatEnabled ? `
+          ${transaction.vat > 0 ? `
             <div class="total-line">
               <span>VAT (20%):</span>
-              <span>£${vat.toFixed(2)}</span>
+              <span>£${transaction.vat.toFixed(2)}</span>
             </div>
           ` : ''}
-          <div class="total-line" style="font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 5px; margin-top: 5px;">
+          <div class="total-line grand-total">
             <span>TOTAL:</span>
-            <span>£${grandTotal.toFixed(2)}</span>
+            <span>£${(transaction.total || 0).toFixed(2)}</span>
           </div>
         </div>
+
+        <div class="payment-info">
+          PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
+        </div>
         
-        <script>window.print(); window.onafterprint = () => window.close();</script>
+        ${transaction.balance_deducted > 0 && customer ? `
+          <div style="text-align: center; font-size: ${fontSize - 1}px; margin: 10px 0;">
+            <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
+            <div>Remaining Balance: £${(customer.balance).toFixed(2)}</div>
+          </div>
+        ` : ''}
+        
+        <div class="line"></div>
+        
+        <div class="thank-you">THANK YOU!</div>
+        
+        ${receiptFooter ? `<div class="footer">${receiptFooter}</div>` : ''}
+        
+        <script>
+          window.onload = () => {
+            window.print();
+          };
+          window.onafterprint = () => {
+            window.close();
+          };
+        </script>
       </body>
       </html>
     `;
@@ -837,24 +1006,24 @@ export default function POS() {
   const customerBalance = selectedCustomer ? getBalance(selectedCustomer.balance) : 0;
 
   return (
-    <div className="h-screen flex bg-gradient-to-br from-slate-950 via-slate-900 to-black">
+    <div className="h-screen flex bg-gradient-to-br from-slate-950 via-slate-900 to-black overflow-hidden">
       {/* Left Side - Products */}
-      <div className="flex-1 flex flex-col p-6">
+      <div className="flex-1 flex flex-col p-8 min-w-0">
         
         {/* Search Bar */}
-        <div className="mb-6">
+        <div className="mb-6 flex-shrink-0">
           <div className="relative">
-            <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-500" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search products, SKU, or barcode..."
-              className="w-full bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 pl-14 pr-6 py-5 rounded-2xl text-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 shadow-xl transition-all"
+              className="w-full bg-slate-900/50 backdrop-blur-xl border border-slate-800/50 pl-16 pr-6 py-6 rounded-2xl text-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 shadow-xl transition-all"
             />
             {isScanning && (
-              <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-2 text-emerald-400 text-sm font-semibold">
-                <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+              <div className="absolute right-6 top-1/2 -translate-y-1/2 flex items-center gap-3 text-emerald-400 text-sm font-semibold">
+                <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
                 Scanner Active
               </div>
             )}
@@ -863,43 +1032,43 @@ export default function POS() {
 
         {/* Last Scanned Product Banner */}
         {lastScannedProduct && (
-          <div className="mb-6 bg-emerald-500/20 border border-emerald-500/50 rounded-2xl p-4 flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+          <div className="mb-6 bg-emerald-500/20 border border-emerald-500/50 rounded-2xl p-5 flex items-center gap-4 animate-in fade-in slide-in-from-top-4 flex-shrink-0">
             {lastScannedProduct.image_url && (
               <img 
                 src={lastScannedProduct.image_url} 
                 alt={lastScannedProduct.name}
-                className="w-16 h-16 rounded-xl object-cover border-2 border-emerald-500/50"
+                className="w-20 h-20 rounded-xl object-cover border-2 border-emerald-500/50"
               />
             )}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm text-emerald-400 font-semibold">✓ Scanned</p>
-              <p className="text-white font-bold">{lastScannedProduct.name}</p>
+              <p className="text-white font-bold text-lg truncate">{lastScannedProduct.name}</p>
             </div>
-            <p className="text-2xl font-black text-emerald-400">£{lastScannedProduct.price.toFixed(2)}</p>
+            <p className="text-3xl font-black text-emerald-400">£{lastScannedProduct.price.toFixed(2)}</p>
           </div>
         )}
 
         {/* Products Grid */}
-        <div className="flex-1 overflow-y-auto bg-slate-900/30 backdrop-blur-xl rounded-3xl p-6 border border-slate-800/50 shadow-2xl">
+        <div className="flex-1 overflow-y-auto bg-slate-900/30 backdrop-blur-xl rounded-3xl p-6 border border-slate-800/50 shadow-2xl min-h-0">
           {filteredProducts.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <ShoppingCart className="w-24 h-24 mx-auto mb-6 text-slate-700" />
-                <p className="text-2xl text-slate-500 font-semibold">No products found</p>
-                <p className="text-slate-600 mt-2">Try a different search term</p>
+                <ShoppingCart className="w-32 h-32 mx-auto mb-6 text-slate-700" />
+                <p className="text-3xl text-slate-500 font-semibold">No products found</p>
+                <p className="text-slate-600 mt-3 text-lg">Try a different search term</p>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5">
               {filteredProducts.map((product) => (
                 <button
                   key={product.id}
                   onClick={() => addToCart(product)}
                   disabled={product.track_inventory && product.stock_quantity <= 0}
-                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-4 hover:border-emerald-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
+                  className="group relative bg-slate-800/40 backdrop-blur-lg border border-slate-700/50 rounded-2xl p-5 hover:border-emerald-500/50 hover:bg-slate-800/60 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-700/50"
                 >
                   {product.image_url ? (
-                    <div className="relative w-full aspect-square mb-3 rounded-xl overflow-hidden bg-slate-700/30">
+                    <div className="relative w-full aspect-square mb-4 rounded-xl overflow-hidden bg-slate-700/30">
                       <img 
                         src={product.image_url} 
                         alt={product.name}
@@ -907,22 +1076,21 @@ export default function POS() {
                       />
                     </div>
                   ) : product.icon ? (
-                    <span className="text-4xl block mb-3 group-hover:scale-110 transition-transform duration-200">
+                    <span className="text-5xl block mb-4 group-hover:scale-110 transition-transform duration-200">
                       {product.icon}
                     </span>
                   ) : (
-                    <div className="w-full aspect-square mb-3 rounded-xl bg-slate-700/30 flex items-center justify-center text-3xl">
+                    <div className="w-full aspect-square mb-4 rounded-xl bg-slate-700/30 flex items-center justify-center text-4xl">
                       📦
                     </div>
                   )}
-                  <p className="font-bold text-white text-sm mb-2 line-clamp-2 leading-tight">
+                  <p className="font-bold text-white text-base mb-3 line-clamp-2 leading-tight">
                     {product.name}
                   </p>
-                  <p className="text-xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
-                    £{product.price.toFixed(2)}
-                  </p>
+                  <p className="text-2xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
+                    £{product.price.toFixed(2)}</p>
                   {product.track_inventory && (
-                    <div className={`text-xs mt-2 px-2 py-1 rounded-full inline-block font-semibold ${
+                    <div className={`text-xs mt-3 px-3 py-1.5 rounded-full inline-block font-semibold ${
                       product.stock_quantity > 10 
                         ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
                         : product.stock_quantity > 0
@@ -940,13 +1108,13 @@ export default function POS() {
       </div>
 
       {/* Right Side - Cart & Checkout */}
-      <div className="w-[500px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl overflow-hidden">
+      <div className="w-[550px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl overflow-hidden">
         {/* Transaction Header */}
         <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-emerald-500/10 to-green-500/10 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-500/20">
-                <ShoppingCart className="w-7 h-7 text-white" />
+              <div className="p-4 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-500/20">
+                <ShoppingCart className="w-8 h-8 text-white" />
               </div>
               <div>
                 <h2 className="text-2xl font-black text-white">{activeTransaction?.name}</h2>
@@ -959,9 +1127,9 @@ export default function POS() {
               onClick={() => setShowTransactionMenu(!showTransactionMenu)}
               className="relative p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-emerald-500/50 rounded-xl transition-all"
             >
-              <Layers className="w-5 h-5 text-emerald-400" />
+              <Layers className="w-6 h-6 text-emerald-400" />
               {transactions.length > 1 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-r from-emerald-500 to-green-600 rounded-full text-xs font-bold flex items-center justify-center text-white">
+                <span className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-r from-emerald-500 to-green-600 rounded-full text-xs font-bold flex items-center justify-center text-white">
                   {transactions.length}
                 </span>
               )}
@@ -970,11 +1138,11 @@ export default function POS() {
 
           {/* Transaction Menu */}
           {showTransactionMenu && (
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-3 space-y-2">
+            <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-4 space-y-3">
               {transactions.map((trans) => (
                 <div
                   key={trans.id}
-                  className={`flex items-center justify-between p-3 rounded-xl transition-all ${
+                  className={`flex items-center justify-between p-4 rounded-xl transition-all ${
                     trans.id === activeTransactionId
                       ? "bg-emerald-500/20 border border-emerald-500/30"
                       : "bg-slate-900/30 border border-slate-700/30 hover:bg-slate-800/50"
@@ -984,8 +1152,8 @@ export default function POS() {
                     onClick={() => switchTransaction(trans.id)}
                     className="flex-1 text-left"
                   >
-                    <p className="font-bold text-white text-sm">{trans.name}</p>
-                    <p className="text-xs text-slate-400">
+                    <p className="font-bold text-white text-base">{trans.name}</p>
+                    <p className="text-sm text-slate-400">
                       {trans.cart.length} items • £{trans.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
                     </p>
                   </button>
@@ -994,16 +1162,16 @@ export default function POS() {
                       onClick={() => deleteTransaction(trans.id)}
                       className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-all"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-5 h-5" />
                     </button>
                   )}
                 </div>
               ))}
               <button
                 onClick={addNewTransaction}
-                className="w-full p-3 bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-white font-semibold text-sm transition-all flex items-center justify-center gap-2"
+                className="w-full p-4 bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 rounded-xl text-white font-semibold text-base transition-all flex items-center justify-center gap-2"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-5 h-5" />
                 New Transaction
               </button>
             </div>
@@ -1011,59 +1179,59 @@ export default function POS() {
         </div>
 
         {/* Cart Items */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 min-h-0">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
           {cart.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <ShoppingCart className="w-20 h-20 mx-auto mb-4 text-slate-700" />
-                <p className="text-xl text-slate-500 font-semibold">Cart is empty</p>
-                <p className="text-slate-600 text-sm mt-2">Add products to get started</p>
+                <ShoppingCart className="w-24 h-24 mx-auto mb-4 text-slate-700" />
+                <p className="text-2xl text-slate-500 font-semibold">Cart is empty</p>
+                <p className="text-slate-600 text-base mt-2">Add products to get started</p>
               </div>
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.cartId} className="bg-slate-800/40 backdrop-blur-lg rounded-2xl p-4 border border-slate-700/50 hover:border-slate-600/50 transition-all shadow-lg">
-                <div className="flex items-start gap-3 mb-3">
+              <div key={item.cartId} className="bg-slate-800/40 backdrop-blur-lg rounded-2xl p-5 border border-slate-700/50 hover:border-slate-600/50 transition-all shadow-lg">
+                <div className="flex items-start gap-4 mb-4">
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border-2 border-slate-700/50" />
+                    <img src={item.image_url} alt={item.name} className="w-20 h-20 rounded-xl object-cover border-2 border-slate-700/50" />
                   ) : item.icon ? (
-                    <span className="text-3xl">{item.icon}</span>
+                    <span className="text-4xl">{item.icon}</span>
                   ) : (
-                    <div className="w-16 h-16 bg-slate-700/50 rounded-xl flex items-center justify-center text-2xl">📦</div>
+                    <div className="w-20 h-20 bg-slate-700/50 rounded-xl flex items-center justify-center text-3xl">📦</div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-white text-base truncate">{item.name}</h3>
-                    <p className="text-sm text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
+                    <h3 className="font-bold text-white text-lg truncate">{item.name}</h3>
+                    <p className="text-base text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
                     {item.discount && item.discount > 0 && (
-                      <p className="text-xs text-emerald-400 font-semibold">-£{item.discount.toFixed(2)} discount</p>
+                      <p className="text-sm text-emerald-400 font-semibold">-£{item.discount.toFixed(2)} discount</p>
                     )}
                   </div>
                   <button 
                     onClick={() => removeFromCart(item.cartId)} 
                     className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-xl transition-all"
                   >
-                    <Trash2 className="w-5 h-5" />
+                    <Trash2 className="w-6 h-6" />
                   </button>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 bg-slate-900/50 rounded-xl p-1">
+                  <div className="flex items-center gap-2 bg-slate-900/50 rounded-xl p-1.5">
                     <button 
                       onClick={() => updateQuantity(item.cartId, item.quantity - 1)} 
-                      className="w-9 h-9 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-white transition-all"
+                      className="w-11 h-11 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-white transition-all flex items-center justify-center"
                     >
-                      <Minus className="w-4 h-4 mx-auto" />
+                      <Minus className="w-5 h-5" />
                     </button>
-                    <span className="w-12 text-center font-bold text-white text-lg">
+                    <span className="w-14 text-center font-bold text-white text-xl">
                       {item.quantity}
                     </span>
                     <button 
                       onClick={() => updateQuantity(item.cartId, item.quantity + 1)} 
-                      className="w-9 h-9 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-white transition-all"
+                      className="w-11 h-11 bg-slate-800 hover:bg-slate-700 rounded-lg font-bold text-white transition-all flex items-center justify-center"
                     >
-                      <Plus className="w-4 h-4 mx-auto" />
+                      <Plus className="w-5 h-5" />
                     </button>
                   </div>
-                  <span className="text-xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
+                  <span className="text-2xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                     £{((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}
                   </span>
                 </div>
@@ -1073,14 +1241,14 @@ export default function POS() {
         </div>
 
         {/* Checkout Panel */}
-        <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4 flex-shrink-0">
+        <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-5 flex-shrink-0">
           
           {/* Customer Selection */}
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             <select 
               value={customerId} 
               onChange={(e) => setCustomerId(e.target.value)} 
-              className="flex-1 bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 text-white p-4 rounded-xl font-medium focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="flex-1 bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 text-white p-5 rounded-xl font-medium text-base focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             >
               <option value="">Select Customer (Optional)</option>
               {customers.map((c) => (
@@ -1093,13 +1261,13 @@ export default function POS() {
 
           {/* Customer Balance Display */}
           {selectedCustomer && customerBalance > 0 && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Wallet className="w-5 h-5 text-emerald-400" />
-                  <span className="text-emerald-400 font-medium">{selectedCustomer.name}'s Balance:</span>
+                  <Wallet className="w-6 h-6 text-emerald-400" />
+                  <span className="text-emerald-400 font-medium text-base">{selectedCustomer.name}'s Balance:</span>
                 </div>
-                <span className="text-2xl font-black text-emerald-400">£{customerBalance.toFixed(2)}</span>
+                <span className="text-3xl font-black text-emerald-400">£{customerBalance.toFixed(2)}</span>
               </div>
               {customerBalance >= grandTotal && (
                 <p className="text-sm text-emerald-300 mt-2">
@@ -1110,21 +1278,21 @@ export default function POS() {
           )}
 
           {/* Totals */}
-          <div className="space-y-3 bg-slate-800/40 backdrop-blur-lg rounded-2xl p-5 border border-slate-700/50">
-            <div className="flex justify-between text-slate-300 text-base">
+          <div className="space-y-3 bg-slate-800/40 backdrop-blur-lg rounded-2xl p-6 border border-slate-700/50">
+            <div className="flex justify-between text-slate-300 text-lg">
               <span className="font-medium">Subtotal</span>
               <span className="font-bold">£{subtotal.toFixed(2)}</span>
             </div>
             {vatEnabled && (
-              <div className="flex justify-between text-slate-300 text-base">
+              <div className="flex justify-between text-slate-300 text-lg">
                 <span className="font-medium">VAT (20%)</span>
                 <span className="font-bold">£{vat.toFixed(2)}</span>
               </div>
             )}
-            <div className="h-px bg-slate-700/50 my-2"></div>
+            <div className="h-px bg-slate-700/50 my-3"></div>
             <div className="flex justify-between items-center">
-              <span className="text-2xl font-black text-white">Total</span>
-              <span className="text-4xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
+              <span className="text-3xl font-black text-white">Total</span>
+              <span className="text-5xl font-black text-transparent bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text">
                 £{grandTotal.toFixed(2)}
               </span>
             </div>
@@ -1135,7 +1303,7 @@ export default function POS() {
             <button
               onClick={() => setShowDiscountModal(true)}
               disabled={cart.length === 0}
-              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <Tag className="w-5 h-5" />
               Discount
@@ -1143,7 +1311,7 @@ export default function POS() {
             
             <button
               onClick={() => setShowMiscModal(true)}
-              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <Package className="w-5 h-5" />
               Misc Item
@@ -1152,7 +1320,7 @@ export default function POS() {
             <button
               onClick={printReceipt}
               disabled={cart.length === 0}
-              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <Printer className="w-5 h-5" />
               Print
@@ -1160,7 +1328,7 @@ export default function POS() {
 
             <button
               onClick={() => setShowTransactionsModal(true)}
-              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <History className="w-5 h-5" />
               Recent
@@ -1169,7 +1337,7 @@ export default function POS() {
             <button
               onClick={clearActiveTransaction}
               disabled={cart.length === 0}
-              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 disabled:opacity-50 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <RefreshCw className="w-5 h-5" />
               Clear
@@ -1177,7 +1345,7 @@ export default function POS() {
 
             <button
               onClick={noSale}
-              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-base"
             >
               <DollarSign className="w-5 h-5" />
               No Sale
@@ -1188,16 +1356,16 @@ export default function POS() {
           <button
             onClick={checkout}
             disabled={checkingOut || cart.length === 0}
-            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-xl py-6 rounded-2xl shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-3"
+            className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-black text-2xl py-7 rounded-2xl shadow-2xl shadow-emerald-500/20 hover:shadow-emerald-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-3"
           >
             {checkingOut ? (
               <>
-                <Loader2 className="w-6 h-6 animate-spin" />
+                <Loader2 className="w-7 h-7 animate-spin" />
                 Processing...
               </>
             ) : (
               <>
-                <CreditCard className="w-6 h-6" />
+                <CreditCard className="w-7 h-7" />
                 PAY £{grandTotal.toFixed(2)}
               </>
             )}
@@ -1205,6 +1373,7 @@ export default function POS() {
         </div>
       </div>
 
+      {/* Modals */}
       {/* Discount Modal */}
       {showDiscountModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1222,7 +1391,7 @@ export default function POS() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setDiscountType("percentage")}
-                    className={`py-3 rounded-xl font-bold border-2 transition-all ${
+                    className={`py-4 rounded-xl font-bold border-2 transition-all ${
                       discountType === "percentage"
                         ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
                         : "bg-slate-800/50 border-slate-700/50 text-slate-400"
@@ -1232,7 +1401,7 @@ export default function POS() {
                   </button>
                   <button
                     onClick={() => setDiscountType("fixed")}
-                    className={`py-3 rounded-xl font-bold border-2 transition-all ${
+                    className={`py-4 rounded-xl font-bold border-2 transition-all ${
                       discountType === "fixed"
                         ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
                         : "bg-slate-800/50 border-slate-700/50 text-slate-400"
@@ -1474,15 +1643,15 @@ export default function POS() {
       {/* Recent Transactions Modal */}
       {showTransactionsModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-4xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-4xl w-full border border-slate-700/50 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center mb-6 flex-shrink-0">
               <h2 className="text-3xl font-bold text-white">Recent Transactions</h2>
               <button onClick={() => setShowTransactionsModal(false)} className="text-slate-400 hover:text-white transition-colors">
                 <X className="w-8 h-8" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0">
               {recentTransactions.length === 0 ? (
                 <div className="text-center py-12">
                   <DollarSign className="w-20 h-20 mx-auto mb-4 text-slate-700" />
@@ -1515,20 +1684,7 @@ export default function POS() {
                         )}
                       </div>
                       <button
-                        onClick={() => {
-                          // Print receipt for this transaction
-                          const receiptWindow = window.open('', '_blank');
-                          if (!receiptWindow) return;
-                          // Simple receipt
-                          receiptWindow.document.write(`
-                            <html><body>
-                              <h1>Receipt #${transaction.id}</h1>
-                              <p>Total: £${transaction.total?.toFixed(2) || '0.00'}</p>
-                              <script>window.print(); window.onafterprint = () => window.close();</script>
-                            </body></html>
-                          `);
-                          receiptWindow.document.close();
-                        }}
+                        onClick={() => printTransactionReceipt(transaction)}
                         className="bg-slate-700/50 hover:bg-slate-700 text-white px-4 py-2 rounded-xl font-medium transition-all flex items-center gap-2"
                       >
                         <Printer className="w-4 h-4" />
@@ -1544,4 +1700,216 @@ export default function POS() {
       )}
     </div>
   );
-}
+} img { max-width: 150px; max-height: 80px; }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 8}px; 
+            margin: 10px 0; 
+            font-weight: bold; 
+            text-transform: uppercase;
+          }
+          .business-info { 
+            text-align: center; 
+            font-size: ${fontSize - 1}px; 
+            margin-bottom: 15px; 
+            line-height: 1.5;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 12px 0; 
+          }
+          .receipt-header {
+            font-size: ${fontSize - 1}px;
+            margin-bottom: 10px;
+          }
+          .receipt-header div {
+            margin: 3px 0;
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 6px 0;
+            font-size: ${fontSize}px;
+          }
+          .item-name {
+            flex: 1;
+            padding-right: 10px;
+          }
+          .item-price {
+            white-space: nowrap;
+            font-weight: bold;
+          }
+          .totals { 
+            margin-top: 12px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+            font-size: ${fontSize}px;
+          }
+          .grand-total {
+            font-size: ${fontSize + 4}px;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .payment-info {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            text-align: center;
+            font-weight: bold;
+            font-size: ${fontSize + 1}px;
+          }
+          .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            font-size: ${fontSize - 1}px;
+            font-style: italic;
+          }
+          .thank-you {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+            font-size: ${fontSize + 2}px;
+          }
+        </style>
+      </head>
+      <body>
+        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
+        
+        <h1>${businessName}</h1>
+        
+        <div class="business-info">
+          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="receipt-header">
+          <div><strong>Receipt #${transaction.id}</strong></div>
+          <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          })}</div>
+          ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
+          ${currentStaff ? `<div>Served by: ${currentStaff.name}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div style="margin: 10px 0;">
+          ${transaction.products.map((item: any) => `
+            <div class="item">
+              <div class="item-name">
+                <div>${item.name}</div>
+                <div style="font-size: ${fontSize - 2}px; color: #666;">
+                  ${item.quantity} x £${item.price.toFixed(2)}
+                  ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+                </div>
+              </div>
+              <div class="item-price">£${item.total.toFixed(2)}</div>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="totals">
+          <div class="total-line">
+            <span>Subtotal:</span>
+            <span>£${transaction.subtotal.toFixed(2)}</span>
+          </div>
+          ${transaction.vat > 0 ? `
+            <div class="total-line">
+              <span>VAT (20%):</span>
+              <span>£${transaction.vat.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line grand-total">
+            <span>TOTAL:</span>
+            <span>£${transaction.total.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <div class="payment-info">
+          PAID VIA ${transaction.payment_method.toUpperCase()}
+        </div>
+        
+        ${transaction.balance_deducted > 0 && customer ? `
+          <div style="text-align: center; font-size: ${fontSize - 1}px; margin: 10px 0;">
+            <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
+            <div>Remaining Balance: £${customer.balance.toFixed(2)}</div>
+          </div>
+        ` : ''}
+        
+        <div class="line"></div>
+        
+        <div class="thank-you">THANK YOU!</div>
+        
+        ${receiptFooter ? `<div class="footer">${receiptFooter}</div>` : ''}
+        
+        <script>
+          window.onload = () => {
+            window.print();
+          };
+          window.onafterprint = () => {
+            window.close();
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    receiptWindow.document.write(receiptHTML);
+    receiptWindow.document.close();
+  };
+
+  const printReceipt = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
+
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) return;
+
+    const fontSize = receiptSettings?.receipt_font_size || 12;
+    const businessName = receiptSettings?.business_name || "Your Business";
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const logoUrl = receiptSettings?.receipt_logo_url || "";
+    
+    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt Preview</title>
+        <style>
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 80mm; 
+            margin: 0 auto; 
+            font-size: ${fontSize}px;
+            line-height: 1.4;
+          }
+          .logo { text-align: center; margin-bottom: 15px; }
+          .logo
