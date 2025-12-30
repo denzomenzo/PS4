@@ -491,105 +491,106 @@ export default function POS() {
   };
 
   const processPayment = async () => {
-    if (cart.length === 0) return;
-    
-    setProcessingPayment(true);
-    
-    try {
-      const selectedCustomer = customers.find(c => c.id.toString() === customerId);
-      let paymentSuccess = false;
-      let paymentDetails: any = { method: paymentMethod };
-      let balanceDeducted = 0;
-      let remainingBalance = selectedCustomer?.balance || 0;
+  if (cart.length === 0) return;
+  
+  setProcessingPayment(true);
+  
+  try {
+    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+    let paymentSuccess = false;
+    let paymentDetails: any = { method: paymentMethod };
+    let balanceDeducted = 0;
+    let remainingBalance = selectedCustomer?.balance || 0;
+    let finalPaymentMethod = paymentMethod; // Create a mutable variable
 
-      if (paymentMethod === "cash") {
-        paymentSuccess = true;
-        
-        if (hardwareSettings?.cash_drawer_enabled) {
-          console.log("Opening cash drawer...");
-        }
-      } else if (paymentMethod === "card") {
-        const { data: cardSettings } = await supabase
-          .from("card_terminal_settings")
-          .select("*")
-          .eq("user_id", userId)
-          .single();
-
-        if (!cardSettings || !cardSettings.enabled) {
-          alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
-          setProcessingPayment(false);
-          return;
-        }
-
-        alert("💳 Processing card payment...");
-        paymentSuccess = confirm("Simulate successful card payment?");
-        paymentDetails.cardTerminal = cardSettings.provider;
-      } else if (paymentMethod === "balance") {
-        if (!selectedCustomer) {
-          alert("Please select a customer to use balance");
-          setProcessingPayment(false);
-          return;
-        }
-        
-        if (useBalanceForPayment) {
-          if (selectedCustomer.balance < grandTotal && !allowNegativeBalance) {
-            alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
-            setProcessingPayment(false);
-            return;
-          }
-          
-          balanceDeducted = Math.min(grandTotal, selectedCustomer.balance);
-          remainingBalance = selectedCustomer.balance - grandTotal;
-          
-          if (balanceDeducted < grandTotal) {
-            const remaining = grandTotal - balanceDeducted;
-            const confirmMsg = `Customer balance: £${selectedCustomer.balance.toFixed(2)}\n` +
-                             `Using balance: £${balanceDeducted.toFixed(2)}\n` +
-                             `Remaining to pay: £${remaining.toFixed(2)}\n` +
-                             `New balance will be: £${remainingBalance.toFixed(2)}\n\n` +
-                             `Do you want to continue?`;
-            
-            if (!confirm(confirmMsg)) {
-              setProcessingPayment(false);
-              return;
-            }
-            
-            paymentMethod = "split"; // Changed to split payment
-          }
-        }
-        
-        paymentSuccess = true;
+    if (paymentMethod === "cash") {
+      paymentSuccess = true;
+      
+      if (hardwareSettings?.cash_drawer_enabled) {
+        console.log("Opening cash drawer...");
       }
+    } else if (paymentMethod === "card") {
+      const { data: cardSettings } = await supabase
+        .from("card_terminal_settings")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
 
-      if (!paymentSuccess) {
+      if (!cardSettings || !cardSettings.enabled) {
+        alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
         setProcessingPayment(false);
         return;
       }
 
-      const { data: transaction, error: transactionError } = await supabase
-        .from("transactions")
-        .insert({
-          user_id: userId,
-          staff_id: currentStaff?.id || null,
-          customer_id: customerId ? parseInt(customerId) : null,
-          products: cart.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            icon: item.icon,
-            quantity: item.quantity,
-            discount: item.discount || 0,
-            total: (item.price * item.quantity) - (item.discount || 0),
-          })),
-          subtotal: subtotal,
-          vat: vat,
-          total: grandTotal,
-          payment_method: paymentMethod,
-          payment_details: paymentDetails,
-          balance_deducted: balanceDeducted,
-        })
-        .select()
-        .single();
+      alert("💳 Processing card payment...");
+      paymentSuccess = confirm("Simulate successful card payment?");
+      paymentDetails.cardTerminal = cardSettings.provider;
+    } else if (paymentMethod === "balance") {
+      if (!selectedCustomer) {
+        alert("Please select a customer to use balance");
+        setProcessingPayment(false);
+        return;
+      }
+      
+      if (useBalanceForPayment) {
+        if (selectedCustomer.balance < grandTotal && !allowNegativeBalance) {
+          alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
+          setProcessingPayment(false);
+          return;
+        }
+        
+        balanceDeducted = Math.min(grandTotal, selectedCustomer.balance);
+        remainingBalance = selectedCustomer.balance - grandTotal;
+        
+        if (balanceDeducted < grandTotal) {
+          const remaining = grandTotal - balanceDeducted;
+          const confirmMsg = `Customer balance: £${selectedCustomer.balance.toFixed(2)}\n` +
+                           `Using balance: £${balanceDeducted.toFixed(2)}\n` +
+                           `Remaining to pay: £${remaining.toFixed(2)}\n` +
+                           `New balance will be: £${remainingBalance.toFixed(2)}\n\n` +
+                           `Do you want to continue?`;
+          
+          if (!confirm(confirmMsg)) {
+            setProcessingPayment(false);
+            return;
+          }
+          
+          finalPaymentMethod = "split"; // Changed to split payment
+        }
+      }
+      
+      paymentSuccess = true;
+    }
+
+    if (!paymentSuccess) {
+      setProcessingPayment(false);
+      return;
+    }
+
+    const { data: transaction, error: transactionError } = await supabase
+      .from("transactions")
+      .insert({
+        user_id: userId,
+        staff_id: currentStaff?.id || null,
+        customer_id: customerId ? parseInt(customerId) : null,
+        products: cart.map((item) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          icon: item.icon,
+          quantity: item.quantity,
+          discount: item.discount || 0,
+          total: (item.price * item.quantity) - (item.discount || 0),
+        })),
+        subtotal: subtotal,
+        vat: vat,
+        total: grandTotal,
+        payment_method: finalPaymentMethod, // Use the mutable variable here
+        payment_details: paymentDetails,
+        balance_deducted: balanceDeducted,
+      })
+      .select()
+      .single();
 
       if (transactionError) throw transactionError;
 
@@ -2082,3 +2083,4 @@ export default function POS() {
     </div>
   );
 }
+
