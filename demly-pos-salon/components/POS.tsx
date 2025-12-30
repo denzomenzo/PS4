@@ -83,7 +83,7 @@ export default function POS() {
   const [miscProductPrice, setMiscProductPrice] = useState("");
   
   // Payment modal states
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "balance">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "balance" | "split">("cash");
   const [emailReceipt, setEmailReceipt] = useState(false);
   const [printReceiptOption, setPrintReceiptOption] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -2083,4 +2083,5 @@ export default function POS() {
     </div>
   );
 }
+
 
