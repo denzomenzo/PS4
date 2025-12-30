@@ -76,10 +76,21 @@ export default function POS() {
   // Modal states
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showMiscModal, setShowMiscModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
   const [discountValue, setDiscountValue] = useState("");
   const [miscProductName, setMiscProductName] = useState("");
   const [miscProductPrice, setMiscProductPrice] = useState("");
+  
+  // Payment modal states
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
+  const [emailReceipt, setEmailReceipt] = useState(false);
+  const [printReceiptOption, setPrintReceiptOption] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  
+  // Recent transactions
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
 
   const activeTransaction = transactions.find(t => t.id === activeTransactionId);
   const cart = activeTransaction?.cart || [];
@@ -117,8 +128,40 @@ export default function POS() {
   useEffect(() => {
     if (userId && currentStaff) {
       loadData();
+      loadTransactionsFromStorage();
     }
   }, [userId, currentStaff]);
+
+  // Load transactions from localStorage on mount
+  const loadTransactionsFromStorage = () => {
+    if (!currentStaff) return;
+    
+    const storageKey = `pos_transactions_${currentStaff.id}`;
+    const savedData = localStorage.getItem(storageKey);
+    
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        setTransactions(parsed.transactions);
+        setActiveTransactionId(parsed.activeTransactionId);
+      } catch (error) {
+        console.error("Error loading transactions:", error);
+      }
+    }
+  };
+
+  // Save transactions to localStorage whenever they change
+  useEffect(() => {
+    if (!currentStaff) return;
+    
+    const storageKey = `pos_transactions_${currentStaff.id}`;
+    const dataToSave = {
+      transactions,
+      activeTransactionId
+    };
+    
+    localStorage.setItem(storageKey, JSON.stringify(dataToSave));
+  }, [transactions, activeTransactionId, currentStaff]);
 
   const subtotal = cart.reduce((sum, item) => {
     const itemTotal = item.price * item.quantity;
@@ -216,6 +259,16 @@ export default function POS() {
       .order("name");
     
     if (customersData) setCustomers(customersData);
+
+    // Load recent transactions
+    const { data: transactionsData } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    
+    if (transactionsData) setRecentTransactions(transactionsData);
 
     setLoading(false);
   };
@@ -344,7 +397,7 @@ export default function POS() {
     }
   };
 
-  const printReceipt = () => {
+  const printReceipt = () => { {
     if (cart.length === 0) {
       alert("Cart is empty");
       return;
@@ -364,7 +417,6 @@ export default function POS() {
     const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
     const refundDays = receiptSettings?.refund_days || null;
     const showTaxBreakdown = receiptSettings?.show_tax_breakdown !== false;
-    const barcodeType = receiptSettings?.barcode_type || "code128";
 
     const selectedCustomer = customers.find(c => c.id.toString() === customerId);
 
@@ -372,7 +424,7 @@ export default function POS() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Receipt</title>
+        <title>Receipt (No Payment)</title>
         <style>
           body { 
             font-family: 'Courier New', monospace; 
@@ -422,13 +474,6 @@ export default function POS() {
           }
           .tiny { 
             font-size: ${fontSize - 3}px; 
-          }
-          .barcode-container {
-            text-align: center;
-            margin-top: 15px;
-          }
-          .barcode {
-            margin: 10px auto;
           }
         </style>
       </head>
@@ -506,10 +551,176 @@ export default function POS() {
         <div class="text-center small" style="margin-top: 10px;">
           ${receiptFooter}
         </div>
+        
+        <script>window.print(); window.onafterprint = () => window.close();</script>
+      </body>
+      </html>
+    `;
+
+    receiptWindow.document.write(receiptHTML);
+    receiptWindow.document.close();
+  };
+
+  const printPaidReceiptFromTransaction = (transaction: any) => {
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) return;
+
+    const fontSize = receiptSettings?.receipt_font_size || 12;
+    const businessName = receiptSettings?.business_name || "Your Business";
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const businessWebsite = receiptSettings?.business_website || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const receiptLogoUrl = receiptSettings?.receipt_logo_url || "";
+    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+    const refundDays = receiptSettings?.refund_days || null;
+    const showTaxBreakdown = receiptSettings?.show_tax_breakdown !== false;
+    const barcodeType = receiptSettings?.barcode_type || "code128";
+
+    const customer = customers.find(c => c.id === transaction.customer_id);
+    const items = transaction.products || [];
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt #${transaction.id}</title>
+        <style>
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 300px; 
+            margin: 0 auto;
+            font-size: ${fontSize}px;
+          }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 6}px; 
+            margin-bottom: 10px;
+            font-weight: bold;
+          }
+          .logo {
+            text-align: center;
+            margin-bottom: 10px;
+          }
+          .logo img {
+            max-width: 150px;
+            height: auto;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 10px 0; 
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+            font-size: ${fontSize - 1}px;
+          }
+          .totals { 
+            margin-top: 10px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 3px 0; 
+          }
+          .text-center { 
+            text-align: center; 
+          }
+          .small { 
+            font-size: ${fontSize - 2}px; 
+          }
+          .tiny { 
+            font-size: ${fontSize - 3}px; 
+          }
+          .barcode-container {
+            text-align: center;
+            margin-top: 15px;
+          }
+        </style>
+      </head>
+      <body>
+        ${receiptLogoUrl ? `<div class="logo"><img src="${receiptLogoUrl}" alt="Logo" /></div>` : ''}
+        
+        <h1>${businessName}</h1>
+        <div class="text-center small">
+          ${businessAddress ? `<div style="white-space: pre-line; margin-bottom: 3px;">${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${businessWebsite ? `<div>${businessWebsite}</div>` : ''}
+          ${taxNumber ? `<div style="margin-top: 5px;">Tax No: ${taxNumber}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="small">
+          <div><strong>Receipt #${transaction.id}</strong></div>
+          <div>${new Date(transaction.created_at).toLocaleString('en-GB')}</div>
+          ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
+          <div><strong>Paid via: ${(transaction.payment_method || 'cash').toUpperCase()}</strong></div>
+        </div>
+        
+        <div class="line"></div>
+        
+        ${items.map((item: any) => `
+          <div class="item">
+            <span>${item.name} x${item.quantity}</span>
+            <span><strong>£${item.total.toFixed(2)}</strong></span>
+          </div>
+          ${item.discount && item.discount > 0 ? `
+            <div class="item tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Discount</span>
+              <span>-£${item.discount.toFixed(2)}</span>
+            </div>
+          ` : ''}
+        `).join('')}
+        
+        <div class="line"></div>
+        
+        <div class="totals">
+          <div class="total-line small">
+            <span>Subtotal:</span>
+            <span>£${transaction.subtotal.toFixed(2)}</span>
+          </div>
+          ${transaction.vat > 0 && showTaxBreakdown ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${transaction.vat.toFixed(2)}</span>
+            </div>
+            <div class="total-line tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Net: £${(transaction.subtotal / 1.2).toFixed(2)}</span>
+              <span>Tax: £${(transaction.subtotal * 0.2 / 1.2).toFixed(2)}</span>
+            </div>
+          ` : transaction.vat > 0 ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${transaction.vat.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line" style="font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 5px; margin-top: 5px;">
+            <span>PAID:</span>
+            <span>£${transaction.total.toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <div class="line"></div>
+        
+        ${refundDays ? `
+          <div class="text-center tiny" style="margin: 10px 0;">
+            Returns accepted within ${refundDays} days
+          </div>
+        ` : ''}
+        
+        <div class="text-center small" style="margin-top: 10px;">
+          ${receiptFooter}
+        </div>
 
         ${barcodeType === "qr" ? `
           <div class="barcode-container">
-            <svg viewBox="0 0 100 100" width="100" height="100" class="barcode">
+            <svg viewBox="0 0 100 100" width="100" height="100">
               <rect x="0" y="0" width="20" height="20" fill="black"/>
               <rect x="0" y="30" width="10" height="10" fill="black"/>
               <rect x="20" y="30" width="10" height="10" fill="black"/>
@@ -523,11 +734,10 @@ export default function POS() {
               <rect x="50" y="70" width="20" height="10" fill="black"/>
               <rect x="80" y="70" width="20" height="30" fill="black"/>
             </svg>
-            <div class="tiny">Scan for details</div>
           </div>
         ` : `
           <div class="barcode-container">
-            <svg width="200" height="50" class="barcode">
+            <svg width="200" height="50">
               <rect x="0" y="0" width="4" height="40" fill="black"/>
               <rect x="6" y="0" width="2" height="40" fill="black"/>
               <rect x="10" y="0" width="4" height="40" fill="black"/>
@@ -567,7 +777,233 @@ export default function POS() {
               <rect x="190" y="0" width="4" height="40" fill="black"/>
               <rect x="196" y="0" width="2" height="40" fill="black"/>
             </svg>
-            <div class="tiny">*${Date.now().toString().slice(-8)}* (${barcodeType.toUpperCase()})</div>
+          </div>
+        `}
+        
+        <script>window.print(); window.onafterprint = () => window.close();</script>
+      </body>
+      </html>
+    `;
+
+    receiptWindow.document.write(receiptHTML);
+    receiptWindow.document.close();
+  };
+
+  const printPaidReceipt = (transactionId: number, method: string) => {
+    const receiptWindow = window.open('', '_blank');
+    if (!receiptWindow) return;
+
+    const fontSize = receiptSettings?.receipt_font_size || 12;
+    const businessName = receiptSettings?.business_name || "Your Business";
+    const businessAddress = receiptSettings?.business_address || "";
+    const businessPhone = receiptSettings?.business_phone || "";
+    const businessEmail = receiptSettings?.business_email || "";
+    const businessWebsite = receiptSettings?.business_website || "";
+    const taxNumber = receiptSettings?.tax_number || "";
+    const receiptLogoUrl = receiptSettings?.receipt_logo_url || "";
+    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+    const refundDays = receiptSettings?.refund_days || null;
+    const showTaxBreakdown = receiptSettings?.show_tax_breakdown !== false;
+    const barcodeType = receiptSettings?.barcode_type || "code128";
+
+    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Receipt #${transactionId}</title>
+        <style>
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 20px; 
+            max-width: 300px; 
+            margin: 0 auto;
+            font-size: ${fontSize}px;
+          }
+          h1 { 
+            text-align: center; 
+            font-size: ${fontSize + 6}px; 
+            margin-bottom: 10px;
+            font-weight: bold;
+          }
+          .logo {
+            text-align: center;
+            margin-bottom: 10px;
+          }
+          .logo img {
+            max-width: 150px;
+            height: auto;
+          }
+          .line { 
+            border-bottom: 1px dashed #000; 
+            margin: 10px 0; 
+          }
+          .item { 
+            display: flex; 
+            justify-content: space-between; 
+            margin: 5px 0;
+            font-size: ${fontSize - 1}px;
+          }
+          .totals { 
+            margin-top: 10px; 
+            font-weight: bold; 
+          }
+          .total-line { 
+            display: flex; 
+            justify-between; 
+            margin: 3px 0; 
+          }
+          .text-center { 
+            text-align: center; 
+          }
+          .small { 
+            font-size: ${fontSize - 2}px; 
+          }
+          .tiny { 
+            font-size: ${fontSize - 3}px; 
+          }
+          .barcode-container {
+            text-align: center;
+            margin-top: 15px;
+          }
+        </style>
+      </head>
+      <body>
+        ${receiptLogoUrl ? `<div class="logo"><img src="${receiptLogoUrl}" alt="Logo" /></div>` : ''}
+        
+        <h1>${businessName}</h1>
+        <div class="text-center small">
+          ${businessAddress ? `<div style="white-space: pre-line; margin-bottom: 3px;">${businessAddress}</div>` : ''}
+          ${businessPhone ? `<div>${businessPhone}</div>` : ''}
+          ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+          ${businessWebsite ? `<div>${businessWebsite}</div>` : ''}
+          ${taxNumber ? `<div style="margin-top: 5px;">Tax No: ${taxNumber}</div>` : ''}
+        </div>
+        
+        <div class="line"></div>
+        
+        <div class="small">
+          <div><strong>Receipt #${transactionId}</strong></div>
+          <div>${new Date().toLocaleString('en-GB')}</div>
+          ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
+          <div><strong>Paid via: ${method.toUpperCase()}</strong></div>
+        </div>
+        
+        <div class="line"></div>
+        
+        ${cart.map(item => `
+          <div class="item">
+            <span>${item.name} x${item.quantity}</span>
+            <span><strong>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</strong></span>
+          </div>
+          ${item.discount && item.discount > 0 ? `
+            <div class="item tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Discount</span>
+              <span>-£${item.discount.toFixed(2)}</span>
+            </div>
+          ` : ''}
+        `).join('')}
+        
+        <div class="line"></div>
+        
+        <div class="totals">
+          <div class="total-line small">
+            <span>Subtotal:</span>
+            <span>£${subtotal.toFixed(2)}</span>
+          </div>
+          ${vatEnabled && showTaxBreakdown ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${vat.toFixed(2)}</span>
+            </div>
+            <div class="total-line tiny" style="color: #666;">
+              <span style="padding-left: 10px;">Net: £${(subtotal / 1.2).toFixed(2)}</span>
+              <span>Tax: £${(subtotal * 0.2 / 1.2).toFixed(2)}</span>
+            </div>
+          ` : vatEnabled ? `
+            <div class="total-line small">
+              <span>VAT (20%):</span>
+              <span>£${vat.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line" style="font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 5px; margin-top: 5px;">
+            <span>PAID:</span>
+            <span>£${grandTotal.toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <div class="line"></div>
+        
+        ${refundDays ? `
+          <div class="text-center tiny" style="margin: 10px 0;">
+            Returns accepted within ${refundDays} days
+          </div>
+        ` : ''}
+        
+        <div class="text-center small" style="margin-top: 10px;">
+          ${receiptFooter}
+        </div>
+
+        ${barcodeType === "qr" ? `
+          <div class="barcode-container">
+            <svg viewBox="0 0 100 100" width="100" height="100">
+              <rect x="0" y="0" width="20" height="20" fill="black"/>
+              <rect x="0" y="30" width="10" height="10" fill="black"/>
+              <rect x="20" y="30" width="10" height="10" fill="black"/>
+              <rect x="40" y="0" width="20" height="20" fill="black"/>
+              <rect x="70" y="0" width="30" height="30" fill="black"/>
+              <rect x="0" y="50" width="30" height="10" fill="black"/>
+              <rect x="40" y="40" width="20" height="20" fill="black"/>
+              <rect x="70" y="40" width="10" height="20" fill="black"/>
+              <rect x="0" y="70" width="20" height="30" fill="black"/>
+              <rect x="30" y="70" width="10" height="30" fill="black"/>
+              <rect x="50" y="70" width="20" height="10" fill="black"/>
+              <rect x="80" y="70" width="20" height="30" fill="black"/>
+            </svg>
+          </div>
+        ` : `
+          <div class="barcode-container">
+            <svg width="200" height="50">
+              <rect x="0" y="0" width="4" height="40" fill="black"/>
+              <rect x="6" y="0" width="2" height="40" fill="black"/>
+              <rect x="10" y="0" width="4" height="40" fill="black"/>
+              <rect x="16" y="0" width="2" height="40" fill="black"/>
+              <rect x="20" y="0" width="6" height="40" fill="black"/>
+              <rect x="28" y="0" width="2" height="40" fill="black"/>
+              <rect x="32" y="0" width="4" height="40" fill="black"/>
+              <rect x="38" y="0" width="2" height="40" fill="black"/>
+              <rect x="42" y="0" width="2" height="40" fill="black"/>
+              <rect x="46" y="0" width="6" height="40" fill="black"/>
+              <rect x="54" y="0" width="2" height="40" fill="black"/>
+              <rect x="58" y="0" width="4" height="40" fill="black"/>
+              <rect x="64" y="0" width="2" height="40" fill="black"/>
+              <rect x="68" y="0" width="4" height="40" fill="black"/>
+              <rect x="74" y="0" width="6" height="40" fill="black"/>
+              <rect x="82" y="0" width="2" height="40" fill="black"/>
+              <rect x="86" y="0" width="4" height="40" fill="black"/>
+              <rect x="92" y="0" width="2" height="40" fill="black"/>
+              <rect x="96" y="0" width="2" height="40" fill="black"/>
+              <rect x="100" y="0" width="4" height="40" fill="black"/>
+              <rect x="106" y="0" width="2" height="40" fill="black"/>
+              <rect x="110" y="0" width="6" height="40" fill="black"/>
+              <rect x="118" y="0" width="2" height="40" fill="black"/>
+              <rect x="122" y="0" width="4" height="40" fill="black"/>
+              <rect x="128" y="0" width="2" height="40" fill="black"/>
+              <rect x="132" y="0" width="2" height="40" fill="black"/>
+              <rect x="136" y="0" width="6" height="40" fill="black"/>
+              <rect x="144" y="0" width="2" height="40" fill="black"/>
+              <rect x="148" y="0" width="4" height="40" fill="black"/>
+              <rect x="154" y="0" width="2" height="40" fill="black"/>
+              <rect x="158" y="0" width="4" height="40" fill="black"/>
+              <rect x="164" y="0" width="6" height="40" fill="black"/>
+              <rect x="172" y="0" width="2" height="40" fill="black"/>
+              <rect x="176" y="0" width="4" height="40" fill="black"/>
+              <rect x="182" y="0" width="2" height="40" fill="black"/>
+              <rect x="186" y="0" width="2" height="40" fill="black"/>
+              <rect x="190" y="0" width="4" height="40" fill="black"/>
+              <rect x="196" y="0" width="2" height="40" fill="black"/>
+            </svg>
           </div>
         `}
         
@@ -601,9 +1037,55 @@ export default function POS() {
   const checkout = async () => {
     if (cart.length === 0) return alert("Cart is empty");
     
-    setCheckingOut(true);
+    // Open payment modal instead of directly charging
+    setPaymentMethod("cash");
+    setEmailReceipt(false);
+    setPrintReceiptOption(false);
+    setShowPaymentModal(true);
+  };
+
+  const processPayment = async () => {
+    setProcessingPayment(true);
     
     try {
+      let paymentSuccess = false;
+      let paymentDetails: any = { method: paymentMethod };
+
+      // Handle different payment methods
+      if (paymentMethod === "cash") {
+        // Cash payment - just needs confirmation
+        paymentSuccess = true;
+        
+        // Open cash drawer if enabled
+        if (hardwareSettings?.cash_drawer_enabled) {
+          console.log("Opening cash drawer...");
+        }
+      } else if (paymentMethod === "card") {
+        // Card payment - check if terminal is configured
+        const { data: cardSettings } = await supabase
+          .from("card_terminal_settings")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
+
+        if (!cardSettings || !cardSettings.enabled) {
+          alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
+          setProcessingPayment(false);
+          return;
+        }
+
+        // Simulate card payment (implement actual card terminal integration)
+        alert("💳 Processing card payment...\n\nIn production, this would connect to your card terminal.");
+        paymentSuccess = confirm("Simulate successful card payment?");
+        paymentDetails.cardTerminal = cardSettings.provider;
+      }
+
+      if (!paymentSuccess) {
+        setProcessingPayment(false);
+        return;
+      }
+
+      // Record transaction
       const { data: transaction, error: transactionError } = await supabase
         .from("transactions")
         .insert({
@@ -623,13 +1105,15 @@ export default function POS() {
           subtotal: subtotal,
           vat: vat,
           total: grandTotal,
+          payment_method: paymentMethod,
+          payment_details: paymentDetails,
         })
         .select()
         .single();
 
       if (transactionError) throw transactionError;
 
-      // Update stock for non-misc items
+      // Update stock
       const stockUpdates = cart
         .filter(item => item.track_inventory && !item.isMisc)
         .map(item => ({
@@ -653,11 +1137,27 @@ export default function POS() {
           total: grandTotal,
           items: cart.length,
           customer_id: customerId,
+          payment_method: paymentMethod,
         },
         staffId: currentStaff?.id,
       });
 
-      alert(`✅ £${grandTotal.toFixed(2)} charged successfully!`);
+      // Print receipt if requested
+      if (printReceiptOption) {
+        printPaidReceiptFromTransaction(transaction);
+      }
+
+      // Email receipt if requested
+      if (emailReceipt && customerId) {
+        const customer = customers.find(c => c.id.toString() === customerId);
+        if (customer?.email) {
+          console.log(`Sending receipt to ${customer.email}`);
+        }
+      }
+
+      alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${paymentMethod}!`);
+      
+      setShowPaymentModal(false);
       
       // Clear cart
       setTransactions(prev => prev.map(t => 
@@ -687,10 +1187,10 @@ export default function POS() {
       loadData();
       
     } catch (error: any) {
-      console.error("Checkout error:", error);
-      alert("❌ Error processing transaction: " + (error.message || "Unknown error"));
+      console.error("Payment error:", error);
+      alert("❌ Error processing payment: " + (error.message || "Unknown error"));
     } finally {
-      setCheckingOut(false);
+      setProcessingPayment(false);
     }
   };
 
@@ -807,8 +1307,8 @@ export default function POS() {
         </div>
       </div>
 
-      <div className="w-[500px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl">
-        <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-emerald-500/10 to-green-500/10">
+      <div className="w-[500px] bg-slate-900/50 backdrop-blur-xl border-l border-slate-800/50 flex flex-col shadow-2xl overflow-hidden">
+        <div className="p-6 border-b border-slate-800/50 bg-gradient-to-r from-emerald-500/10 to-green-500/10 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl shadow-lg shadow-emerald-500/20">
@@ -875,7 +1375,7 @@ export default function POS() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 min-h-0">
           {cart.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -936,7 +1436,7 @@ export default function POS() {
           )}
         </div>
 
-        <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4">
+        <div className="p-6 border-t border-slate-800/50 bg-slate-900/50 space-y-4 flex-shrink-0">
           
           {customers.length > 0 && (
             <select 
@@ -1000,11 +1500,11 @@ export default function POS() {
             </button>
 
             <button
-              onClick={noSale}
+              onClick={() => setShowTransactionsModal(true)}
               className="bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
             >
               <DollarSign className="w-5 h-5" />
-              No Sale
+              Recent
             </button>
           </div>
 
@@ -1170,10 +1670,139 @@ export default function POS() {
               >
                 Add Item
               </button>
-            </div>
-          </div>
+
+              // Add this modal RIGHT BEFORE the closing </div> tags in your POS component
+// Place it after the Misc Product Modal
+
+{/* Payment Modal */}
+{showPaymentModal && (
+  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-xl w-full border border-slate-700/50 shadow-2xl">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold text-white">Complete Payment</h2>
+        <button 
+          onClick={() => setShowPaymentModal(false)} 
+          className="text-slate-400 hover:text-white transition-colors"
+        >
+          <X className="w-8 h-8" />
+        </button>
+      </div>
+
+      {/* Total */}
+      <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 border border-emerald-500/30 rounded-2xl p-6 mb-6">
+        <p className="text-slate-300 text-lg mb-2">Total Amount</p>
+        <p className="text-5xl font-black text-emerald-400">£{grandTotal.toFixed(2)}</p>
+      </div>
+
+      {/* Payment Method Selection */}
+      <div className="space-y-4 mb-6">
+        <label className="block text-lg font-medium text-white mb-3">Payment Method</label>
+        
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            onClick={() => setPaymentMethod("cash")}
+            className={`p-4 rounded-xl font-bold border-2 transition-all ${
+              paymentMethod === "cash"
+                ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600/50"
+            }`}
+          >
+            <div className="text-3xl mb-2">💵</div>
+            Cash
+          </button>
+
+          <button
+            onClick={() => setPaymentMethod("card")}
+            className={`p-4 rounded-xl font-bold border-2 transition-all ${
+              paymentMethod === "card"
+                ? "bg-blue-500/20 border-blue-500 text-blue-400"
+                : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600/50"
+            }`}
+          >
+            <div className="text-3xl mb-2">💳</div>
+            Card
+          </button>
+
+          <button
+            onClick={() => setPaymentMethod("voucher")}
+            className={`p-4 rounded-xl font-bold border-2 transition-all ${
+              paymentMethod === "voucher"
+                ? "bg-purple-500/20 border-purple-500 text-purple-400"
+                : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600/50"
+            }`}
+          >
+            <div className="text-3xl mb-2">🎫</div>
+            Voucher
+          </button>
+        </div>
+      </div>
+
+      {/* Voucher Code Input */}
+      {paymentMethod === "voucher" && (
+        <div className="mb-6">
+          <label className="block text-lg font-medium text-white mb-3">Voucher Code</label>
+          <input
+            type="text"
+            value={voucherCode}
+            onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+            placeholder="Enter or scan voucher code"
+            className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-4 rounded-xl text-lg font-mono uppercase focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all"
+            autoFocus
+          />
+          <p className="text-sm text-slate-400 mt-2">Format: XXXX-XXXX-XXXX</p>
         </div>
       )}
+
+      {/* Options */}
+      <div className="space-y-3 mb-6">
+        <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+          <input
+            type="checkbox"
+            checked={emailReceipt}
+            onChange={(e) => setEmailReceipt(e.target.checked)}
+            disabled={!customerId || !customers.find(c => c.id.toString() === customerId)?.email}
+            className="w-5 h-5 accent-cyan-500"
+          />
+          <span className="text-white flex-1">Email Receipt</span>
+          {(!customerId || !customers.find(c => c.id.toString() === customerId)?.email) && (
+            <span className="text-xs text-slate-500">No email</span>
+          )}
+        </label>
+
+        <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+          <input
+            type="checkbox"
+            checked={printReceipt}
+            onChange={(e) => setPrintReceipt(e.target.checked)}
+            className="w-5 h-5 accent-cyan-500"
+          />
+          <span className="text-white">Print Receipt</span>
+        </label>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex gap-4">
+        <button
+          onClick={() => setShowPaymentModal(false)}
+          className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold transition-all text-white"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={processPayment}
+          disabled={processingPayment || (paymentMethod === "voucher" && !voucherCode.trim())}
+          className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-xl text-lg font-bold transition-all shadow-xl disabled:opacity-50 text-white flex items-center justify-center gap-2"
+        >
+          {processingPayment ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            `Pay £${grandTotal.toFixed(2)}`
+          )}
+        </button>
+      </div>
     </div>
-  );
-}
+  </div>
+)}
