@@ -26,6 +26,7 @@ interface Customer {
   id: number;
   name: string;
   phone: string | null;
+  email?: string | null;  // Add this line
 }
 
 interface CartItem extends Product {
@@ -254,7 +255,7 @@ export default function POS() {
 
     const { data: customersData } = await supabase
       .from("customers")
-      .select("*")
+      .select("id, name, phone, email")  // Make sure to include email here
       .eq("user_id", userId)
       .order("name");
     
@@ -1142,16 +1143,20 @@ export default function POS() {
         staffId: currentStaff?.id,
       });
 
-      // Print receipt if requested
+       // Print receipt if requested
       if (printReceiptOption) {
         printPaidReceiptFromTransaction(transaction);
       }
 
-      // Email receipt if requested
+      // Email receipt if requested - FIXED VERSION
       if (emailReceipt && customerId) {
         const customer = customers.find(c => c.id.toString() === customerId);
         if (customer?.email) {
           console.log(`Sending receipt to ${customer.email}`);
+          // Implement actual email sending here
+          // await sendEmailReceipt(customer.email, transaction);
+        } else if (customer) {
+          console.log(`Customer ${customer.name} has no email on file`);
         }
       }
 
@@ -1727,20 +1732,21 @@ export default function POS() {
             </div>
 
             {/* Options */}
-            <div className="space-y-3 mb-6">
-              <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={emailReceipt}
-                  onChange={(e) => setEmailReceipt(e.target.checked)}
-                  disabled={!customerId || !customers.find(c => c.id.toString() === customerId)?.email}
-                  className="w-5 h-5 accent-cyan-500"
-                />
-                <span className="text-white flex-1">Email Receipt</span>
-                {(!customerId || !customers.find(c => c.id.toString() === customerId)?.email) && (
-                  <span className="text-xs text-slate-500">No email</span>
-                )}
-              </label>
+            <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
+  <input
+    type="checkbox"
+    checked={emailReceipt}
+    onChange={(e) => setEmailReceipt(e.target.checked)}
+    disabled={!customerId || !customers.find(c => c.id.toString() === customerId)?.email}
+    className="w-5 h-5 accent-cyan-500"
+  />
+  <span className="text-white flex-1">Email Receipt</span>
+  {(!customerId || !customers.find(c => c.id.toString() === customerId)?.email) && (
+    <span className="text-xs text-slate-500">
+      {!customerId ? "Select customer" : "No email"}
+    </span>
+  )}
+</label>
 
               <label className="flex items-center gap-3 p-4 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all cursor-pointer">
                 <input
@@ -1841,3 +1847,4 @@ export default function POS() {
     </div>
   );
 }
+
