@@ -397,7 +397,7 @@ export default function POS() {
     }
   };
 
-  const printReceipt = () => { {
+  const printReceipt = () => {
     if (cart.length === 0) {
       alert("Cart is empty");
       return;
@@ -851,7 +851,7 @@ export default function POS() {
           }
           .total-line { 
             display: flex; 
-            justify-between; 
+            justify-content: space-between; 
             margin: 3px 0; 
           }
           .text-center { 
@@ -1674,7 +1674,8 @@ export default function POS() {
           </div>
         </div>
       )}
-            {/* Payment Modal */}
+
+      {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-xl w-full border border-slate-700/50 shadow-2xl">
@@ -1829,11 +1830,14 @@ export default function POS() {
                         <Printer className="w-4 h-4" />
                         Re-print
                       </button>
-                        )}
-                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-            );
-          }
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
