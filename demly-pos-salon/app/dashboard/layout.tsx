@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - UPDATED WITH RESET PIN OPTION
+// app/dashboard/layout.tsx - UPDATED WITH BETTER PIN RESET
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +9,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key, Mail
 } from "lucide-react";
 
 const navigation = [
@@ -46,6 +46,8 @@ export default function DashboardLayout({
   const [showResetOption, setShowResetOption] = useState(false);
   const [resettingPin, setResettingPin] = useState(false);
   const [resetError, setResetError] = useState("");
+  const [resetSuccess, setResetSuccess] = useState("");
+  const [generatedPin, setGeneratedPin] = useState("");
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -136,6 +138,8 @@ export default function DashboardLayout({
     setPinInput("");
     setSelectedStaffId(null);
     setShowResetOption(false);
+    setResetSuccess("");
+    setGeneratedPin("");
   };
 
   const handleResetPin = async () => {
@@ -145,17 +149,16 @@ export default function DashboardLayout({
     }
 
     const selectedStaff = staffList.find(s => s.id === selectedStaffId);
-    if (!selectedStaff?.email) {
-      setResetError("Staff member doesn't have an email address");
-      return;
-    }
-
+    
     setResettingPin(true);
     setResetError("");
+    setResetSuccess("");
+    setGeneratedPin("");
 
     try {
       // Generate a random 4-digit PIN
       const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+      setGeneratedPin(newPin);
       
       // Update the staff PIN in database
       const { error: updateError } = await supabase
@@ -168,31 +171,44 @@ export default function DashboardLayout({
         throw new Error(updateError.message);
       }
 
-      // Send the new PIN via email
-      const { error: emailError } = await supabase.functions.invoke(
-        'send-pin-reset-email',
-        {
-          body: {
-            email: selectedStaff.email,
-            staffName: selectedStaff.name,
-            newPin: newPin,
-            businessName: businessName
-          }
-        }
-      );
+      // Try to send email if staff has email address
+      if (selectedStaff?.email) {
+        try {
+          const { error: emailError } = await supabase.functions.invoke(
+            'send-verification-email',
+            {
+              body: {
+                email: selectedStaff.email,
+                staffName: selectedStaff.name,
+                type: "pin_reset",
+                pin: newPin,
+                businessName: businessName
+              }
+            }
+          );
 
-      if (emailError) {
-        console.error("Error sending email:", emailError);
-        setResetError("PIN reset but failed to send email. Contact admin for your new PIN.");
+          if (!emailError) {
+            setResetSuccess(`✅ New PIN sent to ${selectedStaff.email}`);
+          } else {
+            console.warn("Email sending failed, but PIN was reset:", emailError);
+            setResetSuccess(`✅ PIN reset to: ${newPin}. Email failed to send.`);
+          }
+        } catch (emailErr) {
+          console.warn("Email sending failed:", emailErr);
+          setResetSuccess(`✅ PIN reset to: ${newPin}. Email failed to send.`);
+        }
       } else {
-        alert(`✅ New PIN sent to ${selectedStaff.email}`);
-        setShowResetOption(false);
-        setPinInput("");
-        setPinError("");
+        // No email, just show the new PIN
+        setResetSuccess(`✅ PIN reset to: ${newPin}`);
       }
+
+      // Clear any errors
+      setResetError("");
     } catch (error: any) {
       console.error("Error resetting PIN:", error);
       setResetError("Failed to reset PIN: " + error.message);
+      setResetSuccess("");
+      setGeneratedPin("");
     } finally {
       setResettingPin(false);
     }
@@ -237,8 +253,23 @@ export default function DashboardLayout({
           )}
 
           {resetError && (
-            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-4 text-yellow-400 mb-6 text-center">
+            <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-400 mb-6 text-center">
               {resetError}
+            </div>
+          )}
+
+          {resetSuccess && (
+            <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-xl p-4 text-emerald-400 mb-6 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <Check className="w-5 h-5" />
+                {resetSuccess}
+              </div>
+              {generatedPin && (
+                <div className="mt-3">
+                  <p className="text-sm font-bold">New PIN: <span className="text-2xl tracking-widest">{generatedPin}</span></p>
+                  <p className="text-xs text-emerald-300 mt-1">Please use this PIN to login</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -256,6 +287,8 @@ export default function DashboardLayout({
                       setSelectedStaffId(staffMember.id);
                       setPinError("");
                       setResetError("");
+                      setResetSuccess("");
+                      setGeneratedPin("");
                       setShowResetOption(false);
                     }}
                     className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
@@ -269,7 +302,10 @@ export default function DashboardLayout({
                         <p className="font-bold text-white text-lg">{staffMember.name}</p>
                         <p className="text-xs text-slate-400 capitalize">{staffMember.role}</p>
                         {staffMember.email && (
-                          <p className="text-xs text-slate-500 truncate">{staffMember.email}</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            <Mail className="w-3 h-3 inline mr-1" />
+                            {staffMember.email}
+                          </p>
                         )}
                       </div>
                       {selectedStaffId === staffMember.id && (
@@ -291,7 +327,11 @@ export default function DashboardLayout({
                     Enter PIN for {staffList.find(s => s.id === selectedStaffId)?.name}
                   </label>
                   <button
-                    onClick={() => setShowResetOption(true)}
+                    onClick={() => {
+                      setShowResetOption(true);
+                      setResetSuccess("");
+                      setGeneratedPin("");
+                    }}
                     className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   >
                     <Key className="w-4 h-4" />
@@ -324,9 +364,14 @@ export default function DashboardLayout({
                       <p className="text-sm text-slate-400 mt-1">
                         A new PIN will be generated and sent to the staff member's email.
                       </p>
-                      {staffList.find(s => s.id === selectedStaffId)?.email && (
-                        <p className="text-sm text-emerald-400 mt-1">
+                      {staffList.find(s => s.id === selectedStaffId)?.email ? (
+                        <p className="text-sm text-emerald-400 mt-1 flex items-center gap-1">
+                          <Mail className="w-4 h-4" />
                           Will be sent to: {staffList.find(s => s.id === selectedStaffId)?.email}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-yellow-400 mt-1">
+                          ⚠️ No email on file. New PIN will be displayed here.
                         </p>
                       )}
                     </div>
@@ -338,6 +383,8 @@ export default function DashboardLayout({
                     onClick={() => {
                       setShowResetOption(false);
                       setResetError("");
+                      setResetSuccess("");
+                      setGeneratedPin("");
                     }}
                     className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-bold transition-all"
                   >
@@ -354,7 +401,10 @@ export default function DashboardLayout({
                         Resetting...
                       </>
                     ) : (
-                      "Reset PIN"
+                      <>
+                        <Key className="w-5 h-5" />
+                        Reset PIN
+                      </>
                     )}
                   </button>
                 </div>
@@ -362,7 +412,7 @@ export default function DashboardLayout({
             ) : null}
           </div>
 
-          {selectedStaffId && !showResetOption && (
+          {selectedStaffId && !showResetOption && !resetSuccess && (
             <button
               onClick={handlePinSubmit}
               disabled={!selectedStaffId || pinInput.length < 4}
@@ -372,14 +422,38 @@ export default function DashboardLayout({
             </button>
           )}
 
+          {resetSuccess && (
+            <div className="space-y-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowResetOption(false);
+                  setPinInput("");
+                  setResetSuccess("");
+                  setGeneratedPin("");
+                }}
+                className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-emerald-500/20"
+              >
+                Back to Login
+              </button>
+              <div className="text-center">
+                <Link
+                  href="/dashboard/reset-pin"
+                  className="text-sm text-slate-400 hover:text-emerald-300 transition-colors underline"
+                >
+                  Need email verification reset?
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Alternative reset link */}
-          {!showResetOption && selectedStaffId && (
+          {!showResetOption && selectedStaffId && !resetSuccess && (
             <div className="mt-6 text-center">
               <Link
                 href="/dashboard/reset-pin"
                 className="text-sm text-slate-400 hover:text-emerald-300 transition-colors underline"
               >
-                Need to reset your PIN with email verification?
+                Need to reset with email verification?
               </Link>
             </div>
           )}
