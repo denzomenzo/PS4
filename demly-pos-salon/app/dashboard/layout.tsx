@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - SIMPLIFIED VERSION
+// app/dashboard/layout.tsx - UPDATED WITH RESET PIN OPTION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +9,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key
 } from "lucide-react";
 
 const navigation = [
@@ -42,7 +42,10 @@ export default function DashboardLayout({
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
-  const [staffList, setStaffList] = useState<Array<{ id: number; name: string; role: string }>>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: number; name: string; role: string; email?: string }>>([]);
+  const [showResetOption, setShowResetOption] = useState(false);
+  const [resettingPin, setResettingPin] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -83,10 +86,10 @@ export default function DashboardLayout({
         setBusinessLogoUrl(data.business_logo_url);
       }
 
-      // Load staff list
+      // Load staff list with emails
       const { data: staffData } = await supabase
         .from("staff")
-        .select("id, name, role")
+        .select("id, name, role, email")
         .eq("user_id", userId)
         .order("name");
       
@@ -132,6 +135,67 @@ export default function DashboardLayout({
     setPinError("");
     setPinInput("");
     setSelectedStaffId(null);
+    setShowResetOption(false);
+  };
+
+  const handleResetPin = async () => {
+    if (!selectedStaffId) {
+      setResetError("Please select a staff member first");
+      return;
+    }
+
+    const selectedStaff = staffList.find(s => s.id === selectedStaffId);
+    if (!selectedStaff?.email) {
+      setResetError("Staff member doesn't have an email address");
+      return;
+    }
+
+    setResettingPin(true);
+    setResetError("");
+
+    try {
+      // Generate a random 4-digit PIN
+      const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      // Update the staff PIN in database
+      const { error: updateError } = await supabase
+        .from("staff")
+        .update({ pin: newPin })
+        .eq("id", selectedStaffId)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      // Send the new PIN via email
+      const { error: emailError } = await supabase.functions.invoke(
+        'send-pin-reset-email',
+        {
+          body: {
+            email: selectedStaff.email,
+            staffName: selectedStaff.name,
+            newPin: newPin,
+            businessName: businessName
+          }
+        }
+      );
+
+      if (emailError) {
+        console.error("Error sending email:", emailError);
+        setResetError("PIN reset but failed to send email. Contact admin for your new PIN.");
+      } else {
+        alert(`✅ New PIN sent to ${selectedStaff.email}`);
+        setShowResetOption(false);
+        setPinInput("");
+        setPinError("");
+      }
+    } catch (error: any) {
+      console.error("Error resetting PIN:", error);
+      setResetError("Failed to reset PIN: " + error.message);
+    } finally {
+      setResettingPin(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -172,6 +236,12 @@ export default function DashboardLayout({
             </div>
           )}
 
+          {resetError && (
+            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-xl p-4 text-yellow-400 mb-6 text-center">
+              {resetError}
+            </div>
+          )}
+
           <div className="space-y-6">
             {/* Staff Selection */}
             <div>
@@ -185,6 +255,8 @@ export default function DashboardLayout({
                     onClick={() => {
                       setSelectedStaffId(staffMember.id);
                       setPinError("");
+                      setResetError("");
+                      setShowResetOption(false);
                     }}
                     className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
                       selectedStaffId === staffMember.id
@@ -196,6 +268,9 @@ export default function DashboardLayout({
                       <div>
                         <p className="font-bold text-white text-lg">{staffMember.name}</p>
                         <p className="text-xs text-slate-400 capitalize">{staffMember.role}</p>
+                        {staffMember.email && (
+                          <p className="text-xs text-slate-500 truncate">{staffMember.email}</p>
+                        )}
                       </div>
                       {selectedStaffId === staffMember.id && (
                         <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
@@ -208,12 +283,21 @@ export default function DashboardLayout({
               </div>
             </div>
 
-            {/* PIN Input */}
-            {selectedStaffId && (
+            {/* PIN Input or Reset Option */}
+            {selectedStaffId && !showResetOption ? (
               <div style={{ animation: "fadeIn 0.3s ease-in" }}>
-                <label className="block text-sm font-medium text-slate-300 mb-3">
-                  Enter PIN for {staffList.find(s => s.id === selectedStaffId)?.name}
-                </label>
+                <div className="flex justify-between items-center mb-3">
+                  <label className="block text-sm font-medium text-slate-300">
+                    Enter PIN for {staffList.find(s => s.id === selectedStaffId)?.name}
+                  </label>
+                  <button
+                    onClick={() => setShowResetOption(true)}
+                    className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
+                  >
+                    <Key className="w-4 h-4" />
+                    Forgot PIN?
+                  </button>
+                </div>
                 <input
                   type="password"
                   inputMode="numeric"
@@ -230,16 +314,75 @@ export default function DashboardLayout({
                   autoFocus
                 />
               </div>
-            )}
+            ) : selectedStaffId && showResetOption ? (
+              <div style={{ animation: "fadeIn 0.3s ease-in" }} className="space-y-4">
+                <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
+                  <div className="flex items-start gap-3">
+                    <Key className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-white font-medium">Reset PIN for {staffList.find(s => s.id === selectedStaffId)?.name}</p>
+                      <p className="text-sm text-slate-400 mt-1">
+                        A new PIN will be generated and sent to the staff member's email.
+                      </p>
+                      {staffList.find(s => s.id === selectedStaffId)?.email && (
+                        <p className="text-sm text-emerald-400 mt-1">
+                          Will be sent to: {staffList.find(s => s.id === selectedStaffId)?.email}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setShowResetOption(false);
+                      setResetError("");
+                    }}
+                    className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-bold transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetPin}
+                    disabled={resettingPin}
+                    className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {resettingPin ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Resetting...
+                      </>
+                    ) : (
+                      "Reset PIN"
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <button
-            onClick={handlePinSubmit}
-            disabled={!selectedStaffId || pinInput.length < 4}
-            className="w-full mt-8 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-5 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
-          >
-            Login to POS
-          </button>
+          {selectedStaffId && !showResetOption && (
+            <button
+              onClick={handlePinSubmit}
+              disabled={!selectedStaffId || pinInput.length < 4}
+              className="w-full mt-8 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-5 rounded-xl transition-all disabled:opacity-50 text-xl shadow-xl shadow-emerald-500/20"
+            >
+              Login to POS
+            </button>
+          )}
+
+          {/* Alternative reset link */}
+          {!showResetOption && selectedStaffId && (
+            <div className="mt-6 text-center">
+              <Link
+                href="/dashboard/reset-pin"
+                className="text-sm text-slate-400 hover:text-emerald-300 transition-colors underline"
+              >
+                Need to reset your PIN with email verification?
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     );
