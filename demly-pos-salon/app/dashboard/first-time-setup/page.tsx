@@ -129,76 +129,72 @@ export default function FirstTimeSetup() {
   };
 
   const completeSetup = async () => {
-    if (verificationCode !== sentCode) {
-      setError("Invalid verification code");
-      return;
-    }
+  if (verificationCode !== sentCode) {
+    setError("Invalid verification code");
+    return;
+  }
 
-    if (!ownerPin || ownerPin.length < 4) {
-      setError("PIN must be at least 4 digits");
-      return;
-    }
+  if (!ownerPin || ownerPin.length < 4) {
+    setError("PIN must be at least 4 digits");
+    return;
+  }
 
-    if (ownerPin !== confirmPin) {
-      setError("PINs do not match");
-      return;
-    }
+  if (ownerPin !== confirmPin) {
+    setError("PINs do not match");
+    return;
+  }
 
-    setProcessing(true);
+  setProcessing(true);
 
-    try {
-      // Create owner staff member
-      const { error: staffError } = await supabase
-        .from("staff")
-        .insert({
-          user_id: userId,
-          name: ownerName || "Owner",
-          email: ownerEmail,
-          pin: ownerPin,
-          role: "owner",
-          permissions: {
-            pos: true,
-            inventory: true,
-            reports: true,
-            settings: true,
-          }
-        });
+  try {
+    // Create owner staff member
+    const { error: staffError } = await supabase
+      .from("staff")
+      .insert({
+        user_id: userId,
+        name: ownerName || "Owner",
+        email: ownerEmail,
+        pin: ownerPin,
+        role: "owner",
+        permissions: {
+          pos: true,
+          inventory: true,
+          reports: true,
+          settings: true,
+        }
+      });
 
-      if (staffError) {
-        console.error("Error creating staff:", staffError);
-        setError("Failed to create owner account: " + staffError.message);
-        setProcessing(false);
-        return;
-      }
-
-      // Update business name in settings - THIS NEEDS TO BE ASYNC
-      if (businessName) {
-        await supabase
-          .from("settings")
-          .upsert({
-            user_id: userId,
-            shop_name: businessName,
-            business_name: businessName,
-            vat_enabled: true,
-          });
-      }
-
-      // Success! Redirect to dashboard
-      alert("✅ Setup complete! You can now login with your PIN.");
-      
-      // Clear the first-time setup flag and set completion flag
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('isFirstTimeSetup');
-        localStorage.setItem('firstTimeSetupCompleted', 'true');
-      }
-      
-      router.push("/dashboard");
-    } catch (error: any) {
-      console.error("Error:", error);
-      setError("Failed to complete setup: " + error.message);
+    if (staffError) {
+      console.error("Error creating staff:", staffError);
+      setError("Failed to create owner account: " + staffError.message);
       setProcessing(false);
+      return;
     }
-  };
+
+    // Update business name in settings
+    if (businessName) {
+      await supabase
+        .from("settings")
+        .upsert({
+          user_id: userId,
+          shop_name: businessName,
+          business_name: businessName,
+          vat_enabled: true,
+        });
+    }
+
+    // Success! Add a small delay to ensure data is committed
+    setTimeout(() => {
+      alert("✅ Setup complete! You can now login with your PIN.");
+      router.push("/dashboard");
+    }, 1000);
+    
+  } catch (error: any) {
+    console.error("Error:", error);
+    setError("Failed to complete setup: " + error.message);
+    setProcessing(false);
+  }
+};
 
   if (loading) {
     return (
@@ -504,3 +500,4 @@ export default function FirstTimeSetup() {
     </div>
   );
 }
+
