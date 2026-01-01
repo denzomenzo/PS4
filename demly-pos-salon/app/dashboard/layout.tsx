@@ -87,46 +87,59 @@ export default function DashboardLayout({
   };
 
   const loadData = async () => {
-    try {
-      // Load business name and logo
-      const { data } = await supabase
-        .from("settings")
-        .select("business_name, shop_name, business_logo_url")
-        .eq("user_id", userId)
-        .single();
-      
-      if (data?.shop_name) {
-        setBusinessName(data.shop_name);
-      } else if (data?.business_name) {
-        setBusinessName(data.business_name);
-      }
-      
-      if (data?.business_logo_url) {
-        setBusinessLogoUrl(data.business_logo_url);
-      }
+  try {
+    // Load business name and logo
+    const { data } = await supabase
+      .from("settings")
+      .select("business_name, shop_name, business_logo_url")
+      .eq("user_id", userId)
+      .single();
+    
+    if (data?.shop_name) {
+      setBusinessName(data.shop_name);
+    } else if (data?.business_name) {
+      setBusinessName(data.business_name);
+    }
+    
+    if (data?.business_logo_url) {
+      setBusinessLogoUrl(data.business_logo_url);
+    }
 
-      // Load staff list for selection and check if any staff exists
+    // Load staff list for selection and check if any staff exists
+    const { data: staffData } = await supabase
+      .from("staff")
+      .select("id, name, role")
+      .eq("user_id", userId)
+      .order("name");
+    
+    if (staffData && staffData.length > 0) {
+      setStaffList(staffData);
+      setHasStaff(true);
+    } else {
+      setHasStaff(false);
+    }
+    
+    setLoading(false);
+  } catch (error) {
+    console.error("Error loading dashboard data:", error);
+    
+    // If we get an error, still try to check staff
+    try {
       const { data: staffData } = await supabase
         .from("staff")
-        .select("id, name, role")
+        .select("id")
         .eq("user_id", userId)
-        .order("name");
+        .limit(1);
       
-      if (staffData && staffData.length > 0) {
-        setStaffList(staffData);
-        setHasStaff(true);
-      } else {
-        setHasStaff(false);
-      }
-      
-      setLoading(false);
-      setCheckingSetup(false);
-    } catch (error) {
-      console.error("Error loading dashboard data:", error);
-      setLoading(false);
-      setCheckingSetup(false);
+      setHasStaff(!!staffData && staffData.length > 0);
+    } catch (e) {
+      console.error("Even staff check failed:", e);
+      setHasStaff(false);
     }
-  };
+    
+    setLoading(false);
+  }
+};
 
   const handlePinSubmit = async () => {
     if (!selectedStaffId) {
@@ -405,3 +418,4 @@ export default function DashboardLayout({
     </div>
   );
 }
+
