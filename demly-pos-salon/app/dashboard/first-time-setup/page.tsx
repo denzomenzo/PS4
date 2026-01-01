@@ -164,21 +164,6 @@ export default function FirstTimeSetup() {
           }
         });
 
-              // Success! Redirect to dashboard
-              alert("✅ Setup complete! You can now login with your PIN.");
-    
-              // Clear the first-time setup flag
-              localStorage.removeItem('isFirstTimeSetup');
-    
-              // Set completion flag
-              localStorage.setItem('firstTimeSetupCompleted', 'true');
-    
-              router.push("/dashboard");
-            } catch (error: any) {
-              // ... error handling ...
-            }
-          };
-
       if (staffError) {
         console.error("Error creating staff:", staffError);
         setError("Failed to create owner account: " + staffError.message);
@@ -186,7 +171,7 @@ export default function FirstTimeSetup() {
         return;
       }
 
-      // Update business name in settings
+      // Update business name in settings - THIS NEEDS TO BE ASYNC
       if (businessName) {
         await supabase
           .from("settings")
@@ -200,6 +185,13 @@ export default function FirstTimeSetup() {
 
       // Success! Redirect to dashboard
       alert("✅ Setup complete! You can now login with your PIN.");
+      
+      // Clear the first-time setup flag and set completion flag
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('isFirstTimeSetup');
+        localStorage.setItem('firstTimeSetupCompleted', 'true');
+      }
+      
       router.push("/dashboard");
     } catch (error: any) {
       console.error("Error:", error);
@@ -511,5 +503,4 @@ export default function FirstTimeSetup() {
       </div>
     </div>
   );
-
 }
