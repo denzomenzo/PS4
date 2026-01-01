@@ -1,4 +1,4 @@
-// components/AuthProvider.tsx - UPDATED WITH BETTER COORDINATION
+// components/AuthProvider.tsx - FIXED INFINITE REDIRECT
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +9,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
-  const [isFirstTimeSetupComplete, setIsFirstTimeSetupComplete] = useState(false);
+  const [hasCheckedSetup, setHasCheckedSetup] = useState(false);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -50,7 +50,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
           // Check if this is the first-time-setup page
           if (pathname === "/dashboard/first-time-setup") {
-            setIsFirstTimeSetupComplete(true);
+            // Mark that we've checked setup
+            setHasCheckedSetup(true);
             setLoading(false);
             return;
           }
@@ -89,18 +90,19 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           if (!staffData || staffData.length === 0) {
             console.log('⚠️ No staff found - redirecting to first-time setup');
             
-            // Store in localStorage that we're in first-time setup flow
-            localStorage.setItem('isFirstTimeSetup', 'true');
+            // Don't redirect if we're already checking or have just completed setup
+            if (hasCheckedSetup) {
+              console.log('✅ Already checked setup, allowing access');
+              setLoading(false);
+              return;
+            }
             
             router.push("/dashboard/first-time-setup");
             return;
-          } else {
-            // Staff exists, clear the flag
-            localStorage.removeItem('isFirstTimeSetup');
-            setIsFirstTimeSetupComplete(true);
           }
 
           // Has license and staff exists, allow access
+          setHasCheckedSetup(true);
           setLoading(false);
           return;
         }
@@ -128,14 +130,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
             if (!staffData || staffData.length === 0) {
               console.log('✅ Has license but no staff - redirecting to first-time setup');
-              
-              // Store in localStorage that we're in first-time setup flow
-              localStorage.setItem('isFirstTimeSetup', 'true');
-              
               router.push("/dashboard/first-time-setup");
             } else {
               console.log('✅ Has license and staff - redirecting to dashboard');
-              localStorage.removeItem('isFirstTimeSetup');
               router.push("/dashboard");
             }
             return;
@@ -160,8 +157,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       console.log('🔐 Auth state changed:', event);
       
       if (event === "SIGNED_OUT") {
-        // Clear first-time setup flag
-        localStorage.removeItem('isFirstTimeSetup');
+        // Reset setup flag on sign out
+        setHasCheckedSetup(false);
         
         // Only redirect to home if user was on a protected route
         if (pathname.startsWith("/dashboard") || pathname === "/activate") {
@@ -170,29 +167,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
       
       if (event === "SIGNED_IN") {
-        // Check if we just completed first-time setup
-        const completedFirstTimeSetup = localStorage.getItem('firstTimeSetupCompleted');
-        if (completedFirstTimeSetup === 'true') {
-          localStorage.removeItem('firstTimeSetupCompleted');
-          router.push("/dashboard");
-        } else {
-          checkSession();
-        }
+        // Reset setup flag on sign in to force re-check
+        setHasCheckedSetup(false);
+        checkSession();
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [pathname, router]);
-
-  // Also check if we're in first-time setup from localStorage on mount
-  useEffect(() => {
-    const isInFirstTimeSetup = localStorage.getItem('isFirstTimeSetup') === 'true';
-    if (isInFirstTimeSetup && pathname === "/dashboard/first-time-setup") {
-      setIsFirstTimeSetupComplete(true);
-    }
-  }, [pathname]);
+  }, [pathname, router, hasCheckedSetup]);
 
   if (loading) {
     return (
