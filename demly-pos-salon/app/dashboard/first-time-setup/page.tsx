@@ -164,6 +164,21 @@ export default function FirstTimeSetup() {
           }
         });
 
+              // Success! Redirect to dashboard
+              alert("✅ Setup complete! You can now login with your PIN.");
+    
+              // Clear the first-time setup flag
+              localStorage.removeItem('isFirstTimeSetup');
+    
+              // Set completion flag
+              localStorage.setItem('firstTimeSetupCompleted', 'true');
+    
+              router.push("/dashboard");
+            } catch (error: any) {
+              // ... error handling ...
+            }
+          };
+
       if (staffError) {
         console.error("Error creating staff:", staffError);
         setError("Failed to create owner account: " + staffError.message);
@@ -496,4 +511,5 @@ export default function FirstTimeSetup() {
       </div>
     </div>
   );
+
 }
