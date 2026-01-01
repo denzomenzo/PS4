@@ -262,7 +262,7 @@ export default function DashboardLayout({
                 <div>
                   <p className="text-emerald-400 font-medium">{resetSuccess}</p>
                   <p className="text-sm text-emerald-300/70 mt-1">
-                    For security reasons, the new PIN is not displayed here.
+                    Need more help? Email support@demly.co.uk and we will reach out as soon as possible.
                     {resetSuccess.includes("sent to") ? " Check your email." : " Contact your administrator."}
                   </p>
                 </div>
@@ -563,3 +563,4 @@ export default function DashboardLayout({
     </div>
   );
 }
+
