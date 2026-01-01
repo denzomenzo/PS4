@@ -1,4 +1,4 @@
-// components/AuthProvider.tsx
+// components/AuthProvider.tsx - UPDATED WITH FIRST-TIME SETUP FLOW
 "use client";
 
 import { useEffect, useState } from "react";
@@ -47,6 +47,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             return;
           }
 
+          // Check if this is the first-time-setup page
+          if (pathname === "/dashboard/first-time-setup") {
+            setLoading(false);
+            return;
+          }
+
           // Use RPC to check license (bypasses RLS)
           const { data: hasLicense, error } = await supabase
             .rpc('check_user_license', { p_user_id: session.user.id });
@@ -55,7 +61,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
           if (error) {
             console.error('License check error:', error);
-            // On error, assume no license
             router.push("/activate");
             return;
           }
@@ -65,7 +70,27 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             return;
           }
 
-          // Has license, allow access to any /dashboard/* page
+          // Has license - now check if staff exists
+          const { data: staffData, error: staffError } = await supabase
+            .from("staff")
+            .select("id")
+            .eq("user_id", session.user.id)
+            .limit(1);
+
+          console.log('👥 Staff check result:', { staffData, staffError });
+
+          if (staffError) {
+            console.error('Staff check error:', staffError);
+          }
+
+          // If no staff exists, redirect to first-time setup
+          if (!staffData || staffData.length === 0) {
+            console.log('⚠️ No staff found - redirecting to first-time setup');
+            router.push("/dashboard/first-time-setup");
+            return;
+          }
+
+          // Has license and staff exists, allow access
           setLoading(false);
           return;
         }
@@ -84,9 +109,20 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           console.log('🔍 Activate page - license check:', { hasLicense });
 
           if (hasLicense) {
-            // Already has license, redirect to /dashboard (the home page)
-            console.log('✅ User has license, redirecting to /dashboard');
-            router.push("/dashboard");
+            // Check if staff exists
+            const { data: staffData } = await supabase
+              .from("staff")
+              .select("id")
+              .eq("user_id", session.user.id)
+              .limit(1);
+
+            if (!staffData || staffData.length === 0) {
+              console.log('✅ Has license but no staff - redirecting to first-time setup');
+              router.push("/dashboard/first-time-setup");
+            } else {
+              console.log('✅ Has license and staff - redirecting to dashboard');
+              router.push("/dashboard");
+            }
             return;
           }
 
