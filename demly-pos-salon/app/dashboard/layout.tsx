@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - UPDATED WITH LOGO SUPPORT
+// app/dashboard/layout.tsx - SIMPLIFIED VERSION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -43,8 +43,6 @@ export default function DashboardLayout({
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [staffList, setStaffList] = useState<Array<{ id: number; name: string; role: string }>>([]);
-  const [hasStaff, setHasStaff] = useState(false);
-  const [checkingSetup, setCheckingSetup] = useState(true);
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -53,93 +51,55 @@ export default function DashboardLayout({
   }, [userId, authLoading]);
 
   useEffect(() => {
-    checkAuthRequired();
-  }, [pathname, staff, hasStaff]);
-
-  const checkAuthRequired = () => {
-    // Skip all checks if we're still loading or checking setup
-    if (loading || checkingSetup) return;
-
-    // Skip PIN modal for first-time setup route
-    if (pathname === "/dashboard/first-time-setup") {
+    // Check if PIN modal should be shown
+    if (pathname === "/dashboard/first-time-setup" || pathname === "/dashboard/display") {
       setShowPinModal(false);
       return;
     }
 
-    // Skip PIN modal for display page
-    if (pathname === "/dashboard/display") {
-      setShowPinModal(false);
-      return;
-    }
-
-    // If no staff exists at all, redirect to first-time setup
-    if (!hasStaff && pathname !== "/dashboard/first-time-setup") {
-      router.push("/dashboard/first-time-setup");
-      return;
-    }
-
-    // Show PIN modal only if no staff is logged in AND staff exists
-    if (!staff && hasStaff) {
+    if (!authLoading && !staff) {
       setShowPinModal(true);
     } else {
       setShowPinModal(false);
     }
-  };
+  }, [pathname, authLoading, staff]);
 
   const loadData = async () => {
-  try {
-    // Load business name and logo
-    const { data } = await supabase
-      .from("settings")
-      .select("business_name, shop_name, business_logo_url")
-      .eq("user_id", userId)
-      .single();
-    
-    if (data?.shop_name) {
-      setBusinessName(data.shop_name);
-    } else if (data?.business_name) {
-      setBusinessName(data.business_name);
-    }
-    
-    if (data?.business_logo_url) {
-      setBusinessLogoUrl(data.business_logo_url);
-    }
-
-    // Load staff list for selection and check if any staff exists
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select("id, name, role")
-      .eq("user_id", userId)
-      .order("name");
-    
-    if (staffData && staffData.length > 0) {
-      setStaffList(staffData);
-      setHasStaff(true);
-    } else {
-      setHasStaff(false);
-    }
-    
-    setLoading(false);
-  } catch (error) {
-    console.error("Error loading dashboard data:", error);
-    
-    // If we get an error, still try to check staff
     try {
+      // Load business settings
+      const { data } = await supabase
+        .from("settings")
+        .select("business_name, shop_name, business_logo_url")
+        .eq("user_id", userId)
+        .single();
+      
+      if (data?.shop_name) {
+        setBusinessName(data.shop_name);
+      } else if (data?.business_name) {
+        setBusinessName(data.business_name);
+      }
+      
+      if (data?.business_logo_url) {
+        setBusinessLogoUrl(data.business_logo_url);
+      }
+
+      // Load staff list
       const { data: staffData } = await supabase
         .from("staff")
-        .select("id")
+        .select("id, name, role")
         .eq("user_id", userId)
-        .limit(1);
+        .order("name");
       
-      setHasStaff(!!staffData && staffData.length > 0);
-    } catch (e) {
-      console.error("Even staff check failed:", e);
-      setHasStaff(false);
+      if (staffData) {
+        setStaffList(staffData);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+      setLoading(false);
     }
-    
-    setLoading(false);
-  }
-};
+  };
 
   const handlePinSubmit = async () => {
     if (!selectedStaffId) {
@@ -177,12 +137,10 @@ export default function DashboardLayout({
   const handleLogout = async () => {
     if (confirm("Are you sure you want to logout?")) {
       await logout();
-      // After logout, check if we need to show PIN modal again
-      setTimeout(() => checkAuthRequired(), 100);
     }
   };
 
-  if (authLoading || loading || checkingSetup) {
+  if (authLoading || loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
         <div className="text-center">
@@ -193,21 +151,8 @@ export default function DashboardLayout({
     );
   }
 
-  // If no staff exists and we're not on setup page, redirect will happen in checkAuthRequired
-  // Just show loading while redirecting
-  if (!hasStaff && pathname !== "/dashboard/first-time-setup") {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
-        <div className="text-center">
-          <Loader2 className="w-16 h-16 animate-spin text-emerald-400 mx-auto mb-4" />
-          <p className="text-white text-xl font-semibold">Redirecting to setup...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show PIN modal if not authenticated (except for display and first-time setup pages)
-  if (showPinModal && hasStaff) {
+  // Show PIN modal if not authenticated (except for special pages)
+  if (showPinModal && staffList.length > 0) {
     return (
       <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center p-6">
         <div className="bg-slate-900/50 backdrop-blur-xl rounded-3xl p-10 max-w-md w-full border border-slate-800/50 shadow-2xl">
@@ -234,39 +179,32 @@ export default function DashboardLayout({
                 Select Staff Member
               </label>
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {staffList.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <p className="mb-2">No staff members found</p>
-                    <p className="text-sm">Please create staff in Settings first</p>
-                  </div>
-                ) : (
-                  staffList.map((staffMember) => (
-                    <button
-                      key={staffMember.id}
-                      onClick={() => {
-                        setSelectedStaffId(staffMember.id);
-                        setPinError("");
-                      }}
-                      className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
-                        selectedStaffId === staffMember.id
-                          ? "bg-emerald-500/20 border-emerald-500 shadow-lg shadow-emerald-500/20"
-                          : "bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-white text-lg">{staffMember.name}</p>
-                          <p className="text-xs text-slate-400 capitalize">{staffMember.role}</p>
-                        </div>
-                        {selectedStaffId === staffMember.id && (
-                          <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
-                            <Check className="w-4 h-4 text-white" />
-                          </div>
-                        )}
+                {staffList.map((staffMember) => (
+                  <button
+                    key={staffMember.id}
+                    onClick={() => {
+                      setSelectedStaffId(staffMember.id);
+                      setPinError("");
+                    }}
+                    className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
+                      selectedStaffId === staffMember.id
+                        ? "bg-emerald-500/20 border-emerald-500 shadow-lg shadow-emerald-500/20"
+                        : "bg-slate-800/50 border-slate-700/50 hover:border-slate-600/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-white text-lg">{staffMember.name}</p>
+                        <p className="text-xs text-slate-400 capitalize">{staffMember.role}</p>
                       </div>
-                    </button>
-                  ))
-                )}
+                      {selectedStaffId === staffMember.id && (
+                        <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                          <Check className="w-4 h-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -302,18 +240,6 @@ export default function DashboardLayout({
           >
             Login to POS
           </button>
-
-          {/* Add link to first-time setup if somehow someone gets stuck */}
-          {!hasStaff && (
-            <div className="mt-6 text-center">
-              <Link
-                href="/dashboard/first-time-setup"
-                className="text-emerald-400 hover:text-emerald-300 text-sm underline"
-              >
-                Need to set up your account? Click here
-              </Link>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -418,4 +344,3 @@ export default function DashboardLayout({
     </div>
   );
 }
-
