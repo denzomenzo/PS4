@@ -1,4 +1,4 @@
-// components/AuthProvider.tsx - FIXED INFINITE REDIRECT
+// components/AuthProvider.tsx - FIXED VERSION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +9,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
-  const [hasCheckedSetup, setHasCheckedSetup] = useState(false);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -41,58 +40,43 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           return;
         }
 
-        // For all dashboard routes (protected)
-        if (pathname.startsWith("/dashboard")) {
-          if (!session) {
-            router.push("/login");
-            return;
-          }
+        // If no session, redirect to login (except for public paths)
+        if (!session) {
+          router.push("/login");
+          return;
+        }
 
-          // Check if this is the first-time-setup page
+        // For dashboard routes
+        if (pathname.startsWith("/dashboard")) {
+          // Allow first-time setup page without further checks
           if (pathname === "/dashboard/first-time-setup") {
-            // Mark that we've checked setup
-            setHasCheckedSetup(true);
             setLoading(false);
             return;
           }
 
-          // Use RPC to check license (bypasses RLS)
+          // Check license
           const { data: hasLicense, error } = await supabase
             .rpc('check_user_license', { p_user_id: session.user.id });
 
-          console.log('🔍 License check result:', { hasLicense, error, pathname });
-
-          if (error) {
-            console.error('License check error:', error);
+          if (error || !hasLicense) {
             router.push("/activate");
             return;
           }
 
-          if (!hasLicense) {
-            router.push("/activate");
-            return;
-          }
-
-          // Has license - now check if staff exists
-          const { data: staffData, error: staffError } = await supabase
+          // Check if staff exists - with retry logic
+          const { data: staffData } = await supabase
             .from("staff")
-            .select("id, role")
+            .select("id")
             .eq("user_id", session.user.id)
             .limit(1);
 
-          console.log('👥 Staff check result:', { staffData, staffError });
-
-          if (staffError) {
-            console.error('Staff check error:', staffError);
-          }
-
           // If no staff exists, redirect to first-time setup
           if (!staffData || staffData.length === 0) {
-            console.log('⚠️ No staff found - redirecting to first-time setup');
-            
-            // Don't redirect if we're already checking or have just completed setup
-            if (hasCheckedSetup) {
-              console.log('✅ Already checked setup, allowing access');
+            // Check if we just completed setup
+            const justCompleted = sessionStorage.getItem('justCompletedSetup');
+            if (justCompleted === 'true') {
+              // Clear the flag and allow access
+              sessionStorage.removeItem('justCompletedSetup');
               setLoading(false);
               return;
             }
@@ -101,24 +85,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             return;
           }
 
-          // Has license and staff exists, allow access
-          setHasCheckedSetup(true);
+          // All checks passed
           setLoading(false);
           return;
         }
 
         // For /activate page
         if (pathname === "/activate") {
-          if (!session) {
-            router.push("/login");
-            return;
-          }
-
-          // Use RPC to check if user already has license
+          // Check if user already has license
           const { data: hasLicense } = await supabase
             .rpc('check_user_license', { p_user_id: session.user.id });
-
-          console.log('🔍 Activate page - license check:', { hasLicense });
 
           if (hasLicense) {
             // Check if staff exists
@@ -129,10 +105,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
               .limit(1);
 
             if (!staffData || staffData.length === 0) {
-              console.log('✅ Has license but no staff - redirecting to first-time setup');
               router.push("/dashboard/first-time-setup");
             } else {
-              console.log('✅ Has license and staff - redirecting to dashboard');
               router.push("/dashboard");
             }
             return;
@@ -143,6 +117,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           return;
         }
 
+        // Default fallback
         setLoading(false);
       } catch (error) {
         console.error("Auth check error:", error);
@@ -153,22 +128,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     checkSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('🔐 Auth state changed:', event);
-      
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        // Reset setup flag on sign out
-        setHasCheckedSetup(false);
-        
-        // Only redirect to home if user was on a protected route
         if (pathname.startsWith("/dashboard") || pathname === "/activate") {
           router.push("/");
         }
       }
       
       if (event === "SIGNED_IN") {
-        // Reset setup flag on sign in to force re-check
-        setHasCheckedSetup(false);
         checkSession();
       }
     });
@@ -176,7 +143,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return () => {
       subscription.unsubscribe();
     };
-  }, [pathname, router, hasCheckedSetup]);
+  }, [pathname, router]);
 
   if (loading) {
     return (
