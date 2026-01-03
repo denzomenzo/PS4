@@ -1,6 +1,4 @@
-// app/components/Logo.tsx
 import Image from 'next/image';
-import demlyLogo from '@/public/demlyllogo.png';
 
 export default function Logo({ size = 'medium' }: { size?: 'small' | 'medium' | 'large' }) {
   const sizeClasses = {
@@ -10,16 +8,15 @@ export default function Logo({ size = 'medium' }: { size?: 'small' | 'medium' | 
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <div className={`relative ${sizeClasses[size]} aspect-[3/1]`}>
-        <Image
-          src={demlyLogo}
-          alt="DEMLY Logo"
-          fill
-          className="object-contain"
-          priority
-        />
-      </div>
+    <div className={`relative ${sizeClasses[size]} aspect-[4/1]`}>
+      <Image
+        src="/demlyllogo.png"
+        alt="DEMLY Logo"
+        fill
+        className="object-contain"
+        priority
+        sizes="(max-width: 768px) 120px, 240px"
+      />
     </div>
   );
 }
