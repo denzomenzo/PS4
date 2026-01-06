@@ -1,4 +1,4 @@
-// components/POS.tsx - OPTIMIZED VERSION
+// components/POS.tsx - COMPREHENSIVE FIX
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -10,8 +10,13 @@ import { logAuditAction } from "@/lib/auditLogger";
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
-  Mail, User, Wallet, RefreshCw, History, ZoomOut
+  Mail, User, Wallet, RefreshCw, History, ZoomOut,
+  Calculator, Edit
 } from "lucide-react";
+
+// Add these imports for barcode generation
+import { jsPDF } from "jspdf";
+import JsBarcode from "jsbarcode";
 
 interface Product {
   id: number;
@@ -49,6 +54,14 @@ interface Transaction {
   createdAt: number;
 }
 
+// Add split payment interface
+interface SplitPayment {
+  cash: number;
+  card: number;
+  balance: number;
+  remaining: number;
+}
+
 export default function POS() {
   const userId = useUserId();
   const { staff: currentStaff } = useStaffAuth();
@@ -77,6 +90,8 @@ export default function POS() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [showZoomWarning, setShowZoomWarning] = useState(false);
+  const [showNumpadModal, setShowNumpadModal] = useState(false);
+  const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
   const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
   const [discountValue, setDiscountValue] = useState("");
   const [miscProductName, setMiscProductName] = useState("");
@@ -88,6 +103,16 @@ export default function POS() {
   const [printReceiptOption, setPrintReceiptOption] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [useBalanceForPayment, setUseBalanceForPayment] = useState(false);
+  const [transactionNotes, setTransactionNotes] = useState("");
+  const [customAmount, setCustomAmount] = useState<string>("");
+  
+  // Split payment states
+  const [splitPayment, setSplitPayment] = useState<SplitPayment>({
+    cash: 0,
+    card: 0,
+    balance: 0,
+    remaining: 0
+  });
   
   // Recent transactions
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
@@ -487,89 +512,145 @@ export default function POS() {
     setEmailReceipt(false);
     setPrintReceiptOption(false);
     setUseBalanceForPayment(false);
+    setTransactionNotes("");
+    setCustomAmount(grandTotal.toFixed(2));
     setShowPaymentModal(true);
   };
 
+  // FIXED: Added proper split payment logic and negative balance handling
   const processPayment = async () => {
-  if (cart.length === 0) return;
-  
-  setProcessingPayment(true);
-  
-  try {
-    const selectedCustomer = customers.find(c => c.id.toString() === customerId);
-    let paymentSuccess = false;
-    let paymentDetails: any = { method: paymentMethod };
-    let balanceDeducted = 0;
-    let remainingBalance = selectedCustomer?.balance || 0;
-    let finalPaymentMethod = paymentMethod; // Create a mutable variable
+    if (cart.length === 0) return;
+    
+    setProcessingPayment(true);
+    
+    try {
+      const selectedCustomer = customers.find(c => c.id.toString() === customerId);
+      let paymentSuccess = false;
+      let paymentDetails: any = { 
+        method: paymentMethod,
+        notes: transactionNotes.trim() || null
+      };
+      let balanceDeducted = 0;
+      let remainingBalance = selectedCustomer?.balance || 0;
+      let finalPaymentMethod: "cash" | "card" | "balance" | "split" = paymentMethod;
 
-    if (paymentMethod === "cash") {
-      paymentSuccess = true;
-      
-      if (hardwareSettings?.cash_drawer_enabled) {
-        console.log("Opening cash drawer...");
-      }
-    } else if (paymentMethod === "card") {
-      const { data: cardSettings } = await supabase
-        .from("card_terminal_settings")
-        .select("*")
-        .eq("user_id", userId)
-        .single();
+      if (paymentMethod === "cash") {
+        paymentSuccess = true;
+        
+        if (hardwareSettings?.cash_drawer_enabled) {
+          console.log("Opening cash drawer...");
+        }
+      } else if (paymentMethod === "card") {
+        const { data: cardSettings } = await supabase
+          .from("card_terminal_settings")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
 
-      if (!cardSettings || !cardSettings.enabled) {
-        alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
-        setProcessingPayment(false);
-        return;
-      }
+        if (!cardSettings || !cardSettings.enabled) {
+          alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
+          setProcessingPayment(false);
+          return;
+        }
 
-      alert("💳 Processing card payment...");
-      paymentSuccess = confirm("Simulate successful card payment?");
-      paymentDetails.cardTerminal = cardSettings.provider;
-    } else if (paymentMethod === "balance") {
-      if (!selectedCustomer) {
-        alert("Please select a customer to use balance");
-        setProcessingPayment(false);
-        return;
-      }
-      
-      if (useBalanceForPayment) {
-        if (selectedCustomer.balance < grandTotal && !allowNegativeBalance) {
-          alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
+        alert("💳 Processing card payment...");
+        paymentSuccess = confirm("Simulate successful card payment?");
+        paymentDetails.cardTerminal = cardSettings.provider;
+      } else if (paymentMethod === "balance") {
+        if (!selectedCustomer) {
+          alert("Please select a customer to use balance");
           setProcessingPayment(false);
           return;
         }
         
-        balanceDeducted = Math.min(grandTotal, selectedCustomer.balance);
-        remainingBalance = selectedCustomer.balance - grandTotal;
-        
-        if (balanceDeducted < grandTotal) {
-          const remaining = grandTotal - balanceDeducted;
-          const confirmMsg = `Customer balance: £${selectedCustomer.balance.toFixed(2)}\n` +
-                           `Using balance: £${balanceDeducted.toFixed(2)}\n` +
-                           `Remaining to pay: £${remaining.toFixed(2)}\n` +
-                           `New balance will be: £${remainingBalance.toFixed(2)}\n\n` +
-                           `Do you want to continue?`;
+        if (useBalanceForPayment) {
+          // Calculate how much to deduct from balance
+          const amountToDeduct = parseFloat(customAmount) || grandTotal;
           
-          if (!confirm(confirmMsg)) {
+          // Check if balance is sufficient
+          if (selectedCustomer.balance < amountToDeduct && !allowNegativeBalance) {
+            alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
             setProcessingPayment(false);
             return;
           }
           
-          finalPaymentMethod = "split"; // Changed to split payment
+          balanceDeducted = Math.min(amountToDeduct, selectedCustomer.balance);
+          remainingBalance = selectedCustomer.balance - amountToDeduct;
+          
+          // If using partial balance, ask for remaining payment method
+          if (balanceDeducted < amountToDeduct) {
+            const remaining = amountToDeduct - balanceDeducted;
+            const confirmMsg = `Customer balance: £${selectedCustomer.balance.toFixed(2)}\n` +
+                             `Using balance: £${balanceDeducted.toFixed(2)}\n` +
+                             `Remaining to pay: £${remaining.toFixed(2)}\n` +
+                             `New balance will be: £${remainingBalance.toFixed(2)}\n\n` +
+                             `Do you want to continue?`;
+            
+            if (!confirm(confirmMsg)) {
+              setProcessingPayment(false);
+              return;
+            }
+            
+            // Ask for remaining payment method
+            const remainingMethod = prompt(
+              `Remaining amount: £${remaining.toFixed(2)}\n` +
+              `How would you like to pay the remaining amount?\n` +
+              `Enter 'cash' or 'card':`
+            );
+            
+            if (remainingMethod === 'cash' || remainingMethod === 'card') {
+              finalPaymentMethod = "split";
+              paymentDetails.split_payment = {
+                balance_used: balanceDeducted,
+                remaining_amount: remaining,
+                remaining_method: remainingMethod
+              };
+            } else {
+              alert("Invalid payment method. Transaction cancelled.");
+              setProcessingPayment(false);
+              return;
+            }
+          }
         }
+        
+        paymentSuccess = true;
+      } else if (paymentMethod === "split") {
+        // Handle split payment between cash, card, and balance
+        const totalSplit = splitPayment.cash + splitPayment.card + splitPayment.balance;
+        
+        if (Math.abs(totalSplit - grandTotal) > 0.01) {
+          alert(`Split payments total £${totalSplit.toFixed(2)} but total is £${grandTotal.toFixed(2)}`);
+          setProcessingPayment(false);
+          return;
+        }
+        
+        paymentSuccess = true;
+        balanceDeducted = splitPayment.balance;
+        
+        if (selectedCustomer) {
+          remainingBalance = selectedCustomer.balance - splitPayment.balance;
+          
+          if (remainingBalance < 0 && !allowNegativeBalance) {
+            alert("Customer would go into negative balance. Transaction cancelled.");
+            setProcessingPayment(false);
+            return;
+          }
+        }
+        
+        paymentDetails.split_payment = {
+          cash: splitPayment.cash,
+          card: splitPayment.card,
+          balance: splitPayment.balance
+        };
       }
-      
-      paymentSuccess = true;
-    }
 
-    if (!paymentSuccess) {
-      setProcessingPayment(false);
-      return;
-    }
+      if (!paymentSuccess) {
+        setProcessingPayment(false);
+        return;
+      }
 
-    const { data: transaction, error: transactionError } = await supabase
-      .from("transactions")
-      .insert({
+      // Prepare transaction data
+      const transactionData: any = {
         user_id: userId,
         staff_id: currentStaff?.id || null,
         customer_id: customerId ? parseInt(customerId) : null,
@@ -585,15 +666,23 @@ export default function POS() {
         subtotal: subtotal,
         vat: vat,
         total: grandTotal,
-        payment_method: finalPaymentMethod, // Use the mutable variable here
+        payment_method: finalPaymentMethod,
         payment_details: paymentDetails,
         balance_deducted: balanceDeducted,
-      })
-      .select()
-      .single();
+        notes: transactionNotes.trim() || null,
+        services: [] // Required by your database
+      };
+
+      // Insert transaction
+      const { data: transaction, error: transactionError } = await supabase
+        .from("transactions")
+        .insert(transactionData)
+        .select()
+        .single();
 
       if (transactionError) throw transactionError;
 
+      // Update customer balance if balance was used
       if (balanceDeducted > 0 && selectedCustomer) {
         await supabase
           .from("customers")
@@ -606,10 +695,11 @@ export default function POS() {
           amount: -balanceDeducted,
           previous_balance: selectedCustomer.balance,
           new_balance: remainingBalance,
-          note: `POS Transaction #${transaction.id}`,
+          note: `POS Transaction #${transaction.id}${transactionNotes ? ` - ${transactionNotes}` : ''}`,
           transaction_id: transaction.id,
         });
 
+        // Update local state
         setCustomers(customers.map(c => 
           c.id === selectedCustomer.id 
             ? { ...c, balance: remainingBalance }
@@ -617,6 +707,7 @@ export default function POS() {
         ));
       }
 
+      // Update stock for products that track inventory
       const stockUpdates = cart
         .filter(item => item.track_inventory && !item.isMisc)
         .map(item => ({
@@ -631,6 +722,7 @@ export default function POS() {
           .eq("id", update.id);
       }
 
+      // Log audit action
       await logAuditAction({
         action: "TRANSACTION_COMPLETED",
         entityType: "transaction",
@@ -639,26 +731,44 @@ export default function POS() {
           total: grandTotal,
           items: cart.length,
           customer_id: customerId,
-          payment_method: paymentMethod,
+          payment_method: finalPaymentMethod,
           balance_deducted: balanceDeducted,
+          notes: transactionNotes
         },
         staffId: currentStaff?.id,
       });
 
+      // Print receipt if requested
       if (printReceiptOption) {
         printCompletedReceipt(transaction, selectedCustomer, balanceDeducted);
       }
 
+      // Email receipt if requested
       if (emailReceipt && selectedCustomer?.email) {
         console.log(`Sending receipt to ${selectedCustomer.email}`);
+        // Add email sending logic here
       }
 
-      alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${paymentMethod}!`);
+      alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
       
+      // Reset and reload
       setShowPaymentModal(false);
+      setShowSplitPaymentModal(false);
       setCart([]);
       setCustomerId("");
-      loadData();
+      setTransactionNotes("");
+      setSplitPayment({ cash: 0, card: 0, balance: 0, remaining: grandTotal });
+      
+      // FIX: Don't call loadData here as it causes infinite loop
+      // Instead, just update recent transactions
+      const { data: newTransactions } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      
+      if (newTransactions) setRecentTransactions(newTransactions);
       
     } catch (error: any) {
       console.error("Payment error:", error);
@@ -668,33 +778,44 @@ export default function POS() {
     }
   };
 
-  const generateBarcodeSVG = (barcode: string, barcodeType: string = "code128") => {
-    // Simple barcode generation (for demo - in production, use a proper barcode library)
-    const svgWidth = 200;
-    const svgHeight = 50;
-    
-    let barcodePattern = "";
-    for (let i = 0; i < barcode.length; i++) {
-      const char = barcode.charCodeAt(i);
-      const barWidth = 1 + (char % 4);
-      const barHeight = 30 + (char % 20);
-      barcodePattern += `<rect x="${i * 3}" y="${(svgHeight - barHeight) / 2}" width="${barWidth}" height="${barHeight}" fill="black" />`;
+  // FIXED: Better barcode generation using jsbarcode
+  const generateBarcodeSVG = (barcode: string, barcodeType: string = "CODE128") => {
+    try {
+      // Create a canvas element
+      const canvas = document.createElement('canvas');
+      
+      // Generate barcode
+      JsBarcode(canvas, barcode, {
+        format: barcodeType,
+        width: 2,
+        height: 50,
+        displayValue: true,
+        fontSize: 12,
+        textMargin: 5
+      });
+      
+      // Convert canvas to SVG-like HTML
+      const svgWidth = 200;
+      const svgHeight = 80;
+      
+      return `
+        <div style="text-align: center; margin: 10px 0;">
+          <img src="${canvas.toDataURL()}" alt="Barcode" style="max-width: 100%; height: auto;" />
+          <div style="font-family: monospace; font-size: 10px; margin-top: 5px;">${barcode}</div>
+        </div>
+      `;
+    } catch (error) {
+      console.error("Barcode generation error:", error);
+      return `<div style="text-align: center; color: #666; font-size: 12px;">Barcode: ${barcode}</div>`;
     }
-    
-    return `
-      <svg width="${svgWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-        ${barcodePattern}
-        <text x="50%" y="${svgHeight - 5}" text-anchor="middle" font-size="10" font-family="Arial, sans-serif">${barcode}</text>
-      </svg>
-    `;
   };
 
+  // FIXED: Updated receipt printing with proper barcode
   const printCompletedReceipt = (transaction: any, customer: Customer | undefined, balanceDeducted: number) => {
     const receiptWindow = window.open('', '_blank');
     if (!receiptWindow) return;
 
-    // FIXED: Use proper font size (12px default, not using dynamic values that might be huge)
-    const fontSize = Math.min(Math.max(receiptSettings?.receipt_font_size || 12, 8), 16); // Clamp between 8-16px
+    const fontSize = Math.min(Math.max(receiptSettings?.receipt_font_size || 12, 8), 16);
     const businessName = receiptSettings?.business_name || "Your Business";
     const businessAddress = receiptSettings?.business_address || "";
     const businessPhone = receiptSettings?.business_phone || "";
@@ -703,13 +824,14 @@ export default function POS() {
     const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
     const logoUrl = receiptSettings?.receipt_logo_url || "";
     const showBarcodeOnReceipt = receiptSettings?.show_barcode_on_receipt !== false;
-    const barcodeType = receiptSettings?.barcode_type || "code128";
+    const barcodeType = receiptSettings?.barcode_type || "CODE128";
 
     const receiptHTML = `
       <!DOCTYPE html>
       <html>
       <head>
         <title>Receipt #${transaction.id}</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
         <style>
           @media print {
             @page { margin: 0; }
@@ -782,7 +904,7 @@ export default function POS() {
             font-size: ${fontSize - 2}px;
             font-style: italic;
           }
-          .barcode {
+          .barcode-container {
             text-align: center;
             margin: 15px 0;
           }
@@ -801,6 +923,13 @@ export default function POS() {
             margin: 8px 0;
             padding: 5px;
             border: 1px dashed #ccc;
+          }
+          .notes {
+            margin: 8px 0;
+            padding: 5px;
+            font-style: italic;
+            font-size: ${fontSize - 2}px;
+            color: #666;
           }
         </style>
       </head>
@@ -822,6 +951,7 @@ export default function POS() {
           <div><strong>Receipt #${transaction.id}</strong></div>
           <div>${new Date().toLocaleString('en-GB')}</div>
           ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
+          ${transaction.notes ? `<div class="notes">Note: ${transaction.notes}</div>` : ''}
         </div>
         
         <div class="line"></div>
@@ -859,7 +989,15 @@ export default function POS() {
         </div>
         
         <div class="payment-info">
-          PAID VIA ${(paymentMethod || 'CASH').toUpperCase()}
+          PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
+          ${transaction.payment_details?.split_payment ? `
+            <div style="font-size: ${fontSize - 2}px; margin-top: 5px;">
+              Split: 
+              ${transaction.payment_details.split_payment.cash ? `Cash: £${transaction.payment_details.split_payment.cash.toFixed(2)} ` : ''}
+              ${transaction.payment_details.split_payment.card ? `Card: £${transaction.payment_details.split_payment.card.toFixed(2)} ` : ''}
+              ${transaction.payment_details.split_payment.balance ? `Balance: £${transaction.payment_details.split_payment.balance.toFixed(2)}` : ''}
+            </div>
+          ` : ''}
         </div>
         
         ${balanceDeducted > 0 && customer ? `
@@ -870,8 +1008,8 @@ export default function POS() {
         ` : ''}
         
         ${showBarcodeOnReceipt ? `
-          <div class="barcode">
-            ${generateBarcodeSVG(`TXN${transaction.id}`, barcodeType)}
+          <div class="barcode-container">
+            <canvas id="barcodeCanvas"></canvas>
           </div>
         ` : ''}
         
@@ -881,7 +1019,24 @@ export default function POS() {
         </div>
         
         <script>
-          window.onload = () => {
+          // Generate barcode after page loads
+          window.onload = function() {
+            ${showBarcodeOnReceipt ? `
+              try {
+                JsBarcode("#barcodeCanvas", "TXN${transaction.id}", {
+                  format: "${barcodeType}",
+                  width: 2,
+                  height: 50,
+                  displayValue: true,
+                  fontSize: 12,
+                  textMargin: 5
+                });
+              } catch (e) {
+                console.error("Barcode error:", e);
+              }
+            ` : ''}
+            
+            // Print and close
             window.print();
             setTimeout(() => {
               window.close();
@@ -909,7 +1064,7 @@ export default function POS() {
     const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
     const logoUrl = receiptSettings?.receipt_logo_url || "";
     const showBarcodeOnReceipt = receiptSettings?.show_barcode_on_receipt !== false;
-    const barcodeType = receiptSettings?.barcode_type || "code128";
+    const barcodeType = receiptSettings?.barcode_type || "CODE128";
 
     const customer = customers.find(c => c.id === transaction.customer_id);
 
@@ -918,6 +1073,7 @@ export default function POS() {
       <html>
       <head>
         <title>Receipt #${transaction.id}</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
         <style>
           @media print {
             @page { margin: 0; }
@@ -999,7 +1155,7 @@ export default function POS() {
             font-size: ${fontSize - 2}px;
             font-style: italic;
           }
-          .barcode {
+          .barcode-container {
             text-align: center;
             margin: 15px 0;
           }
@@ -1009,6 +1165,13 @@ export default function POS() {
             margin: 8px 0;
             padding: 5px;
             border: 1px dashed #ccc;
+          }
+          .notes {
+            margin: 8px 0;
+            padding: 5px;
+            font-style: italic;
+            font-size: ${fontSize - 2}px;
+            color: #666;
           }
         </style>
       </head>
@@ -1036,6 +1199,7 @@ export default function POS() {
             minute: '2-digit' 
           })}</div>
           ${customer ? `<div>Customer: ${customer.name}</div>` : ''}
+          ${transaction.notes ? `<div class="notes">Note: ${transaction.notes}</div>` : ''}
         </div>
         
         <div class="line"></div>
@@ -1074,6 +1238,14 @@ export default function POS() {
 
         <div class="payment-info">
           PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
+          ${transaction.payment_details?.split_payment ? `
+            <div style="font-size: ${fontSize - 2}px; margin-top: 5px;">
+              Split: 
+              ${transaction.payment_details.split_payment.cash ? `Cash: £${transaction.payment_details.split_payment.cash.toFixed(2)} ` : ''}
+              ${transaction.payment_details.split_payment.card ? `Card: £${transaction.payment_details.split_payment.card.toFixed(2)} ` : ''}
+              ${transaction.payment_details.split_payment.balance ? `Balance: £${transaction.payment_details.split_payment.balance.toFixed(2)}` : ''}
+            </div>
+          ` : ''}
         </div>
         
         ${transaction.balance_deducted > 0 && customer ? `
@@ -1084,8 +1256,8 @@ export default function POS() {
         ` : ''}
         
         ${showBarcodeOnReceipt ? `
-          <div class="barcode">
-            ${generateBarcodeSVG(`TXN${transaction.id}`, barcodeType)}
+          <div class="barcode-container">
+            <canvas id="barcodeCanvas"></canvas>
           </div>
         ` : ''}
         
@@ -1095,11 +1267,26 @@ export default function POS() {
         </div>
         
         <script>
-          window.onload = () => {
+          window.onload = function() {
+            ${showBarcodeOnReceipt ? `
+              try {
+                JsBarcode("#barcodeCanvas", "TXN${transaction.id}", {
+                  format: "${barcodeType}",
+                  width: 2,
+                  height: 50,
+                  displayValue: true,
+                  fontSize: 12,
+                  textMargin: 5
+                });
+              } catch (e) {
+                console.error("Barcode error:", e);
+              }
+            ` : ''}
+            
             window.print();
-          };
-          window.onafterprint = () => {
-            window.close();
+            setTimeout(() => {
+              window.close();
+            }, 1000);
           };
         </script>
       </body>
@@ -1300,6 +1487,45 @@ export default function POS() {
 
     receiptWindow.document.write(receiptHTML);
     receiptWindow.document.close();
+  };
+
+  // Numpad functions
+  const handleNumpadClick = (value: string) => {
+    if (value === 'clear') {
+      setCustomAmount('');
+    } else if (value === 'backspace') {
+      setCustomAmount(prev => prev.slice(0, -1));
+    } else if (value === '.') {
+      if (!customAmount.includes('.')) {
+        setCustomAmount(prev => prev + '.');
+      }
+    } else {
+      setCustomAmount(prev => prev + value);
+    }
+  };
+
+  // Split payment functions
+  const handleSplitPaymentChange = (method: keyof SplitPayment, value: string) => {
+    const numValue = parseFloat(value) || 0;
+    setSplitPayment(prev => {
+      const newSplit = { ...prev, [method]: numValue };
+      const total = newSplit.cash + newSplit.card + newSplit.balance;
+      newSplit.remaining = Math.max(0, grandTotal - total);
+      return newSplit;
+    });
+  };
+
+  const applySplitPayment = () => {
+    const total = splitPayment.cash + splitPayment.card + splitPayment.balance;
+    
+    if (Math.abs(total - grandTotal) > 0.01) {
+      alert(`Split payments total £${total.toFixed(2)} but total is £${grandTotal.toFixed(2)}`);
+      return;
+    }
+
+    setPaymentMethod("split");
+    setShowSplitPaymentModal(false);
+    setShowPaymentModal(true);
   };
 
   if (!userId || !currentStaff) {
@@ -1704,6 +1930,16 @@ export default function POS() {
             </button>
           </div>
 
+          {/* Split Payment Button */}
+          <button
+            onClick={() => setShowSplitPaymentModal(true)}
+            disabled={cart.length === 0}
+            className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 disabled:from-slate-700 disabled:to-slate-700 text-white font-bold py-3 rounded-lg transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <Calculator className="w-4 h-4" />
+            Split Payment
+          </button>
+
           {/* Checkout Button */}
           <button
             onClick={checkout}
@@ -1873,7 +2109,99 @@ export default function POS() {
         </div>
       )}
 
-      {/* Payment Modal */}
+      {/* Split Payment Modal */}
+      {showSplitPaymentModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Split Payment</h2>
+              <button onClick={() => setShowSplitPaymentModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 border border-emerald-500/30 rounded-xl p-4 mb-4">
+                <p className="text-slate-300 text-base mb-1">Total Amount</p>
+                <p className="text-4xl font-black text-emerald-400">£{grandTotal.toFixed(2)}</p>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-base font-medium text-white mb-2">Cash £</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={splitPayment.cash || ''}
+                    onChange={(e) => handleSplitPaymentChange('cash', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-lg focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-base font-medium text-white mb-2">Card £</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={splitPayment.card || ''}
+                    onChange={(e) => handleSplitPaymentChange('card', e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-lg focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  />
+                </div>
+
+                {selectedCustomer && (
+                  <div>
+                    <label className="block text-base font-medium text-white mb-2">Balance £</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={splitPayment.balance || ''}
+                      onChange={(e) => handleSplitPaymentChange('balance', e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-lg focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Available: £{customerBalance.toFixed(2)}
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-slate-800/40 rounded-lg p-3 border border-slate-700/50">
+                  <div className="flex justify-between text-white">
+                    <span className="font-medium">Remaining:</span>
+                    <span className={`text-xl font-bold ${splitPayment.remaining === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      £{splitPayment.remaining.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {splitPayment.remaining === 0 ? '✓ Payment fully allocated' : 'Enter remaining amount'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowSplitPaymentModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold transition-all text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applySplitPayment}
+                disabled={splitPayment.remaining > 0.01}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold transition-all shadow-xl disabled:opacity-50 text-white"
+              >
+                Confirm Split
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal with Numpad */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-xl w-full border border-slate-700/50 shadow-2xl">
@@ -1889,8 +2217,33 @@ export default function POS() {
 
             {/* Total */}
             <div className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 border border-emerald-500/30 rounded-xl p-4 mb-4">
-              <p className="text-slate-300 text-base mb-1">Total Amount</p>
-              <p className="text-4xl font-black text-emerald-400">£{grandTotal.toFixed(2)}</p>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-slate-300 text-base mb-1">Total Amount</p>
+                  <p className="text-4xl font-black text-emerald-400">£{grandTotal.toFixed(2)}</p>
+                </div>
+                <button
+                  onClick={() => setShowNumpadModal(true)}
+                  className="p-2 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-all"
+                >
+                  <Edit className="w-5 h-5 text-emerald-400" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Custom amount: £{customAmount || grandTotal.toFixed(2)}
+              </p>
+            </div>
+
+            {/* Notes */}
+            <div className="mb-4">
+              <label className="block text-base font-medium text-white mb-2">Transaction Notes</label>
+              <textarea
+                value={transactionNotes}
+                onChange={(e) => setTransactionNotes(e.target.value)}
+                placeholder="Add any notes about this transaction..."
+                rows={2}
+                className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-sm focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none"
+              />
             </div>
 
             {/* Customer Balance Options */}
@@ -1910,12 +2263,12 @@ export default function POS() {
                       <span className={`font-bold ${
                         customerBalance >= grandTotal ? 'text-emerald-400' : 'text-amber-400'
                       }`}>
-                        {customerBalance >= grandTotal ? 'Full payment' : 'Partial payment'}
+                        {customerBalance >= (parseFloat(customAmount) || grandTotal) ? 'Full payment' : 'Partial payment'}
                       </span>
                     </div>
-                    {customerBalance < grandTotal && allowNegativeBalance && (
+                    {customerBalance < (parseFloat(customAmount) || grandTotal) && allowNegativeBalance && (
                       <p className="text-xs text-amber-400 mt-1">
-                        ⚠️ Will go into negative balance: £{(customerBalance - grandTotal).toFixed(2)}
+                        ⚠️ Will go into negative balance: £{(customerBalance - (parseFloat(customAmount) || grandTotal)).toFixed(2)}
                       </p>
                     )}
                   </div>
@@ -1927,7 +2280,7 @@ export default function POS() {
             <div className="space-y-3 mb-4">
               <label className="block text-base font-medium text-white mb-2">Payment Method</label>
               
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <button
                   onClick={() => setPaymentMethod("cash")}
                   className={`p-3 rounded-lg font-bold border-2 transition-all flex flex-col items-center ${
@@ -1965,6 +2318,17 @@ export default function POS() {
                     <span className="text-sm">Balance</span>
                   </button>
                 )}
+
+                <button
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setShowSplitPaymentModal(true);
+                  }}
+                  className="p-3 rounded-lg font-bold border-2 border-slate-700/50 bg-slate-800/50 text-slate-400 hover:border-slate-600/50 transition-all flex flex-col items-center"
+                >
+                  <div className="text-2xl mb-1">📊</div>
+                  <span className="text-sm">Split</span>
+                </button>
               </div>
             </div>
 
@@ -2014,8 +2378,66 @@ export default function POS() {
                     Processing...
                   </>
                 ) : (
-                  `Pay £${grandTotal.toFixed(2)}`
+                  `Pay £${(parseFloat(customAmount) || grandTotal).toFixed(2)}`
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Numpad Modal */}
+      {showNumpadModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-sm w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Enter Custom Amount</h2>
+              <button onClick={() => setShowNumpadModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 mb-4">
+              <p className="text-sm text-slate-400 mb-1">Custom Amount</p>
+              <p className="text-3xl font-bold text-white text-right">
+                £{customAmount || '0.00'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'backspace'].map((value) => (
+                <button
+                  key={value}
+                  onClick={() => handleNumpadClick(value)}
+                  className={`h-14 rounded-lg font-bold text-xl transition-all ${
+                    value === 'backspace'
+                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30'
+                      : 'bg-slate-800/50 hover:bg-slate-800 text-white border border-slate-700/50'
+                  }`}
+                >
+                  {value === 'backspace' ? '⌫' : value}
+                </button>
+              ))}
+              <button
+                onClick={() => handleNumpadClick('clear')}
+                className="h-14 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded-lg font-bold text-xl transition-all"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => {
+                  setCustomAmount(grandTotal.toFixed(2));
+                  setShowNumpadModal(false);
+                }}
+                className="h-14 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold text-xl transition-all"
+              >
+                Total
+              </button>
+              <button
+                onClick={() => setShowNumpadModal(false)}
+                className="h-14 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold text-xl transition-all"
+              >
+                Done
               </button>
             </div>
           </div>
@@ -2083,5 +2505,3 @@ export default function POS() {
     </div>
   );
 }
-
-
