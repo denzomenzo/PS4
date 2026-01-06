@@ -20,6 +20,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^11.11.17",
     "jsbarcode": "^3.11.6",
+    "jspdf": "^2.5.1",
     "lucide-react": "^0.400.0",
     "next": "^16.0.8",
     "react": "^18.3.1",
