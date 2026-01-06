@@ -1,35 +1,78 @@
+// /app/dashboard/customers/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useUserId } from "@/hooks/useUserId";
 import { 
   ArrowLeft, 
-  Download, 
+  Plus, 
+  Search, 
+  Edit2, 
+  Trash2, 
+  X, 
   Mail, 
   Phone, 
   User, 
+  Loader2, 
+  Users, 
   Wallet, 
-  Clock, 
-  Calendar,
-  TrendingUp,
+  TrendingUp, 
   TrendingDown,
-  Printer,
-  Receipt,
+  Calendar,
   ShoppingBag,
   CreditCard,
-  History,
-  Loader2,
-  Edit2,
-  Trash2,
-  X,
-  Plus,
-  CheckCircle,
-  XCircle,
-  AlertCircle
+  Receipt,
+  Printer,
+  ExternalLink,
+  Clock
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Customer, Transaction, BalanceTransaction } from "@/types";
+
+// Define all interfaces inline (REPLACING THE IMPORT)
+interface Customer {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  balance: number;
+  created_at: string;
+}
+
+interface Transaction {
+  id: number;
+  transaction_number?: string;
+  customer_id: number;
+  total_amount: number;
+  tax_amount: number;
+  discount_amount: number;
+  final_amount: number;
+  payment_method: 'cash' | 'card' | 'balance' | 'mixed' | 'online' | 'other';
+  payment_status: 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled';
+  status: 'draft' | 'completed' | 'cancelled';
+  notes?: string;
+  created_at: string;
+  items?: TransactionItem[];
+}
+
+interface TransactionItem {
+  id: number;
+  name: string;
+  quantity: number;
+  price: number;
+  total_price: number;
+}
+
+interface BalanceTransaction {
+  id: number;
+  amount: number;
+  previous_balance: number;
+  new_balance: number;
+  note: string | null;
+  created_at: string;
+}
 
 export default function CustomerDetails() {
   const params = useParams();
