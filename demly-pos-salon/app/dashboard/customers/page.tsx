@@ -25,6 +25,7 @@ import {
   Receipt,
   Printer,
   ExternalLink,
+  History,
   Clock
 } from "lucide-react";
 import Link from "next/link";
@@ -1007,3 +1008,4 @@ export default function CustomerDetails() {
     </div>
   );
 }
+
