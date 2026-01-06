@@ -1,4 +1,3 @@
-// /app/dashboard/customers/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -24,14 +23,16 @@ import {
   CreditCard,
   Receipt,
   Printer,
-  ExternalLink,
-  History,
-  Clock
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  DollarSign,
+  RefreshCw
 } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
 
-// Define all interfaces inline (REPLACING THE IMPORT)
+// Define all interfaces inline
 interface Customer {
   id: number;
   name: string;
@@ -75,20 +76,33 @@ interface BalanceTransaction {
   created_at: string;
 }
 
-export default function CustomerDetails() {
-  const params = useParams();
-  const router = useRouter();
-  const customerId = params.id;
-  
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [balanceHistory, setBalanceHistory] = useState<BalanceTransaction[]>([]);
+export default function Customers() {
+  const userId = useUserId();
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'transactions' | 'balance'>('transactions');
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showModal, setShowModal] = useState(false);
   const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [balanceCustomer, setBalanceCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  
+  // Customer details states
+  const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
+  const [customerBalanceHistory, setCustomerBalanceHistory] = useState<BalanceTransaction[]>([]);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsActiveTab, setDetailsActiveTab] = useState<'transactions' | 'balance'>('transactions');
 
-  // Edit form states
+  // Helper function to ensure balance is always a number
+  const getBalance = (balance: any): number => {
+    if (balance === null || balance === undefined) return 0;
+    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Form states
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formEmail, setFormEmail] = useState("");
@@ -100,29 +114,100 @@ export default function CustomerDetails() {
   const [balanceAmount, setBalanceAmount] = useState("");
   const [balanceNote, setBalanceNote] = useState("");
 
-  useEffect(() => {
-    if (customerId) {
-      loadCustomerDetails();
-    }
-  }, [customerId]);
+  // Quick stats
+  const [customerStats, setCustomerStats] = useState<{
+    totalBalance: number;
+    customersWithBalance: number;
+    customersWithNegativeBalance: number;
+    totalTransactions: number;
+  }>({
+    totalBalance: 0,
+    customersWithBalance: 0,
+    customersWithNegativeBalance: 0,
+    totalTransactions: 0
+  });
 
-  const loadCustomerDetails = async () => {
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      setFilteredCustomers(
+        customers.filter(
+          (c) =>
+            c.name.toLowerCase().includes(query) ||
+            c.phone?.toLowerCase().includes(query) ||
+            c.email?.toLowerCase().includes(query)
+        )
+      );
+    } else {
+      setFilteredCustomers(customers);
+    }
+  }, [searchQuery, customers]);
+
+  const loadCustomers = async () => {
     setLoading(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error("No user found");
+        setLoading(false);
+        return;
+      }
+
+      // Load customers
+      const { data: customersData, error: customersError } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("name");
+      
+      if (customersError) throw customersError;
+
+      if (customersData) {
+        // Normalize balance to ensure it's always a number
+        const normalizedData = customersData.map(customer => ({
+          ...customer,
+          balance: getBalance(customer.balance)
+        }));
+        setCustomers(normalizedData);
+        setFilteredCustomers(normalizedData);
+
+        // Calculate stats
+        const totalBalance = normalizedData.reduce((sum, c) => sum + getBalance(c.balance), 0);
+        const customersWithBalance = normalizedData.filter(c => getBalance(c.balance) > 0).length;
+        const customersWithNegativeBalance = normalizedData.filter(c => getBalance(c.balance) < 0).length;
+
+        // Get total transactions count
+        const { data: transactionsData } = await supabase
+          .from("transactions")
+          .select("id", { count: 'exact' })
+          .eq("user_id", user.id);
+
+        setCustomerStats({
+          totalBalance,
+          customersWithBalance,
+          customersWithNegativeBalance,
+          totalTransactions: transactionsData?.length || 0
+        });
+      }
+    } catch (error) {
+      console.error("Error loading customers:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadCustomerDetails = async (customerId: number) => {
+    setDetailsLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Load customer
-      const { data: customerData, error: customerError } = await supabase
-        .from("customers")
-        .select("*")
-        .eq("id", customerId)
-        .single();
-
-      if (customerError) throw customerError;
-      setCustomer(customerData);
-
-      // Load transactions
+      // Load customer transactions
       const { data: transactionsData, error: transactionsError } = await supabase
         .from("transactions")
         .select(`
@@ -135,7 +220,7 @@ export default function CustomerDetails() {
         .limit(20);
 
       if (!transactionsError && transactionsData) {
-        setTransactions(transactionsData as Transaction[]);
+        setCustomerTransactions(transactionsData as Transaction[]);
       }
 
       // Load balance history
@@ -143,26 +228,206 @@ export default function CustomerDetails() {
         .from("customer_balance_history")
         .select("*")
         .eq("customer_id", customerId)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (!balanceError && balanceData) {
-        setBalanceHistory(balanceData);
+        setCustomerBalanceHistory(balanceData);
       }
 
     } catch (error) {
       console.error("Error loading customer details:", error);
     } finally {
-      setLoading(false);
+      setDetailsLoading(false);
     }
   };
 
-  const getBalance = (balance: any): number => {
-    if (balance === null || balance === undefined) return 0;
-    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
-    return isNaN(num) ? 0 : num;
+  const openAddModal = () => {
+    setEditingCustomer(null);
+    setFormName("");
+    setFormPhone("");
+    setFormEmail("");
+    setFormNotes("");
+    setFormBalance("0");
+    setShowModal(true);
+  };
+
+  const openEditModal = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setFormName(customer.name);
+    setFormPhone(customer.phone || "");
+    setFormEmail(customer.email || "");
+    setFormNotes(customer.notes || "");
+    setFormBalance(getBalance(customer.balance).toString());
+    setShowModal(true);
+  };
+
+  const openBalanceModal = (customer: Customer) => {
+    setBalanceCustomer(customer);
+    setBalanceAction("add");
+    setBalanceAmount("");
+    setBalanceNote("");
+    setShowBalanceModal(true);
+  };
+
+  const openDetailsModal = async (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setShowDetailsModal(true);
+    await loadCustomerDetails(customer.id);
+  };
+
+  const saveCustomer = async () => {
+    if (!formName.trim()) {
+      alert("Name is required");
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("Not authenticated");
+        return;
+      }
+
+      const balanceValue = parseFloat(formBalance) || 0;
+
+      if (editingCustomer) {
+        const { error } = await supabase
+          .from("customers")
+          .update({
+            name: formName,
+            phone: formPhone || null,
+            email: formEmail || null,
+            notes: formNotes || null,
+            balance: balanceValue,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", editingCustomer.id);
+
+        if (error) throw error;
+
+        // Log balance change if it changed
+        if (balanceValue !== editingCustomer.balance) {
+          await supabase.from("customer_balance_history").insert({
+            user_id: user.id,
+            customer_id: editingCustomer.id,
+            amount: balanceValue - editingCustomer.balance,
+            previous_balance: editingCustomer.balance,
+            new_balance: balanceValue,
+            note: "Manual balance adjustment",
+            created_at: new Date().toISOString()
+          });
+        }
+      } else {
+        const { error } = await supabase.from("customers").insert({
+          user_id: user.id,
+          name: formName,
+          phone: formPhone || null,
+          email: formEmail || null,
+          notes: formNotes || null,
+          balance: balanceValue,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+        if (error) throw error;
+      }
+
+      setShowModal(false);
+      await loadCustomers();
+      alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
+    } catch (error: any) {
+      console.error("Error saving customer:", error);
+      alert(`Error saving customer: ${error.message}`);
+    }
+  };
+
+  const adjustBalance = async () => {
+    if (!balanceCustomer || !balanceAmount) {
+      alert("Please enter an amount");
+      return;
+    }
+
+    const amount = parseFloat(balanceAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+
+    // Ensure balance is a number, handling null/undefined
+    const currentBalance = getBalance(balanceCustomer.balance);
+    const adjustmentAmount = balanceAction === "add" ? amount : -amount;
+    const newBalance = currentBalance + adjustmentAmount;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error: updateError } = await supabase
+        .from("customers")
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", balanceCustomer.id);
+
+      if (updateError) throw updateError;
+
+      // Log balance transaction
+      await supabase.from("customer_balance_history").insert({
+        user_id: user.id,
+        customer_id: balanceCustomer.id,
+        amount: adjustmentAmount,
+        previous_balance: currentBalance,
+        new_balance: newBalance,
+        note: balanceNote || (balanceAction === "add" ? "Balance added" : "Balance deducted"),
+        created_at: new Date().toISOString()
+      });
+
+      // Update the balanceCustomer state with the new balance
+      setBalanceCustomer({
+        ...balanceCustomer,
+        balance: newBalance
+      });
+
+      // Reset the form
+      setBalanceAmount("");
+      setBalanceNote("");
+
+      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
+      
+      // Reload customers to update the main list
+      await loadCustomers();
+      
+      // Close modal after successful update
+      setTimeout(() => setShowBalanceModal(false), 1500);
+    } catch (error: any) {
+      console.error("Error:", error);
+      alert(`Error adjusting balance: ${error.message}`);
+    }
+  };
+
+  const deleteCustomer = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this customer? This action cannot be undone.")) return;
+
+    try {
+      const { error } = await supabase.from("customers").delete().eq("id", id);
+
+      if (error) {
+        throw error;
+      }
+
+      alert("✅ Customer deleted successfully!");
+      await loadCustomers();
+    } catch (error: any) {
+      console.error("Error deleting customer:", error);
+      alert(`Error deleting customer: ${error.message}`);
+    }
   };
 
   const printReceipt = async (transaction: Transaction) => {
+    if (!selectedCustomer) return;
+    
     try {
       const receiptWindow = window.open('', '_blank');
       if (!receiptWindow) return;
@@ -204,9 +469,9 @@ export default function CustomerDetails() {
           </div>
           
           <div class="customer-info">
-            <div><span class="bold">Customer:</span> ${customer?.name}</div>
-            ${customer?.phone ? `<div><span class="bold">Phone:</span> ${customer.phone}</div>` : ''}
-            ${customer?.email ? `<div><span class="bold">Email:</span> ${customer.email}</div>` : ''}
+            <div><span class="bold">Customer:</span> ${selectedCustomer.name}</div>
+            ${selectedCustomer.phone ? `<div><span class="bold">Phone:</span> ${selectedCustomer.phone}</div>` : ''}
+            ${selectedCustomer.email ? `<div><span class="bold">Email:</span> ${selectedCustomer.email}</div>` : ''}
           </div>
           
           <div class="separator"></div>
@@ -266,12 +531,15 @@ export default function CustomerDetails() {
     }
   };
 
-  const getTotalSpent = () => {
-    return transactions.reduce((sum, t) => sum + (t.final_amount || 0), 0);
+  const getTotalSpent = (customerId: number) => {
+    return customerTransactions
+      .filter(t => t.customer_id === customerId)
+      .reduce((sum, t) => sum + (t.final_amount || 0), 0);
   };
 
-  const getAverageTransaction = () => {
-    return transactions.length > 0 ? getTotalSpent() / transactions.length : 0;
+  const getAverageTransaction = (customerId: number) => {
+    const customerTrans = customerTransactions.filter(t => t.customer_id === customerId);
+    return customerTrans.length > 0 ? getTotalSpent(customerId) / customerTrans.length : 0;
   };
 
   const getBalanceColor = (balance: number) => {
@@ -296,167 +564,12 @@ export default function CustomerDetails() {
     }
   };
 
-  const openEditModal = () => {
-    if (!customer) return;
-    setFormName(customer.name);
-    setFormPhone(customer.phone || "");
-    setFormEmail(customer.email || "");
-    setFormNotes(customer.notes || "");
-    setFormBalance(getBalance(customer.balance).toString());
-    setShowEditModal(true);
-  };
-
-  const openBalanceModal = () => {
-    setBalanceAction("add");
-    setBalanceAmount("");
-    setBalanceNote("");
-    setShowBalanceModal(true);
-  };
-
-  const updateCustomer = async () => {
-    if (!customer || !formName.trim()) {
-      alert("Name is required");
-      return;
-    }
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const balanceValue = parseFloat(formBalance) || 0;
-
-      const { error } = await supabase
-        .from("customers")
-        .update({
-          name: formName,
-          phone: formPhone || null,
-          email: formEmail || null,
-          notes: formNotes || null,
-          balance: balanceValue,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", customer.id);
-
-      if (error) throw error;
-
-      // Log balance change if it changed
-      if (balanceValue !== customer.balance) {
-        await supabase.from("customer_balance_history").insert({
-          user_id: user.id,
-          customer_id: customer.id,
-          amount: balanceValue - customer.balance,
-          previous_balance: customer.balance,
-          new_balance: balanceValue,
-          note: "Manual balance adjustment from edit",
-          created_at: new Date().toISOString()
-        });
-      }
-
-      setShowEditModal(false);
-      await loadCustomerDetails();
-      alert("✅ Customer updated successfully!");
-    } catch (error: any) {
-      console.error("Error updating customer:", error);
-      alert(`Error updating customer: ${error.message}`);
-    }
-  };
-
-  const deleteCustomer = async () => {
-    if (!customer || !confirm("Are you sure you want to delete this customer? This action cannot be undone.")) return;
-
-    try {
-      const { error } = await supabase.from("customers").delete().eq("id", customer.id);
-
-      if (error) throw error;
-
-      alert("✅ Customer deleted successfully!");
-      router.push("/customers");
-    } catch (error: any) {
-      console.error("Error deleting customer:", error);
-      alert(`Error deleting customer: ${error.message}`);
-    }
-  };
-
-  const adjustBalance = async () => {
-    if (!customer || !balanceAmount) {
-      alert("Please enter an amount");
-      return;
-    }
-
-    const amount = parseFloat(balanceAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
-
-    const currentBalance = getBalance(customer.balance);
-    const adjustmentAmount = balanceAction === "add" ? amount : -amount;
-    const newBalance = currentBalance + adjustmentAmount;
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error: updateError } = await supabase
-        .from("customers")
-        .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", customer.id);
-
-      if (updateError) throw updateError;
-
-      // Log balance transaction
-      await supabase.from("customer_balance_history").insert({
-        user_id: user.id,
-        customer_id: customer.id,
-        amount: adjustmentAmount,
-        previous_balance: currentBalance,
-        new_balance: newBalance,
-        note: balanceNote || (balanceAction === "add" ? "Balance added" : "Balance deducted"),
-        created_at: new Date().toISOString()
-      });
-
-      // Update local state
-      setCustomer({
-        ...customer,
-        balance: newBalance
-      });
-
-      // Reset form and reload
-      setBalanceAmount("");
-      setBalanceNote("");
-      await loadCustomerDetails();
-      
-      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
-      setShowBalanceModal(false);
-    } catch (error: any) {
-      console.error("Error:", error);
-      alert(`Error adjusting balance: ${error.message}`);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Loading customer details...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!customer) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <User className="w-16 h-16 text-slate-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Customer not found</p>
-          <Link href="/customers" className="text-cyan-400 hover:text-cyan-300 mt-4 inline-block">
-            Back to Customers
-          </Link>
+          <p className="text-xl text-slate-400">Loading customers...</p>
         </div>
       </div>
     );
@@ -465,324 +578,239 @@ export default function CustomerDetails() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
-          <div className="flex items-center gap-4">
-            <Link href="/customers" className="flex items-center gap-2 text-lg text-slate-400 hover:text-white transition-colors">
-              <ArrowLeft className="w-5 h-5 md:w-6 md:h-6" />
-            </Link>
-            <div>
-              <h1 className="text-3xl md:text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
-                {customer.name}
-              </h1>
-              <p className="text-lg md:text-xl text-slate-400 mt-2">
-                Customer Details & History
-              </p>
-            </div>
+          <div>
+            <h1 className="text-4xl md:text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
+              Customers
+            </h1>
+            <p className="text-lg md:text-xl text-slate-400 mt-2 flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              {customers.length} total customers • {customerStats.totalTransactions} transactions
+            </p>
           </div>
-          
+          <Link href="/" className="flex items-center gap-2 text-lg text-slate-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+            Back to POS
+          </Link>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="bg-gradient-to-br from-cyan-500/20 to-blue-500/20 backdrop-blur-xl border border-cyan-500/30 rounded-2xl p-4 md:p-6 shadow-xl">
+            <div className="flex items-center gap-2 md:gap-3 mb-2">
+              <Users className="w-6 h-6 md:w-8 md:h-8 text-cyan-400" />
+              <p className="text-slate-300 font-bold text-sm md:text-base">Total Customers</p>
+            </div>
+            <p className="text-3xl md:text-5xl font-black text-cyan-400">{customers.length}</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-emerald-500/20 to-green-500/20 backdrop-blur-xl border border-emerald-500/30 rounded-2xl p-4 md:p-6 shadow-xl">
+            <div className="flex items-center gap-2 md:gap-3 mb-2">
+              <Wallet className="w-6 h-6 md:w-8 md:h-8 text-emerald-400" />
+              <p className="text-slate-300 font-bold text-sm md:text-base">Total Balance</p>
+            </div>
+            <p className="text-3xl md:text-5xl font-black text-emerald-400">£{customerStats.totalBalance.toFixed(2)}</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-4 md:p-6 shadow-xl">
+            <div className="flex items-center gap-2 md:gap-3 mb-2">
+              <TrendingUp className="w-6 h-6 md:w-8 md:h-8 text-purple-400" />
+              <p className="text-slate-300 font-bold text-sm md:text-base">With Credit</p>
+            </div>
+            <p className="text-3xl md:text-5xl font-black text-purple-400">{customerStats.customersWithBalance}</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-4 md:p-6 shadow-xl">
+            <div className="flex items-center gap-2 md:gap-3 mb-2">
+              <TrendingDown className="w-6 h-6 md:w-8 md:h-8 text-orange-400" />
+              <p className="text-slate-300 font-bold text-sm md:text-base">With Debt</p>
+            </div>
+            <p className="text-3xl md:text-5xl font-black text-orange-400">{customerStats.customersWithNegativeBalance}</p>
+          </div>
+        </div>
+
+        {/* Search & Add */}
+        <div className="flex flex-col md:flex-row gap-4 mb-8">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 md:left-6 top-1/2 -translate-y-1/2 w-5 h-5 md:w-6 md:h-6 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, phone, or email..."
+              className="w-full bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 pl-12 md:pl-16 pr-4 py-3 md:py-5 rounded-xl md:rounded-2xl text-base md:text-xl placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-xl"
+            />
+          </div>
           <div className="flex gap-2">
             <button
-              onClick={openEditModal}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 rounded-xl hover:bg-blue-500/30 transition-all"
+              onClick={() => loadCustomers()}
+              className="flex items-center justify-center gap-2 px-4 py-3 md:py-5 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600/50 rounded-xl md:rounded-2xl font-bold text-sm md:text-base transition-all"
             >
-              <Edit2 className="w-4 h-4 md:w-5 md:h-5" />
-              Edit
+              <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />
+              Refresh
             </button>
             <button
-              onClick={deleteCustomer}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-xl hover:bg-red-500/30 transition-all"
+              onClick={openAddModal}
+              className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-6 md:px-8 py-3 md:py-5 rounded-xl md:rounded-2xl font-bold text-base md:text-xl transition-all flex items-center justify-center gap-2 md:gap-3 shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40 whitespace-nowrap"
             >
-              <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
-              Delete
+              <Plus className="w-5 h-5 md:w-6 md:h-6" />
+              Add Customer
             </button>
           </div>
         </div>
 
-        {/* Customer Info Card */}
-        <div className="bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl md:rounded-3xl p-6 md:p-8 mb-8 shadow-2xl">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-            {/* Left Column - Customer Info */}
-            <div className="lg:col-span-2">
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6 mb-6">
-                <div className="w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-cyan-500 to-emerald-500 rounded-xl md:rounded-2xl flex items-center justify-center text-3xl md:text-4xl font-black shadow-lg shadow-cyan-500/20">
-                  {customer.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h2 className="text-2xl md:text-3xl font-bold mb-2">{customer.name}</h2>
-                  <p className="text-slate-400 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Member since {new Date(customer.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3 md:space-y-4">
-                {customer.phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="w-4 h-4 md:w-5 md:h-5 text-slate-400 flex-shrink-0" />
-                    <span className="text-base md:text-lg">{customer.phone}</span>
-                  </div>
-                )}
-                {customer.email && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="w-4 h-4 md:w-5 md:h-5 text-slate-400 flex-shrink-0" />
-                    <span className="text-base md:text-lg truncate">{customer.email}</span>
-                  </div>
-                )}
-                {customer.notes && (
-                  <div className="mt-4 p-3 md:p-4 bg-slate-800/50 rounded-xl border border-slate-600/30">
-                    <p className="text-sm md:text-base text-slate-300">{customer.notes}</p>
-                  </div>
+        {/* Customers Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          {filteredCustomers.length === 0 ? (
+            <div className="col-span-full text-center py-12 md:py-20">
+              <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl md:rounded-3xl p-8 md:p-12 max-w-md mx-auto">
+                <Users className="w-16 h-16 md:w-24 md:h-24 mx-auto mb-4 md:mb-6 text-slate-600 opacity-30" />
+                <p className="text-xl md:text-2xl text-slate-400 mb-2">
+                  {searchQuery ? "No customers found" : "No customers yet"}
+                </p>
+                {!searchQuery && (
+                  <>
+                    <p className="text-slate-500 mb-4 md:mb-6">Start building your customer base</p>
+                    <button
+                      onClick={openAddModal}
+                      className="bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-6 md:px-8 py-3 md:py-4 rounded-xl font-bold text-base md:text-lg transition-all shadow-xl"
+                    >
+                      Add Your First Customer
+                    </button>
+                  </>
                 )}
               </div>
             </div>
-
-            {/* Right Column - Stats & Balance */}
-            <div className="space-y-4 md:space-y-6">
-              {/* Balance Card */}
-              <div className={`${getBalanceBgColor(getBalance(customer.balance))} backdrop-blur-xl border rounded-xl md:rounded-2xl p-4 md:p-6`}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <Wallet className="w-6 h-6 md:w-8 md:h-8" />
-                    <span className="text-lg md:text-2xl font-bold">Current Balance</span>
-                  </div>
-                  <span className={`text-3xl md:text-5xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
-                    £{getBalance(customer.balance).toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-center">
-                  <button
-                    onClick={openBalanceModal}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 py-2 md:py-3 rounded-lg font-bold text-sm md:text-base transition-all"
+          ) : (
+            filteredCustomers.map((customer) => (
+              <div
+                key={customer.id}
+                className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl md:rounded-3xl p-4 md:p-6 hover:border-cyan-500/50 transition-all group shadow-xl hover:shadow-2xl hover:shadow-cyan-500/10"
+              >
+                {/* Customer Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div 
+                    onClick={() => openDetailsModal(customer)}
+                    className="flex items-center gap-3 md:gap-4 flex-1 cursor-pointer"
                   >
-                    Adjust Balance
-                  </button>
-                </div>
-              </div>
-
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
-                <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShoppingBag className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
-                    <span className="text-xs md:text-sm text-slate-400">Total Transactions</span>
-                  </div>
-                  <p className="text-2xl md:text-3xl font-bold">{transactions.length}</p>
-                </div>
-
-                <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CreditCard className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
-                    <span className="text-xs md:text-sm text-slate-400">Total Spent</span>
-                  </div>
-                  <p className="text-2xl md:text-3xl font-bold text-emerald-400">£{getTotalSpent().toFixed(2)}</p>
-                </div>
-
-                <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-purple-400" />
-                    <span className="text-xs md:text-sm text-slate-400">Avg. Transaction</span>
-                  </div>
-                  <p className="text-xl md:text-2xl font-bold">£{getAverageTransaction().toFixed(2)}</p>
-                </div>
-
-                <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <History className="w-4 h-4 md:w-5 md:h-5 text-orange-400" />
-                    <span className="text-xs md:text-sm text-slate-400">Last Purchase</span>
-                  </div>
-                  <p className="text-sm md:text-base">
-                    {transactions.length > 0 
-                      ? new Date(transactions[0].created_at).toLocaleDateString()
-                      : "Never"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="mb-6">
-          <div className="flex gap-2 border-b border-slate-700/50 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('transactions')}
-              className={`px-4 md:px-6 py-3 font-bold text-base md:text-lg transition-all whitespace-nowrap ${
-                activeTab === 'transactions' 
-                  ? 'text-cyan-400 border-b-2 border-cyan-400' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 md:w-5 md:h-5" />
-                Recent Transactions ({transactions.length})
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('balance')}
-              className={`px-4 md:px-6 py-3 font-bold text-base md:text-lg transition-all whitespace-nowrap ${
-                activeTab === 'balance' 
-                  ? 'text-emerald-400 border-b-2 border-emerald-400' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Wallet className="w-4 h-4 md:w-5 md:h-5" />
-                Balance History ({balanceHistory.length})
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        {activeTab === 'transactions' && (
-          <div className="space-y-4">
-            {transactions.length === 0 ? (
-              <div className="text-center py-12 bg-slate-800/30 border border-slate-700/50 rounded-2xl md:rounded-3xl">
-                <Receipt className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 text-slate-500" />
-                <p className="text-lg md:text-xl text-slate-400">No transactions yet</p>
-                <p className="text-slate-500">Transactions will appear here once made</p>
-              </div>
-            ) : (
-              transactions.map((transaction) => (
-                <div key={transaction.id} className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-xl md:rounded-2xl p-4 md:p-6 hover:border-cyan-500/30 transition-all">
-                  <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 md:gap-3 mb-2">
-                        <Receipt className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
-                        <span className="text-lg md:text-xl font-bold">Transaction #{transaction.transaction_number || transaction.id}</span>
-                        <span className={`px-2 py-1 rounded-full text-xs ${getPaymentStatusColor(transaction.payment_status)}`}>
-                          {transaction.payment_status}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 md:gap-4 text-slate-400 text-sm">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3 md:w-4 md:h-4" />
-                          {new Date(transaction.created_at).toLocaleDateString()}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 md:w-4 md:h-4" />
-                          {new Date(transaction.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        <span className="capitalize">
-                          {transaction.payment_method}
-                        </span>
-                      </div>
+                    <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-br from-cyan-500 to-emerald-500 rounded-xl md:rounded-2xl flex items-center justify-center text-2xl md:text-3xl font-black shadow-lg shadow-cyan-500/20 hover:scale-105 transition-transform">
+                      {customer.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => printReceipt(transaction)}
-                        className="flex items-center gap-2 px-3 md:px-4 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg md:rounded-xl hover:bg-cyan-500/30 transition-all"
-                      >
-                        <Printer className="w-3 h-3 md:w-4 md:h-4" />
-                        Print Receipt
-                      </button>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg md:text-2xl font-bold truncate hover:text-cyan-300 transition-colors">
+                        {customer.name}
+                      </h3>
+                      <p className="text-sm text-slate-400 flex items-center gap-1">
+                        <Calendar className="w-3 h-3 md:w-4 md:h-4" />
+                        Joined {new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                      </p>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mb-4">
-                    <div className="bg-slate-800/50 rounded-lg md:rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-slate-400 mb-1">Payment Method</p>
-                      <p className="text-base md:text-lg font-bold capitalize">{transaction.payment_method || 'N/A'}</p>
-                    </div>
-                    <div className="bg-slate-800/50 rounded-lg md:rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-slate-400 mb-1">Items</p>
-                      <p className="text-base md:text-lg font-bold">{transaction.items?.length || 0} items</p>
-                    </div>
-                    <div className="bg-slate-800/50 rounded-lg md:rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-slate-400 mb-1">Total Amount</p>
-                      <p className="text-xl md:text-2xl font-bold text-emerald-400">£{transaction.final_amount?.toFixed(2) || '0.00'}</p>
-                    </div>
+                  <div className="flex flex-col gap-1 md:gap-2">
+                    <button
+                      onClick={() => openDetailsModal(customer)}
+                      className="p-1.5 md:p-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all"
+                      title="View Details"
+                    >
+                      <FileText className="w-3 h-3 md:w-4 md:h-4" />
+                    </button>
+                    <button
+                      onClick={() => openEditModal(customer)}
+                      className="p-1.5 md:p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
+                      title="Edit"
+                    >
+                      <Edit2 className="w-3 h-3 md:w-4 md:h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteCustomer(customer.id)}
+                      className="p-1.5 md:p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                    </button>
                   </div>
+                </div>
 
-                  {transaction.items && transaction.items.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-700/50">
-                      <p className="text-sm text-slate-400 mb-2">Items purchased:</p>
-                      <div className="space-y-2">
-                        {transaction.items.map((item: any) => (
-                          <div key={item.id} className="flex justify-between items-center py-2 px-3 bg-slate-800/30 rounded-lg">
-                            <div className="flex-1">
-                              <span className="font-medium">{item.name}</span>
-                              <span className="text-slate-400 text-sm ml-2">x{item.quantity}</span>
-                            </div>
-                            <span className="font-bold">£{(item.price * item.quantity).toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
+                {/* Contact Info */}
+                <div className="space-y-2 mb-4">
+                  {customer.phone && (
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Phone className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+                      <span className="text-sm truncate">{customer.phone}</span>
+                    </div>
+                  )}
+                  {customer.email && (
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Mail className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+                      <span className="text-sm truncate">{customer.email}</span>
+                    </div>
+                  )}
+                  {customer.notes && (
+                    <div className="mt-2 p-2 md:p-3 bg-slate-700/30 rounded-lg md:rounded-xl border border-slate-600/30">
+                      <p className="text-xs md:text-sm text-slate-300 line-clamp-2">{customer.notes}</p>
                     </div>
                   )}
                 </div>
-              ))
-            )}
-          </div>
-        )}
 
-        {activeTab === 'balance' && (
-          <div className="space-y-4">
-            {balanceHistory.length === 0 ? (
-              <div className="text-center py-12 bg-slate-800/30 border border-slate-700/50 rounded-2xl md:rounded-3xl">
-                <Wallet className="w-12 h-12 md:w-16 md:h-16 mx-auto mb-4 text-slate-500" />
-                <p className="text-lg md:text-xl text-slate-400">No balance history</p>
-                <p className="text-slate-500">Balance adjustments will appear here</p>
-              </div>
-            ) : (
-              balanceHistory.map((history) => (
-                <div key={history.id} className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-xl md:rounded-2xl p-4 md:p-6">
-                  <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 md:gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${history.amount > 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                        {history.amount > 0 ? (
-                          <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-emerald-400" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4 md:w-5 md:h-5 text-red-400" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-bold text-base md:text-lg">
-                          {history.amount > 0 ? 'Balance Added' : 'Balance Deducted'}
-                        </p>
-                        <p className="text-sm text-slate-400">
-                          {new Date(history.created_at).toLocaleString()}
-                        </p>
-                      </div>
+                {/* Balance Section */}
+                <div className={`mt-4 pt-4 border-t ${getBalanceBgColor(getBalance(customer.balance))} rounded-lg p-3 md:p-4`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4 md:w-5 md:h-5" />
+                      <span className="text-sm text-slate-400 font-medium">Current Balance</span>
                     </div>
-                    <div className={`text-xl md:text-2xl font-bold ${history.amount > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {history.amount > 0 ? '+' : ''}£{Math.abs(history.amount).toFixed(2)}
-                    </div>
+                    <span className={`text-xl md:text-2xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
+                      £{getBalance(customer.balance).toFixed(2)}
+                    </span>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3 md:gap-4">
-                    <div className="bg-slate-800/50 rounded-lg md:rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-slate-400 mb-1">Previous Balance</p>
-                      <p className="text-base md:text-lg">£{history.previous_balance.toFixed(2)}</p>
-                    </div>
-                    <div className="bg-slate-800/50 rounded-lg md:rounded-xl p-3 md:p-4">
-                      <p className="text-xs md:text-sm text-slate-400 mb-1">New Balance</p>
-                      <p className="text-base md:text-lg font-bold">£{history.new_balance.toFixed(2)}</p>
-                    </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => openBalanceModal(customer)}
+                      className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 text-emerald-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all"
+                    >
+                      Adjust Balance
+                    </button>
+                    <button
+                      onClick={() => openDetailsModal(customer)}
+                      className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-500/30 text-cyan-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all flex items-center justify-center gap-1 md:gap-2"
+                    >
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
+                      Details
+                    </button>
                   </div>
-
-                  {history.note && (
-                    <div className="mt-4 pt-4 border-t border-slate-700/50">
-                      <p className="text-sm text-slate-400 mb-1">Note:</p>
-                      <p className="text-slate-300 text-sm md:text-base">{history.note}</p>
-                    </div>
-                  )}
                 </div>
-              ))
-            )}
-          </div>
-        )}
+
+                {/* Quick Stats */}
+                <div className="mt-4 pt-4 border-t border-slate-700/50">
+                  <div className="grid grid-cols-2 gap-3 text-xs md:text-sm">
+                    <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                      <div className="text-slate-400 mb-1">Transactions</div>
+                      <div className="font-bold">{customerTransactions.filter(t => t.customer_id === customer.id).length}</div>
+                    </div>
+                    <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                      <div className="text-slate-400 mb-1">Total Spent</div>
+                      <div className="font-bold text-emerald-400">£{getTotalSpent(customer.id).toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      {/* Edit Customer Modal */}
-      {showEditModal && customer && (
+      {/* Add/Edit Modal */}
+      {showModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl md:rounded-3xl p-6 md:p-8 max-w-2xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl md:text-3xl font-bold">Edit Customer</h2>
-              <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-white transition-colors">
+              <h2 className="text-2xl md:text-3xl font-bold">
+                {editingCustomer ? "Edit Customer" : "Add Customer"}
+              </h2>
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white transition-colors">
                 <X className="w-6 h-6 md:w-8 md:h-8" />
               </button>
             </div>
@@ -831,7 +859,7 @@ export default function CustomerDetails() {
               </div>
 
               <div>
-                <label className="block text-base md:text-lg mb-2 font-medium">Balance</label>
+                <label className="block text-base md:text-lg mb-2 font-medium">Initial Balance</label>
                 <div className="relative">
                   <Wallet className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-slate-500" />
                   <input
@@ -862,16 +890,16 @@ export default function CustomerDetails() {
 
             <div className="flex gap-3 md:gap-4 mt-6 md:mt-8">
               <button
-                onClick={() => setShowEditModal(false)}
+                onClick={() => setShowModal(false)}
                 className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 md:py-4 rounded-xl text-base md:text-lg font-bold transition-all"
               >
                 Cancel
               </button>
               <button
-                onClick={updateCustomer}
+                onClick={saveCustomer}
                 className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 py-3 md:py-4 rounded-xl text-base md:text-lg font-bold transition-all shadow-xl shadow-cyan-500/20"
               >
-                Save Changes
+                {editingCustomer ? "Save Changes" : "Add Customer"}
               </button>
             </div>
           </div>
@@ -879,25 +907,25 @@ export default function CustomerDetails() {
       )}
 
       {/* Balance Adjustment Modal */}
-      {showBalanceModal && customer && (
+      {showBalanceModal && balanceCustomer && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl md:rounded-3xl p-6 md:p-8 max-w-md w-full border border-slate-700/50 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl md:text-3xl font-bold">Adjust Balance</h2>
+              <h2 className="text-2xl md:text-3xl font-bold">Manage Balance</h2>
               <button onClick={() => setShowBalanceModal(false)} className="text-slate-400 hover:text-white transition-colors">
                 <X className="w-6 h-6 md:w-8 md:h-8" />
               </button>
             </div>
 
-            <div className={`bg-slate-800/50 rounded-xl p-4 md:p-5 mb-6 border ${getBalanceBgColor(getBalance(customer.balance))}`}>
+            <div className={`bg-slate-800/50 rounded-xl p-4 md:p-5 mb-6 border ${getBalanceBgColor(getBalance(balanceCustomer.balance))}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-slate-400">Customer:</span>
-                <span className="font-bold text-white text-base md:text-lg">{customer.name}</span>
+                <span className="font-bold text-white text-base md:text-lg">{balanceCustomer.name}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Current Balance:</span>
-                <span className={`text-2xl md:text-3xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
-                  £{getBalance(customer.balance).toFixed(2)}
+                <span className={`text-2xl md:text-3xl font-black ${getBalanceColor(getBalance(balanceCustomer.balance))}`}>
+                  £{getBalance(balanceCustomer.balance).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -949,7 +977,7 @@ export default function CustomerDetails() {
                 <div className="bg-slate-800/50 rounded-xl p-3 md:p-4 border border-slate-700/50">
                   <div className="flex justify-between text-sm mb-1 md:mb-2">
                     <span className="text-slate-400">Current Balance:</span>
-                    <span className="font-bold">£{getBalance(customer.balance).toFixed(2)}</span>
+                    <span className="font-bold">£{getBalance(balanceCustomer.balance).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm mb-1 md:mb-2">
                     <span className="text-slate-400">
@@ -963,11 +991,11 @@ export default function CustomerDetails() {
                     <div className="flex justify-between">
                       <span className="font-bold">New Balance:</span>
                       <span className={`text-lg md:text-xl font-black ${getBalanceColor(
-                        getBalance(customer.balance) + 
+                        getBalance(balanceCustomer.balance) + 
                         (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount)
                       )}`}>
                         £{(
-                          getBalance(customer.balance) + 
+                          getBalance(balanceCustomer.balance) + 
                           (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount)
                         ).toFixed(2)}
                       </span>
@@ -1005,7 +1033,278 @@ export default function CustomerDetails() {
           </div>
         </div>
       )}
+
+      {/* Customer Details Modal */}
+      {showDetailsModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl md:rounded-3xl p-6 md:p-8 max-w-4xl w-full border border-slate-700/50 shadow-2xl my-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl md:text-3xl font-bold">Customer Details</h2>
+              <button onClick={() => setShowDetailsModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-6 h-6 md:w-8 md:h-8" />
+              </button>
+            </div>
+
+            {/* Customer Info */}
+            <div className="bg-gradient-to-br from-slate-800/30 to-slate-900/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 mb-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-cyan-500 to-emerald-500 rounded-2xl flex items-center justify-center text-3xl font-black shadow-lg shadow-cyan-500/20">
+                  {selectedCustomer.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-2xl font-bold mb-2">{selectedCustomer.name}</h3>
+                  <div className="flex flex-wrap gap-4 text-slate-400">
+                    {selectedCustomer.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4" />
+                        {selectedCustomer.phone}
+                      </div>
+                    )}
+                    {selectedCustomer.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4" />
+                        {selectedCustomer.email}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Joined {new Date(selectedCustomer.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+                <div className={`text-3xl font-black ${getBalanceColor(getBalance(selectedCustomer.balance))}`}>
+                  £{getBalance(selectedCustomer.balance).toFixed(2)}
+                </div>
+              </div>
+              
+              {selectedCustomer.notes && (
+                <div className="mt-4 p-4 bg-slate-800/50 rounded-xl border border-slate-600/30">
+                  <p className="text-slate-300">{selectedCustomer.notes}</p>
+                </div>
+              )}
+              
+              {/* Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div className="bg-slate-800/50 rounded-xl p-4 text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Receipt className="w-5 h-5 text-cyan-400" />
+                    <span className="text-slate-400">Transactions</span>
+                  </div>
+                  <p className="text-2xl font-bold">{customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4 text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <DollarSign className="w-5 h-5 text-emerald-400" />
+                    <span className="text-slate-400">Total Spent</span>
+                  </div>
+                  <p className="text-2xl font-bold text-emerald-400">£{getTotalSpent(selectedCustomer.id).toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4 text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <CreditCard className="w-5 h-5 text-purple-400" />
+                    <span className="text-slate-400">Avg. Transaction</span>
+                  </div>
+                  <p className="text-2xl font-bold">£{getAverageTransaction(selectedCustomer.id).toFixed(2)}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4 text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Clock className="w-5 h-5 text-orange-400" />
+                    <span className="text-slate-400">Last Purchase</span>
+                  </div>
+                  <p className="text-lg">
+                    {customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length > 0 
+                      ? new Date(customerTransactions.filter(t => t.customer_id === selectedCustomer.id)[0].created_at).toLocaleDateString()
+                      : "Never"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="mb-6">
+              <div className="flex gap-2 border-b border-slate-700/50">
+                <button
+                  onClick={() => setDetailsActiveTab('transactions')}
+                  className={`px-6 py-3 font-bold transition-all ${
+                    detailsActiveTab === 'transactions' 
+                      ? 'text-cyan-400 border-b-2 border-cyan-400' 
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Receipt className="w-5 h-5" />
+                    Transactions ({customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length})
+                  </div>
+                </button>
+                <button
+                  onClick={() => setDetailsActiveTab('balance')}
+                  className={`px-6 py-3 font-bold transition-all ${
+                    detailsActiveTab === 'balance' 
+                      ? 'text-emerald-400 border-b-2 border-emerald-400' 
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-5 h-5" />
+                    Balance History ({customerBalanceHistory.filter(b => b.id === selectedCustomer.id).length})
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            {detailsLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-cyan-400 mx-auto mb-4" />
+                <p className="text-slate-400">Loading details...</p>
+              </div>
+            ) : detailsActiveTab === 'transactions' ? (
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                {customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length === 0 ? (
+                  <div className="text-center py-8 bg-slate-800/30 border border-slate-700/50 rounded-xl">
+                    <Receipt className="w-12 h-12 mx-auto mb-4 text-slate-500" />
+                    <p className="text-slate-400">No transactions yet</p>
+                  </div>
+                ) : (
+                  customerTransactions
+                    .filter(t => t.customer_id === selectedCustomer.id)
+                    .map((transaction) => (
+                      <div key={transaction.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold">Transaction #{transaction.transaction_number || transaction.id}</span>
+                              <span className={`px-2 py-1 rounded-full text-xs ${getPaymentStatusColor(transaction.payment_status)}`}>
+                                {transaction.payment_status}
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-400">
+                              {new Date(transaction.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => printReceipt(transaction)}
+                              className="px-3 py-1.5 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all text-sm flex items-center gap-2"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <div className="text-sm text-slate-400">Payment Method</div>
+                            <div className="font-bold capitalize">{transaction.payment_method || 'N/A'}</div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-slate-400">Total Amount</div>
+                            <div className="text-lg font-bold text-emerald-400">£{transaction.final_amount?.toFixed(2) || '0.00'}</div>
+                          </div>
+                        </div>
+                        
+                        {transaction.items && transaction.items.length > 0 && (
+                          <div className="border-t border-slate-700/50 pt-3">
+                            <div className="text-sm text-slate-400 mb-2">Items:</div>
+                            <div className="space-y-2">
+                              {transaction.items.slice(0, 3).map((item: any) => (
+                                <div key={item.id} className="flex justify-between text-sm">
+                                  <span>{item.name} x{item.quantity}</span>
+                                  <span>£{(item.price * item.quantity).toFixed(2)}</span>
+                                </div>
+                              ))}
+                              {transaction.items.length > 3 && (
+                                <div className="text-slate-400 text-sm">+{transaction.items.length - 3} more items</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                {customerBalanceHistory.filter(b => b.id === selectedCustomer.id).length === 0 ? (
+                  <div className="text-center py-8 bg-slate-800/30 border border-slate-700/50 rounded-xl">
+                    <Wallet className="w-12 h-12 mx-auto mb-4 text-slate-500" />
+                    <p className="text-slate-400">No balance history</p>
+                  </div>
+                ) : (
+                  customerBalanceHistory
+                    .filter(b => b.id === selectedCustomer.id)
+                    .map((history) => (
+                      <div key={history.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${history.amount > 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                              {history.amount > 0 ? (
+                                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <TrendingDown className="w-4 h-4 text-red-400" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-bold">
+                                {history.amount > 0 ? 'Balance Added' : 'Balance Deducted'}
+                              </div>
+                              <div className="text-sm text-slate-400">
+                                {new Date(history.created_at).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className={`text-xl font-bold ${history.amount > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {history.amount > 0 ? '+' : ''}£{Math.abs(history.amount).toFixed(2)}
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <div className="text-sm text-slate-400">Previous Balance</div>
+                            <div>£{history.previous_balance.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-slate-400">New Balance</div>
+                            <div className="font-bold">£{history.new_balance.toFixed(2)}</div>
+                          </div>
+                        </div>
+                        
+                        {history.note && (
+                          <div className="border-t border-slate-700/50 pt-3">
+                            <div className="text-sm text-slate-400 mb-1">Note:</div>
+                            <div className="text-slate-300">{history.note}</div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  openEditModal(selectedCustomer);
+                }}
+                className="flex-1 bg-blue-500/20 text-blue-400 py-3 rounded-xl font-bold hover:bg-blue-500/30 transition-all"
+              >
+                Edit Customer
+              </button>
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  openBalanceModal(selectedCustomer);
+                }}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 py-3 rounded-xl font-bold transition-all"
+              >
+                Adjust Balance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
