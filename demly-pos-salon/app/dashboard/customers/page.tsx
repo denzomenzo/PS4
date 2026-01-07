@@ -1,3 +1,4 @@
+// /app/dashboard/customers/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -24,11 +25,14 @@ import {
   Receipt,
   Printer,
   Clock,
-  ChevronDown,
-  ChevronUp,
+  RefreshCw,
   FileText,
   DollarSign,
-  RefreshCw
+  ChevronDown,
+  History,
+  Tag,
+  AlertCircle,
+  CheckCircle
 } from "lucide-react";
 import Link from "next/link";
 
@@ -45,15 +49,12 @@ interface Customer {
 
 interface Transaction {
   id: number;
-  transaction_number?: string;
   customer_id: number;
   total_amount: number;
-  tax_amount: number;
   discount_amount: number;
   final_amount: number;
-  payment_method: 'cash' | 'card' | 'balance' | 'mixed' | 'online' | 'other';
-  payment_status: 'pending' | 'completed' | 'failed' | 'refunded' | 'cancelled';
-  status: 'draft' | 'completed' | 'cancelled';
+  payment_method: string;
+  payment_status: string;
   notes?: string;
   created_at: string;
   items?: TransactionItem[];
@@ -69,6 +70,7 @@ interface TransactionItem {
 
 interface BalanceTransaction {
   id: number;
+  customer_id: number;
   amount: number;
   previous_balance: number;
   new_balance: number;
@@ -165,7 +167,10 @@ export default function Customers() {
         .eq("user_id", user.id)
         .order("name");
       
-      if (customersError) throw customersError;
+      if (customersError) {
+        console.error("Error loading customers:", customersError);
+        throw customersError;
+      }
 
       if (customersData) {
         // Normalize balance to ensure it's always a number
@@ -196,6 +201,7 @@ export default function Customers() {
       }
     } catch (error) {
       console.error("Error loading customers:", error);
+      alert("Error loading customers. Please check your connection.");
     } finally {
       setLoading(false);
     }
@@ -211,7 +217,15 @@ export default function Customers() {
       const { data: transactionsData, error: transactionsError } = await supabase
         .from("transactions")
         .select(`
-          *,
+          id,
+          customer_id,
+          total_amount,
+          discount_amount,
+          final_amount,
+          payment_method,
+          payment_status,
+          notes,
+          created_at,
           items:transaction_items(*)
         `)
         .eq("customer_id", customerId)
@@ -220,7 +234,11 @@ export default function Customers() {
         .limit(20);
 
       if (!transactionsError && transactionsData) {
+        console.log("Loaded transactions:", transactionsData.length);
         setCustomerTransactions(transactionsData as Transaction[]);
+      } else {
+        console.error("Transactions error:", transactionsError);
+        setCustomerTransactions([]);
       }
 
       // Load balance history
@@ -232,11 +250,16 @@ export default function Customers() {
         .order("created_at", { ascending: false });
 
       if (!balanceError && balanceData) {
+        console.log("Loaded balance history:", balanceData.length);
         setCustomerBalanceHistory(balanceData);
+      } else {
+        console.error("Balance history error:", balanceError);
+        setCustomerBalanceHistory([]);
       }
 
     } catch (error) {
       console.error("Error loading customer details:", error);
+      alert("Error loading customer details");
     } finally {
       setDetailsLoading(false);
     }
@@ -299,8 +322,7 @@ export default function Customers() {
             phone: formPhone || null,
             email: formEmail || null,
             notes: formNotes || null,
-            balance: balanceValue,
-            updated_at: new Date().toISOString()
+            balance: balanceValue
           })
           .eq("id", editingCustomer.id);
 
@@ -314,8 +336,7 @@ export default function Customers() {
             amount: balanceValue - editingCustomer.balance,
             previous_balance: editingCustomer.balance,
             new_balance: balanceValue,
-            note: "Manual balance adjustment",
-            created_at: new Date().toISOString()
+            note: "Manual balance adjustment"
           });
         }
       } else {
@@ -325,9 +346,7 @@ export default function Customers() {
           phone: formPhone || null,
           email: formEmail || null,
           notes: formNotes || null,
-          balance: balanceValue,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          balance: balanceValue
         });
 
         if (error) throw error;
@@ -366,8 +385,7 @@ export default function Customers() {
       const { error: updateError } = await supabase
         .from("customers")
         .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
+          balance: newBalance
         })
         .eq("id", balanceCustomer.id);
 
@@ -380,8 +398,7 @@ export default function Customers() {
         amount: adjustmentAmount,
         previous_balance: currentBalance,
         new_balance: newBalance,
-        note: balanceNote || (balanceAction === "add" ? "Balance added" : "Balance deducted"),
-        created_at: new Date().toISOString()
+        note: balanceNote || (balanceAction === "add" ? "Balance added" : "Balance deducted")
       });
 
       // Update the balanceCustomer state with the new balance
@@ -400,7 +417,7 @@ export default function Customers() {
       await loadCustomers();
       
       // Close modal after successful update
-      setTimeout(() => setShowBalanceModal(false), 1500);
+      setTimeout(() => setShowBalanceModal(false), 1000);
     } catch (error: any) {
       console.error("Error:", error);
       alert(`Error adjusting balance: ${error.message}`);
@@ -425,6 +442,7 @@ export default function Customers() {
     }
   };
 
+  // Print receipt for a transaction
   const printReceipt = async (transaction: Transaction) => {
     if (!selectedCustomer) return;
     
@@ -432,40 +450,155 @@ export default function Customers() {
       const receiptWindow = window.open('', '_blank');
       if (!receiptWindow) return;
 
+      // Load receipt settings
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: receiptSettings } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      const businessName = receiptSettings?.business_name || "Your Business";
+      const businessAddress = receiptSettings?.business_address || "";
+      const businessPhone = receiptSettings?.business_phone || "";
+      const businessEmail = receiptSettings?.business_email || "";
+      const taxNumber = receiptSettings?.tax_number || "";
+      const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
+      const logoUrl = receiptSettings?.receipt_logo_url || "";
+      const fontSize = receiptSettings?.receipt_font_size || 12;
+      const showBarcode = receiptSettings?.show_barcode_on_receipt !== false;
+
       const receiptHtml = `
         <!DOCTYPE html>
         <html>
         <head>
           <title>Receipt #${transaction.id}</title>
           <style>
+            @media print {
+              @page { margin: 0; }
+              body { margin: 10mm; }
+            }
             body { 
               font-family: 'Courier New', monospace; 
-              max-width: 300px; 
-              margin: 20px auto; 
-              padding: 10px; 
-              background: white;
-              color: black;
+              max-width: 80mm; 
+              margin: 0 auto; 
+              padding: 15px;
+              font-size: ${fontSize}px;
+              line-height: 1.2;
             }
-            .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px; }
-            .store-name { font-size: 24px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }
-            .receipt-title { font-size: 18px; margin: 10px 0; font-weight: bold; }
-            .transaction-info { margin: 10px 0; }
-            .items { margin: 20px 0; }
-            .item { display: flex; justify-content: space-between; margin: 5px 0; }
-            .total { font-weight: bold; font-size: 18px; margin-top: 20px; border-top: 1px solid #000; padding-top: 10px; }
-            .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
-            .separator { border-top: 1px dashed #000; margin: 20px 0; }
-            .customer-info { margin: 10px 0; }
+            .header { 
+              text-align: center; 
+              margin-bottom: 15px; 
+              border-bottom: 2px solid #000; 
+              padding-bottom: 10px; 
+            }
+            .store-name { 
+              font-size: ${fontSize + 6}px; 
+              font-weight: bold; 
+              text-transform: uppercase; 
+              letter-spacing: 1px; 
+              margin-bottom: 5px;
+            }
+            .receipt-title { 
+              font-size: ${fontSize + 2}px; 
+              margin: 8px 0; 
+              font-weight: bold; 
+            }
+            .business-info {
+              text-align: center;
+              font-size: ${fontSize - 1}px;
+              line-height: 1.3;
+              margin: 8px 0;
+            }
+            .transaction-info { 
+              margin: 10px 0; 
+              font-size: ${fontSize}px;
+            }
+            .items { 
+              margin: 15px 0; 
+            }
+            .item { 
+              display: flex; 
+              justify-content: space-between; 
+              margin: 4px 0;
+              font-size: ${fontSize}px;
+            }
+            .item-name {
+              flex: 1;
+              padding-right: 10px;
+            }
+            .item-price {
+              white-space: nowrap;
+              font-weight: bold;
+            }
+            .total { 
+              font-weight: bold; 
+              font-size: ${fontSize + 2}px; 
+              margin-top: 15px; 
+              border-top: 2px solid #000; 
+              padding-top: 10px; 
+            }
+            .footer { 
+              text-align: center; 
+              margin-top: 20px; 
+              font-size: ${fontSize - 1}px; 
+              color: #666;
+              font-style: italic;
+            }
+            .separator { 
+              border-top: 1px dashed #000; 
+              margin: 15px 0; 
+            }
+            .customer-info { 
+              margin: 10px 0; 
+              font-size: ${fontSize}px;
+            }
             .bold { font-weight: bold; }
             .text-right { text-align: right; }
+            .logo {
+              text-align: center;
+              margin-bottom: 10px;
+            }
+            .logo img {
+              max-height: 50px;
+              max-width: 100%;
+            }
+            .payment-method {
+              text-align: center;
+              margin: 10px 0;
+              padding: 5px;
+              background: #f5f5f5;
+              border: 1px solid #ddd;
+              font-weight: bold;
+            }
           </style>
         </head>
         <body>
+          ${logoUrl ? `
+            <div class="logo">
+              <img src="${logoUrl}" alt="Logo" />
+            </div>
+          ` : ''}
+          
           <div class="header">
-            <div class="store-name">DEMLY POS</div>
-            <div>Your Universal SaaS POS</div>
-            <div class="receipt-title">RECEIPT #${transaction.transaction_number || transaction.id}</div>
-            <div>${new Date(transaction.created_at).toLocaleString()}</div>
+            <div class="store-name">${businessName}</div>
+            <div class="receipt-title">RECEIPT #${transaction.id}</div>
+          </div>
+          
+          <div class="business-info">
+            ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+            ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+            ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+            ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
+          </div>
+          
+          <div class="separator"></div>
+          
+          <div class="transaction-info">
+            <div><span class="bold">Date:</span> ${new Date(transaction.created_at).toLocaleString()}</div>
+            <div><span class="bold">Staff:</span> System</div>
           </div>
           
           <div class="customer-info">
@@ -476,11 +609,18 @@ export default function Customers() {
           
           <div class="separator"></div>
           
+          <div class="receipt-title">ITEMS</div>
+          
           <div class="items">
-            ${transaction.items?.map((item: any) => `
+            ${transaction.items?.map(item => `
               <div class="item">
-                <span>${item.name} x${item.quantity}</span>
-                <span>£${(item.price * item.quantity).toFixed(2)}</span>
+                <div class="item-name">
+                  <div>${item.name}</div>
+                  <div style="font-size: ${fontSize - 2}px; color: #666;">
+                    ${item.quantity} x £${item.price.toFixed(2)}
+                  </div>
+                </div>
+                <div class="item-price">£${item.total_price.toFixed(2)}</div>
               </div>
             `).join('') || '<div>No items in this transaction</div>'}
           </div>
@@ -490,7 +630,7 @@ export default function Customers() {
           <div class="transaction-info">
             <div class="item">
               <span>Subtotal:</span>
-              <span>£${transaction.total_amount?.toFixed(2) || '0.00'}</span>
+              <span>£${transaction.total_amount.toFixed(2)}</span>
             </div>
             ${transaction.discount_amount > 0 ? `
               <div class="item">
@@ -498,20 +638,26 @@ export default function Customers() {
                 <span>-£${transaction.discount_amount.toFixed(2)}</span>
               </div>
             ` : ''}
+            <div class="item">
+              <span>Tax:</span>
+              <span>£${(transaction.final_amount - transaction.total_amount).toFixed(2)}</span>
+            </div>
             <div class="item total">
               <span class="bold">TOTAL:</span>
-              <span class="bold">£${transaction.final_amount?.toFixed(2) || '0.00'}</span>
-            </div>
-            <div class="item">
-              <span>Payment Method:</span>
-              <span>${transaction.payment_method || 'N/A'} (${transaction.payment_status || 'N/A'})</span>
+              <span class="bold">£${transaction.final_amount.toFixed(2)}</span>
             </div>
           </div>
           
+          <div class="payment-method">
+            Payment: ${transaction.payment_method.toUpperCase()} • ${transaction.payment_status.toUpperCase()}
+          </div>
+          
           <div class="footer">
-            <div>Thank you for your business!</div>
-            <div>Generated by Demly POS</div>
-            <div>${new Date().toLocaleString()}</div>
+            <div style="font-weight: bold; margin: 10px 0;">THANK YOU FOR YOUR BUSINESS!</div>
+            <div>${receiptFooter}</div>
+            <div style="margin-top: 10px; font-size: ${fontSize - 2}px;">
+              ${new Date().toLocaleString()}
+            </div>
           </div>
         </body>
         </html>
@@ -531,10 +677,11 @@ export default function Customers() {
     }
   };
 
+  // Calculate statistics
   const getTotalSpent = (customerId: number) => {
     return customerTransactions
       .filter(t => t.customer_id === customerId)
-      .reduce((sum, t) => sum + (t.final_amount || 0), 0);
+      .reduce((sum, t) => sum + t.final_amount, 0);
   };
 
   const getAverageTransaction = (customerId: number) => {
@@ -564,6 +711,20 @@ export default function Customers() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
@@ -590,10 +751,19 @@ export default function Customers() {
               {customers.length} total customers • {customerStats.totalTransactions} transactions
             </p>
           </div>
-          <Link href="/" className="flex items-center gap-2 text-lg text-slate-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            Back to POS
-          </Link>
+          <div className="flex gap-3">
+            <button
+              onClick={loadCustomers}
+              className="flex items-center gap-2 px-4 py-3 bg-slate-800/50 hover:bg-slate-800/70 border border-slate-700/50 rounded-xl transition-all"
+            >
+              <RefreshCw className="w-5 h-5" />
+              Refresh
+            </button>
+            <Link href="/dashboard" className="flex items-center gap-2 text-lg text-slate-400 hover:text-white transition-colors px-4 py-3 bg-slate-800/50 hover:bg-slate-800/70 border border-slate-700/50 rounded-xl">
+              <ArrowLeft className="w-5 h-5" />
+              Back to POS
+            </Link>
+          </div>
         </div>
 
         {/* Stats */}
@@ -643,22 +813,13 @@ export default function Customers() {
               className="w-full bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 pl-12 md:pl-16 pr-4 py-3 md:py-5 rounded-xl md:rounded-2xl text-base md:text-xl placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-xl"
             />
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => loadCustomers()}
-              className="flex items-center justify-center gap-2 px-4 py-3 md:py-5 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600/50 rounded-xl md:rounded-2xl font-bold text-sm md:text-base transition-all"
-            >
-              <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />
-              Refresh
-            </button>
-            <button
-              onClick={openAddModal}
-              className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-6 md:px-8 py-3 md:py-5 rounded-xl md:rounded-2xl font-bold text-base md:text-xl transition-all flex items-center justify-center gap-2 md:gap-3 shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40 whitespace-nowrap"
-            >
-              <Plus className="w-5 h-5 md:w-6 md:h-6" />
-              Add Customer
-            </button>
-          </div>
+          <button
+            onClick={openAddModal}
+            className="bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-6 md:px-8 py-3 md:py-5 rounded-xl md:rounded-2xl font-bold text-base md:text-xl transition-all flex items-center justify-center gap-2 md:gap-3 shadow-2xl shadow-cyan-500/20 hover:shadow-cyan-500/40 whitespace-nowrap"
+          >
+            <Plus className="w-5 h-5 md:w-6 md:h-6" />
+            Add Customer
+          </button>
         </div>
 
         {/* Customers Grid */}
@@ -684,125 +845,130 @@ export default function Customers() {
               </div>
             </div>
           ) : (
-            filteredCustomers.map((customer) => (
-              <div
-                key={customer.id}
-                className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl md:rounded-3xl p-4 md:p-6 hover:border-cyan-500/50 transition-all group shadow-xl hover:shadow-2xl hover:shadow-cyan-500/10"
-              >
-                {/* Customer Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div 
-                    onClick={() => openDetailsModal(customer)}
-                    className="flex items-center gap-3 md:gap-4 flex-1 cursor-pointer"
-                  >
-                    <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-br from-cyan-500 to-emerald-500 rounded-xl md:rounded-2xl flex items-center justify-center text-2xl md:text-3xl font-black shadow-lg shadow-cyan-500/20 hover:scale-105 transition-transform">
-                      {customer.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg md:text-2xl font-bold truncate hover:text-cyan-300 transition-colors">
-                        {customer.name}
-                      </h3>
-                      <p className="text-sm text-slate-400 flex items-center gap-1">
-                        <Calendar className="w-3 h-3 md:w-4 md:h-4" />
-                        Joined {new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1 md:gap-2">
-                    <button
+            filteredCustomers.map((customer) => {
+              const customerTrans = customerTransactions.filter(t => t.customer_id === customer.id);
+              const totalSpent = customerTrans.reduce((sum, t) => sum + t.final_amount, 0);
+              
+              return (
+                <div
+                  key={customer.id}
+                  className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/50 rounded-2xl md:rounded-3xl p-4 md:p-6 hover:border-cyan-500/50 transition-all group shadow-xl hover:shadow-2xl hover:shadow-cyan-500/10"
+                >
+                  {/* Customer Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div 
                       onClick={() => openDetailsModal(customer)}
-                      className="p-1.5 md:p-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all"
-                      title="View Details"
+                      className="flex items-center gap-3 md:gap-4 flex-1 cursor-pointer"
                     >
-                      <FileText className="w-3 h-3 md:w-4 md:h-4" />
-                    </button>
-                    <button
-                      onClick={() => openEditModal(customer)}
-                      className="p-1.5 md:p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
-                      title="Edit"
-                    >
-                      <Edit2 className="w-3 h-3 md:w-4 md:h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteCustomer(customer.id)}
-                      className="p-1.5 md:p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
-                    </button>
+                      <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-br from-cyan-500 to-emerald-500 rounded-xl md:rounded-2xl flex items-center justify-center text-2xl md:text-3xl font-black shadow-lg shadow-cyan-500/20 hover:scale-105 transition-transform">
+                        {customer.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg md:text-2xl font-bold truncate hover:text-cyan-300 transition-colors">
+                          {customer.name}
+                        </h3>
+                        <p className="text-sm text-slate-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 md:w-4 md:h-4" />
+                          Joined {new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 md:gap-2">
+                      <button
+                        onClick={() => openDetailsModal(customer)}
+                        className="p-1.5 md:p-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all"
+                        title="View Details"
+                      >
+                        <FileText className="w-3 h-3 md:w-4 md:h-4" />
+                      </button>
+                      <button
+                        onClick={() => openEditModal(customer)}
+                        className="p-1.5 md:p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-3 h-3 md:w-4 md:h-4" />
+                      </button>
+                      <button
+                        onClick={() => deleteCustomer(customer.id)}
+                        className="p-1.5 md:p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Contact Info */}
-                <div className="space-y-2 mb-4">
-                  {customer.phone && (
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Phone className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
-                      <span className="text-sm truncate">{customer.phone}</span>
-                    </div>
-                  )}
-                  {customer.email && (
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Mail className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
-                      <span className="text-sm truncate">{customer.email}</span>
-                    </div>
-                  )}
-                  {customer.notes && (
-                    <div className="mt-2 p-2 md:p-3 bg-slate-700/30 rounded-lg md:rounded-xl border border-slate-600/30">
-                      <p className="text-xs md:text-sm text-slate-300 line-clamp-2">{customer.notes}</p>
-                    </div>
-                  )}
-                </div>
+                  {/* Contact Info */}
+                  <div className="space-y-2 mb-4">
+                    {customer.phone && (
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Phone className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+                        <span className="text-sm truncate">{customer.phone}</span>
+                      </div>
+                    )}
+                    {customer.email && (
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Mail className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+                        <span className="text-sm truncate">{customer.email}</span>
+                      </div>
+                    )}
+                    {customer.notes && (
+                      <div className="mt-2 p-2 md:p-3 bg-slate-700/30 rounded-lg md:rounded-xl border border-slate-600/30">
+                        <p className="text-xs md:text-sm text-slate-300 line-clamp-2">{customer.notes}</p>
+                      </div>
+                    )}
+                  </div>
 
-                {/* Balance Section */}
-                <div className={`mt-4 pt-4 border-t ${getBalanceBgColor(getBalance(customer.balance))} rounded-lg p-3 md:p-4`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 md:w-5 md:h-5" />
-                      <span className="text-sm text-slate-400 font-medium">Current Balance</span>
+                  {/* Balance Section */}
+                  <div className={`mt-4 pt-4 border-t ${getBalanceBgColor(getBalance(customer.balance))} rounded-lg p-3 md:p-4`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 md:w-5 md:h-5" />
+                        <span className="text-sm text-slate-400 font-medium">Current Balance</span>
+                      </div>
+                      <span className={`text-xl md:text-2xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
+                        £{getBalance(customer.balance).toFixed(2)}
+                      </span>
                     </div>
-                    <span className={`text-xl md:text-2xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
-                      £{getBalance(customer.balance).toFixed(2)}
-                    </span>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => openBalanceModal(customer)}
+                        className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 text-emerald-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all"
+                      >
+                        Adjust Balance
+                      </button>
+                      <button
+                        onClick={() => openDetailsModal(customer)}
+                        className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-500/30 text-cyan-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all flex items-center justify-center gap-1 md:gap-2"
+                      >
+                        <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
+                        Details
+                      </button>
+                    </div>
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => openBalanceModal(customer)}
-                      className="bg-gradient-to-r from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 text-emerald-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all"
-                    >
-                      Adjust Balance
-                    </button>
-                    <button
-                      onClick={() => openDetailsModal(customer)}
-                      className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-500/30 text-cyan-400 py-1.5 md:py-2 rounded-lg font-bold text-xs md:text-sm transition-all flex items-center justify-center gap-1 md:gap-2"
-                    >
-                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
-                      Details
-                    </button>
-                  </div>
-                </div>
 
-                {/* Quick Stats */}
-                <div className="mt-4 pt-4 border-t border-slate-700/50">
-                  <div className="grid grid-cols-2 gap-3 text-xs md:text-sm">
-                    <div className="text-center p-2 bg-slate-800/30 rounded-lg">
-                      <div className="text-slate-400 mb-1">Transactions</div>
-                      <div className="font-bold">{customerTransactions.filter(t => t.customer_id === customer.id).length}</div>
-                    </div>
-                    <div className="text-center p-2 bg-slate-800/30 rounded-lg">
-                      <div className="text-slate-400 mb-1">Total Spent</div>
-                      <div className="font-bold text-emerald-400">£{getTotalSpent(customer.id).toFixed(2)}</div>
+                  {/* Quick Stats */}
+                  <div className="mt-4 pt-4 border-t border-slate-700/50">
+                    <div className="grid grid-cols-2 gap-3 text-xs md:text-sm">
+                      <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                        <div className="text-slate-400 mb-1">Transactions</div>
+                        <div className="font-bold">{customerTrans.length}</div>
+                      </div>
+                      <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                        <div className="text-slate-400 mb-1">Total Spent</div>
+                        <div className="font-bold text-emerald-400">£{totalSpent.toFixed(2)}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
 
-      {/* Add/Edit Modal */}
+      {/* Add/Edit Customer Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl md:rounded-3xl p-6 md:p-8 max-w-2xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1113,7 +1279,7 @@ export default function Customers() {
                   </div>
                   <p className="text-lg">
                     {customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length > 0 
-                      ? new Date(customerTransactions.filter(t => t.customer_id === selectedCustomer.id)[0].created_at).toLocaleDateString()
+                      ? formatDate(customerTransactions.filter(t => t.customer_id === selectedCustomer.id)[0].created_at)
                       : "Never"}
                   </p>
                 </div>
@@ -1146,7 +1312,7 @@ export default function Customers() {
                 >
                   <div className="flex items-center gap-2">
                     <Wallet className="w-5 h-5" />
-                    Balance History ({customerBalanceHistory.filter(b => b.id === selectedCustomer.id).length})
+                    Balance History ({customerBalanceHistory.filter(b => b.customer_id === selectedCustomer.id).length})
                   </div>
                 </button>
               </div>
@@ -1173,7 +1339,7 @@ export default function Customers() {
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-bold">Transaction #{transaction.transaction_number || transaction.id}</span>
+                              <span className="font-bold">Transaction #{transaction.id}</span>
                               <span className={`px-2 py-1 rounded-full text-xs ${getPaymentStatusColor(transaction.payment_status)}`}>
                                 {transaction.payment_status}
                               </span>
@@ -1196,11 +1362,11 @@ export default function Customers() {
                         <div className="grid grid-cols-2 gap-3 mb-3">
                           <div>
                             <div className="text-sm text-slate-400">Payment Method</div>
-                            <div className="font-bold capitalize">{transaction.payment_method || 'N/A'}</div>
+                            <div className="font-bold capitalize">{transaction.payment_method || 'cash'}</div>
                           </div>
                           <div>
                             <div className="text-sm text-slate-400">Total Amount</div>
-                            <div className="text-lg font-bold text-emerald-400">£{transaction.final_amount?.toFixed(2) || '0.00'}</div>
+                            <div className="text-lg font-bold text-emerald-400">£{transaction.final_amount.toFixed(2)}</div>
                           </div>
                         </div>
                         
@@ -1208,10 +1374,10 @@ export default function Customers() {
                           <div className="border-t border-slate-700/50 pt-3">
                             <div className="text-sm text-slate-400 mb-2">Items:</div>
                             <div className="space-y-2">
-                              {transaction.items.slice(0, 3).map((item: any) => (
+                              {transaction.items.slice(0, 3).map((item) => (
                                 <div key={item.id} className="flex justify-between text-sm">
                                   <span>{item.name} x{item.quantity}</span>
-                                  <span>£{(item.price * item.quantity).toFixed(2)}</span>
+                                  <span>£{item.total_price.toFixed(2)}</span>
                                 </div>
                               ))}
                               {transaction.items.length > 3 && (
@@ -1226,14 +1392,14 @@ export default function Customers() {
               </div>
             ) : (
               <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                {customerBalanceHistory.filter(b => b.id === selectedCustomer.id).length === 0 ? (
+                {customerBalanceHistory.filter(b => b.customer_id === selectedCustomer.id).length === 0 ? (
                   <div className="text-center py-8 bg-slate-800/30 border border-slate-700/50 rounded-xl">
                     <Wallet className="w-12 h-12 mx-auto mb-4 text-slate-500" />
                     <p className="text-slate-400">No balance history</p>
                   </div>
                 ) : (
                   customerBalanceHistory
-                    .filter(b => b.id === selectedCustomer.id)
+                    .filter(b => b.customer_id === selectedCustomer.id)
                     .map((history) => (
                       <div key={history.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
                         <div className="flex justify-between items-center mb-3">
