@@ -79,11 +79,13 @@ interface RawTransactionItem {
   transaction_id: number;
   quantity: number;
   price_at_time: number;
-  services: {
-    name: string;
-    price: number;
-  };
+  services: Service[];
   created_at?: string;
+}
+
+interface Service {
+  name: string;
+  price: number;
 }
 
 interface BalanceTransaction {
@@ -299,20 +301,22 @@ export default function Customers() {
           }
 
           // Transform items to products
-          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: RawTransactionItem) => {
-            const price = item.price_at_time || item.services?.price || 0;
-            const quantity = item.quantity || 0;
-            const total = price * quantity;
-            
-            return {
-              id: item.id,
-              name: item.services?.name || 'Unknown Service',
-              price: price,
-              quantity: quantity,
-              discount: 0,
-              total: total
-            };
-          });
+const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
+  // Get the first service from the array
+  const service = item.services && item.services.length > 0 ? item.services[0] : null;
+  const price = item.price_at_time || service?.price || 0;
+  const quantity = item.quantity || 0;
+  const total = price * quantity;
+  
+  return {
+    id: item.id,
+    name: service?.name || 'Unknown Service',
+    price: price,
+    quantity: quantity,
+    discount: 0,
+    total: total
+  };
+});
 
           const subtotal = products.reduce((sum, p) => sum + p.total, 0);
           const total = tx.total || tx.final_amount || subtotal;
@@ -331,7 +335,7 @@ export default function Customers() {
             notes: tx.notes,
             created_at: tx.created_at,
             products: products,
-            transaction_items: tx.transaction_items as RawTransactionItem[]
+            transaction_items: tx.transaction_items as any
           });
         });
 
@@ -395,20 +399,22 @@ export default function Customers() {
         // Transform the data
         const transformedTransactions: Transaction[] = transactionsData.map(tx => {
           // Transform items to products
-          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: RawTransactionItem) => {
-            const price = item.price_at_time || item.services?.price || 0;
-            const quantity = item.quantity || 0;
-            const total = price * quantity;
-            
-            return {
-              id: item.id,
-              name: item.services?.name || 'Unknown Service',
-              price: price,
-              quantity: quantity,
-              discount: 0,
-              total: total
-            };
-          });
+const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
+  // Get the first service from the array
+  const service = item.services && item.services.length > 0 ? item.services[0] : null;
+  const price = item.price_at_time || service?.price || 0;
+  const quantity = item.quantity || 0;
+  const total = price * quantity;
+  
+  return {
+    id: item.id,
+    name: service?.name || 'Unknown Service',
+    price: price,
+    quantity: quantity,
+    discount: 0,
+    total: total
+  };
+});
 
           const subtotal = products.reduce((sum, p) => sum + p.total, 0);
           const total = tx.total || tx.final_amount || subtotal;
@@ -429,7 +435,7 @@ export default function Customers() {
             products: products,
             payment_details: tx.payment_details,
             balance_deducted: tx.balance_deducted,
-            transaction_items: tx.transaction_items as RawTransactionItem[]
+            transaction_items: tx.transaction_items as any
           };
         });
 
@@ -1823,3 +1829,4 @@ export default function Customers() {
     </div>
   );
 }
+
