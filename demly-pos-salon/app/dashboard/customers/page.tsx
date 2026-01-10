@@ -1,7 +1,7 @@
 // /app/dashboard/customers/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { 
@@ -62,6 +62,7 @@ interface Transaction {
   products?: TransactionProduct[];
   payment_details?: any;
   balance_deducted?: number;
+  transaction_items?: TransactionItem[];
 }
 
 interface TransactionProduct {
@@ -71,6 +72,22 @@ interface TransactionProduct {
   quantity: number;
   discount: number;
   total: number;
+}
+
+interface TransactionItem {
+  id: number;
+  transaction_id: number;
+  service_id?: number;
+  product_id?: number;
+  name: string;
+  quantity: number;
+  price: number;
+  total: number;
+  created_at: string;
+  services?: {
+    name: string;
+    price: number;
+  };
 }
 
 interface BalanceTransaction {
@@ -102,12 +119,16 @@ export default function Customers() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsActiveTab, setDetailsActiveTab] = useState<'transactions' | 'balance'>('transactions');
 
+  // Store customer stats locally for each customer
+  const [customerTotalSpent, setCustomerTotalSpent] = useState<Record<number, number>>({});
+  const [customerTransactionCounts, setCustomerTransactionCounts] = useState<Record<number, number>>({});
+
   // Helper function to ensure balance is always a number
-  const getBalance = (balance: any): number => {
+  const getBalance = useCallback((balance: any): number => {
     if (balance === null || balance === undefined) return 0;
     const num = typeof balance === 'string' ? parseFloat(balance) : balance;
     return isNaN(num) ? 0 : num;
-  };
+  }, []);
 
   // Form states
   const [formName, setFormName] = useState("");
@@ -134,12 +155,11 @@ export default function Customers() {
     totalTransactions: 0
   });
 
-  // Store customer stats locally for each customer
-  const [customerTotalSpent, setCustomerTotalSpent] = useState<Record<number, number>>({});
-
   useEffect(() => {
-    loadCustomers();
-  }, []);
+    if (userId) {
+      loadCustomers();
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -189,26 +209,23 @@ export default function Customers() {
         setCustomers(normalizedData);
         setFilteredCustomers(normalizedData);
 
+        // Pre-load transaction data for all customers
+        await preloadCustomerTransactionData(normalizedData, user.id);
+
         // Calculate stats
         const totalBalance = normalizedData.reduce((sum, c) => sum + getBalance(c.balance), 0);
         const customersWithBalance = normalizedData.filter(c => getBalance(c.balance) > 0).length;
         const customersWithNegativeBalance = normalizedData.filter(c => getBalance(c.balance) < 0).length;
 
-        // Get total transactions count
-        const { count: transactionsCount } = await supabase
-          .from("transactions")
-          .select("*", { count: 'exact', head: true })
-          .eq("user_id", user.id);
+        // Get total transactions count from preloaded data
+        const totalTransactions = Object.values(customerTransactionCounts).reduce((sum, count) => sum + count, 0);
 
         setCustomerStats({
           totalBalance,
           customersWithBalance,
           customersWithNegativeBalance,
-          totalTransactions: transactionsCount || 0
+          totalTransactions
         });
-
-        // Pre-load transaction totals for all customers
-        await loadAllCustomerTransactionTotals(normalizedData, user.id);
       }
     } catch (error) {
       console.error("Error loading customers:", error);
@@ -218,11 +235,9 @@ export default function Customers() {
     }
   };
 
-  const loadAllCustomerTransactionTotals = async (customers: Customer[], userId: string) => {
-    const totals: Record<number, number> = {};
-    
+  const preloadCustomerTransactionData = async (customers: Customer[], userId: string) => {
     try {
-      // Load all transactions for these customers
+      // Load all transactions for these customers with items
       const { data: transactionsData, error } = await supabase
         .from("transactions")
         .select(`
@@ -231,32 +246,106 @@ export default function Customers() {
           total,
           subtotal,
           final_amount,
-          products
+          discount_amount,
+          vat,
+          payment_method,
+          payment_status,
+          notes,
+          created_at,
+          transaction_items (
+            id,
+            transaction_id,
+            quantity,
+            price_at_time,
+            services!inner (
+              name,
+              price
+            )
+          )
         `)
         .eq("user_id", userId)
-        .in("customer_id", customers.map(c => c.id));
+        .in("customer_id", customers.map(c => c.id))
+        .order("created_at", { ascending: false });
 
       if (error) {
-        console.error("Error loading transaction totals:", error);
+        console.error("Error preloading transaction data:", error);
         return;
       }
 
       if (transactionsData) {
         // Calculate totals per customer
+        const totals: Record<number, number> = {};
+        const counts: Record<number, number> = {};
+
         transactionsData.forEach(transaction => {
           const customerId = transaction.customer_id;
           const amount = transaction.total || transaction.final_amount || transaction.subtotal || 0;
           
           if (!totals[customerId]) {
             totals[customerId] = 0;
+            counts[customerId] = 0;
           }
           totals[customerId] += amount;
+          counts[customerId] = (counts[customerId] || 0) + 1;
         });
 
         setCustomerTotalSpent(totals);
+        setCustomerTransactionCounts(counts);
+
+        // Store transaction data for quick access
+        const transactionsByCustomer: Record<number, Transaction[]> = {};
+        
+        transactionsData.forEach(tx => {
+          const customerId = tx.customer_id;
+          
+          if (!transactionsByCustomer[customerId]) {
+            transactionsByCustomer[customerId] = [];
+          }
+
+          // Transform items to products
+          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
+            const price = item.price_at_time || item.services?.price || 0;
+            const quantity = item.quantity || 0;
+            const total = price * quantity;
+            
+            return {
+              id: item.id,
+              name: item.services?.name || 'Unknown Service',
+              price: price,
+              quantity: quantity,
+              discount: 0,
+              total: total
+            };
+          });
+
+          const subtotal = products.reduce((sum, p) => sum + p.total, 0);
+          const total = tx.total || tx.final_amount || subtotal;
+          const vat = tx.vat || 0;
+
+          transactionsByCustomer[customerId].push({
+            id: tx.id,
+            customer_id: tx.customer_id,
+            subtotal: subtotal,
+            vat: vat,
+            total: total,
+            discount_amount: tx.discount_amount || 0,
+            final_amount: tx.final_amount || total,
+            payment_method: tx.payment_method || 'cash',
+            payment_status: tx.payment_status || 'completed',
+            notes: tx.notes,
+            created_at: tx.created_at,
+            products: products,
+            transaction_items: tx.transaction_items
+          });
+        });
+
+        // Store in localStorage for quick access
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('customerTransactions', JSON.stringify(transactionsByCustomer));
+        }
       }
     } catch (error) {
-      console.error("Error loading transaction totals:", error);
+      console.error("Error preloading transaction data:", error);
     }
   };
 
@@ -270,7 +359,19 @@ export default function Customers() {
 
       console.log("Loading details for customer:", customerId);
 
-      // Load customer transactions - Use the same structure as POS
+      // First check localStorage for cached data
+      if (typeof window !== 'undefined') {
+        const cachedData = localStorage.getItem('customerTransactions');
+        if (cachedData) {
+          const transactionsByCustomer = JSON.parse(cachedData);
+          if (transactionsByCustomer[customerId]) {
+            console.log("Using cached transaction data");
+            setCustomerTransactions(transactionsByCustomer[customerId]);
+          }
+        }
+      }
+
+      // Always load fresh data but show cached first
       const { data: transactionsData, error: transactionsError } = await supabase
         .from("transactions")
         .select(`
@@ -280,9 +381,7 @@ export default function Customers() {
             transaction_id,
             quantity,
             price_at_time,
-            created_at,
             services!inner (
-              id,
               name,
               price
             )
@@ -293,33 +392,32 @@ export default function Customers() {
         .order("created_at", { ascending: false })
         .limit(20);
 
-      console.log("Raw transactions data:", transactionsData);
-
       if (transactionsError) {
         console.error("Error loading transactions:", transactionsError);
-        setCustomerTransactions([]);
+        // Don't set empty array if we have cached data
       } else if (transactionsData) {
-        // Transform the data to match POS transaction structure
+        // Transform the data
         const transformedTransactions: Transaction[] = transactionsData.map(tx => {
-          // Calculate products from transaction_items
+          // Transform items to products
           const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
-            const itemTotal = (item.quantity || 0) * (item.price_at_time || 0);
+            const price = item.price_at_time || item.services?.price || 0;
+            const quantity = item.quantity || 0;
+            const total = price * quantity;
             
             return {
               id: item.id,
               name: item.services?.name || 'Unknown Service',
-              price: item.price_at_time || 0,
-              quantity: item.quantity || 0,
-              discount: 0, // You might need to load discount from another table
-              total: itemTotal
+              price: price,
+              quantity: quantity,
+              discount: 0,
+              total: total
             };
           });
 
-          // Calculate totals
           const subtotal = products.reduce((sum, p) => sum + p.total, 0);
-          const vat = (tx.vat || 0);
-          const total = subtotal + vat;
-          
+          const total = tx.total || tx.final_amount || subtotal;
+          const vat = tx.vat || 0;
+
           return {
             id: tx.id,
             customer_id: tx.customer_id,
@@ -334,19 +432,13 @@ export default function Customers() {
             created_at: tx.created_at,
             products: products,
             payment_details: tx.payment_details,
-            balance_deducted: tx.balance_deducted
+            balance_deducted: tx.balance_deducted,
+            transaction_items: tx.transaction_items
           };
         });
 
-        console.log("Transformed transactions:", transformedTransactions);
+        console.log("Loaded fresh transaction data:", transformedTransactions);
         setCustomerTransactions(transformedTransactions);
-
-        // Update total spent for this customer
-        const totalSpent = transformedTransactions.reduce((sum, t) => sum + t.total, 0);
-        setCustomerTotalSpent(prev => ({
-          ...prev,
-          [customerId]: totalSpent
-        }));
       }
 
       // Load balance history
@@ -367,7 +459,6 @@ export default function Customers() {
 
     } catch (error) {
       console.error("Error loading customer details:", error);
-      alert("Error loading customer details");
     } finally {
       setDetailsLoading(false);
     }
@@ -404,7 +495,23 @@ export default function Customers() {
   const openDetailsModal = async (customer: Customer) => {
     setSelectedCustomer(customer);
     setShowDetailsModal(true);
-    await loadCustomerDetails(customer.id);
+    setDetailsLoading(true);
+    
+    // Show immediately with cached data
+    if (typeof window !== 'undefined') {
+      const cachedData = localStorage.getItem('customerTransactions');
+      if (cachedData) {
+        const transactionsByCustomer = JSON.parse(cachedData);
+        if (transactionsByCustomer[customer.id]) {
+          setCustomerTransactions(transactionsByCustomer[customer.id]);
+        }
+      }
+    }
+    
+    // Then load fresh data in background
+    setTimeout(() => {
+      loadCustomerDetails(customer.id);
+    }, 100);
   };
 
   const saveCustomer = async () => {
@@ -447,6 +554,18 @@ export default function Customers() {
             note: "Manual balance adjustment"
           });
         }
+
+        // Update local state
+        setCustomers(prev => prev.map(c => 
+          c.id === editingCustomer.id ? { 
+            ...c, 
+            name: formName,
+            phone: formPhone || null,
+            email: formEmail || null,
+            notes: formNotes || null,
+            balance: balanceValue
+          } : c
+        ));
       } else {
         const { error } = await supabase.from("customers").insert({
           user_id: user.id,
@@ -510,15 +629,39 @@ export default function Customers() {
       });
 
       // Update the balanceCustomer state with the new balance
-      setBalanceCustomer({
+      const updatedCustomer = {
         ...balanceCustomer,
         balance: newBalance
-      });
+      };
+      setBalanceCustomer(updatedCustomer);
 
-      // Update local state
+      // Update customers list
       setCustomers(prev => prev.map(c => 
-        c.id === balanceCustomer.id ? { ...c, balance: newBalance } : c
+        c.id === balanceCustomer.id ? updatedCustomer : c
       ));
+
+      // Update filtered customers
+      setFilteredCustomers(prev => prev.map(c => 
+        c.id === balanceCustomer.id ? updatedCustomer : c
+      ));
+
+      // Update customer stats
+      const updatedStats = { ...customerStats };
+      updatedStats.totalBalance += adjustmentAmount;
+      
+      if (currentBalance <= 0 && newBalance > 0) {
+        updatedStats.customersWithBalance += 1;
+      } else if (currentBalance > 0 && newBalance <= 0) {
+        updatedStats.customersWithBalance -= 1;
+      }
+      
+      if (currentBalance >= 0 && newBalance < 0) {
+        updatedStats.customersWithNegativeBalance += 1;
+      } else if (currentBalance < 0 && newBalance >= 0) {
+        updatedStats.customersWithNegativeBalance -= 1;
+      }
+      
+      setCustomerStats(updatedStats);
 
       // Reset the form
       setBalanceAmount("");
@@ -544,23 +687,30 @@ export default function Customers() {
         throw error;
       }
 
+      // Remove from local state
+      setCustomers(prev => prev.filter(c => c.id !== id));
+      setFilteredCustomers(prev => prev.filter(c => c.id !== id));
+      
       alert("✅ Customer deleted successfully!");
-      await loadCustomers();
     } catch (error: any) {
       console.error("Error deleting customer:", error);
       alert(`Error deleting customer: ${error.message}`);
     }
   };
 
-  // Print receipt for a transaction - Exact same as POS.tsx
+  // Print receipt for a transaction - Non-blocking version
   const printTransactionReceipt = async (transaction: Transaction) => {
     if (!selectedCustomer) return;
     
     try {
-      const receiptWindow = window.open('', '_blank');
-      if (!receiptWindow) return;
+      // Show loading state
+      const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
+      if (receiptButton) {
+        receiptButton.innerHTML = '<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>';
+        receiptButton.setAttribute('disabled', 'true');
+      }
 
-      // Load receipt settings
+      // Load receipt settings asynchronously
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -581,250 +731,296 @@ export default function Customers() {
       const showBarcodeOnReceipt = receiptSettings?.show_barcode_on_receipt !== false;
       const barcodeType = receiptSettings?.barcode_type || "CODE128";
 
-      const receiptHTML = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Receipt #${transaction.id}</title>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-          <style>
-            @media print {
-              @page { margin: 0; }
-              body { margin: 10mm; }
-            }
-            body { 
-              font-family: 'Courier New', monospace; 
-              padding: 20px; 
-              max-width: 80mm; 
-              margin: 0 auto; 
-              font-size: ${fontSize}px;
-              line-height: 1.2;
-            }
-            .logo { text-align: center; margin-bottom: 10px; }
-            .logo img { max-width: 100px; max-height: 60px; }
-            h1 { 
-              text-align: center; 
-              font-size: ${fontSize + 4}px; 
-              margin: 5px 0; 
-              font-weight: bold; 
-              text-transform: uppercase;
-            }
-            .business-info { 
-              text-align: center; 
-              font-size: ${fontSize - 2}px; 
-              margin-bottom: 10px; 
-              line-height: 1.3;
-            }
-            .line { 
-              border-bottom: 1px dashed #000; 
-              margin: 8px 0; 
-            }
-            .receipt-header {
-              font-size: ${fontSize - 2}px;
-              margin-bottom: 8px;
-            }
-            .item { 
-              display: flex; 
-              justify-content: space-between; 
-              margin: 4px 0;
-              font-size: ${fontSize}px;
-            }
-            .item-name {
-              flex: 1;
-              padding-right: 10px;
-            }
-            .item-price {
-              white-space: nowrap;
-              font-weight: bold;
-            }
-            .totals { 
-              margin-top: 10px; 
-              font-weight: bold; 
-            }
-            .total-line { 
-              display: flex; 
-              justify-content: space-between; 
-              margin: 4px 0;
-              font-size: ${fontSize}px;
-            }
-            .grand-total {
-              font-size: ${fontSize + 2}px;
-              border-top: 2px solid #000;
-              padding-top: 6px;
-              margin-top: 6px;
-            }
-            .payment-info {
-              margin: 10px 0;
-              padding: 8px;
-              background: #f5f5f5;
-              border: 1px solid #ddd;
-              text-align: center;
-              font-weight: bold;
-              font-size: ${fontSize}px;
-            }
-            .footer { 
-              text-align: center; 
-              margin-top: 15px; 
-              font-size: ${fontSize - 2}px;
-              font-style: italic;
-            }
-            .barcode-container {
-              text-align: center;
-              margin: 15px 0;
-            }
-            .balance-info {
-              text-align: center;
-              font-size: ${fontSize - 2}px;
-              margin: 8px 0;
-              padding: 5px;
-              border: 1px dashed #ccc;
-            }
-            .notes {
-              margin: 8px 0;
-              padding: 5px;
-              font-style: italic;
-              font-size: ${fontSize - 2}px;
-              color: #666;
-            }
-          </style>
-        </head>
-        <body>
-          ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
-          
-          <h1>${businessName}</h1>
-          
-          <div class="business-info">
-            ${businessAddress ? `<div>${businessAddress}</div>` : ''}
-            ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
-            ${businessEmail ? `<div>${businessEmail}</div>` : ''}
-            ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
-          </div>
-          
-          <div class="line"></div>
-          
-          <div class="receipt-header">
-            <div><strong>Receipt #${transaction.id}</strong></div>
-            <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
-              day: '2-digit', 
-              month: '2-digit', 
-              year: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}</div>
-            ${selectedCustomer ? `<div>Customer: ${selectedCustomer.name}</div>` : ''}
-            ${transaction.notes ? `<div class="notes">Note: ${transaction.notes}</div>` : ''}
-          </div>
-          
-          <div class="line"></div>
-          
-          ${transaction.products?.map((item: any) => `
-            <div class="item">
-              <div class="item-name">
-                <div>${item.name}</div>
-                <div style="font-size: ${fontSize - 3}px; color: #666;">
-                  ${item.quantity} x £${item.price.toFixed(2)}
-                  ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+      // Use setTimeout to prevent UI freeze
+      setTimeout(() => {
+        const receiptWindow = window.open('', '_blank');
+        if (!receiptWindow) {
+          alert("Please allow pop-ups to print receipts");
+          return;
+        }
+
+        // Calculate totals
+        const subtotal = transaction.products?.reduce((sum, p) => sum + p.total, 0) || 0;
+        const total = transaction.total || subtotal;
+        const vat = transaction.vat || 0;
+
+        const receiptHTML = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Receipt #${transaction.id}</title>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+            <style>
+              @media print {
+                @page { margin: 0; }
+                body { margin: 10mm; }
+              }
+              body { 
+                font-family: 'Courier New', monospace; 
+                padding: 20px; 
+                max-width: 80mm; 
+                margin: 0 auto; 
+                font-size: ${fontSize}px;
+                line-height: 1.2;
+              }
+              .logo { text-align: center; margin-bottom: 10px; }
+              .logo img { max-width: 100px; max-height: 60px; }
+              h1 { 
+                text-align: center; 
+                font-size: ${fontSize + 4}px; 
+                margin: 5px 0; 
+                font-weight: bold; 
+                text-transform: uppercase;
+              }
+              .business-info { 
+                text-align: center; 
+                font-size: ${fontSize - 2}px; 
+                margin-bottom: 10px; 
+                line-height: 1.3;
+              }
+              .line { 
+                border-bottom: 1px dashed #000; 
+                margin: 8px 0; 
+              }
+              .receipt-header {
+                font-size: ${fontSize - 2}px;
+                margin-bottom: 8px;
+              }
+              .item { 
+                display: flex; 
+                justify-content: space-between; 
+                margin: 4px 0;
+                font-size: ${fontSize}px;
+              }
+              .item-name {
+                flex: 1;
+                padding-right: 10px;
+              }
+              .item-price {
+                white-space: nowrap;
+                font-weight: bold;
+              }
+              .totals { 
+                margin-top: 10px; 
+                font-weight: bold; 
+              }
+              .total-line { 
+                display: flex; 
+                justify-content: space-between; 
+                margin: 4px 0;
+                font-size: ${fontSize}px;
+              }
+              .grand-total {
+                font-size: ${fontSize + 2}px;
+                border-top: 2px solid #000;
+                padding-top: 6px;
+                margin-top: 6px;
+              }
+              .payment-info {
+                margin: 10px 0;
+                padding: 8px;
+                background: #f5f5f5;
+                border: 1px solid #ddd;
+                text-align: center;
+                font-weight: bold;
+                font-size: ${fontSize}px;
+              }
+              .footer { 
+                text-align: center; 
+                margin-top: 15px; 
+                font-size: ${fontSize - 2}px;
+                font-style: italic;
+              }
+              .barcode-container {
+                text-align: center;
+                margin: 15px 0;
+              }
+              .balance-info {
+                text-align: center;
+                font-size: ${fontSize - 2}px;
+                margin: 8px 0;
+                padding: 5px;
+                border: 1px dashed #ccc;
+              }
+              .notes {
+                margin: 8px 0;
+                padding: 5px;
+                font-style: italic;
+                font-size: ${fontSize - 2}px;
+                color: #666;
+              }
+              canvas {
+                max-width: 100%;
+                height: auto;
+              }
+            </style>
+          </head>
+          <body>
+            ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" /></div>` : ''}
+            
+            <h1>${businessName}</h1>
+            
+            <div class="business-info">
+              ${businessAddress ? `<div>${businessAddress}</div>` : ''}
+              ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
+              ${businessEmail ? `<div>${businessEmail}</div>` : ''}
+              ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
+            </div>
+            
+            <div class="line"></div>
+            
+            <div class="receipt-header">
+              <div><strong>Receipt #${transaction.id}</strong></div>
+              <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+              })}</div>
+              <div>Customer: ${selectedCustomer.name}</div>
+              ${transaction.notes ? `<div class="notes">Note: ${transaction.notes}</div>` : ''}
+            </div>
+            
+            <div class="line"></div>
+            
+            ${transaction.products?.map((item: TransactionProduct) => `
+              <div class="item">
+                <div class="item-name">
+                  <div>${item.name}</div>
+                  <div style="font-size: ${fontSize - 3}px; color: #666;">
+                    ${item.quantity} x £${item.price.toFixed(2)}
+                    ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
+                  </div>
                 </div>
+                <div class="item-price">£${item.total.toFixed(2)}</div>
               </div>
-              <div class="item-price">£${item.total.toFixed(2)}</div>
-            </div>
-          `).join('') || '<div>No items in this transaction</div>'}
-          
-          <div class="line"></div>
-          
-          <div class="totals">
-            <div class="total-line">
-              <span>Subtotal:</span>
-              <span>£${(transaction.subtotal || 0).toFixed(2)}</span>
-            </div>
-            ${transaction.vat > 0 ? `
+            `).join('') || '<div>No items in this transaction</div>'}
+            
+            <div class="line"></div>
+            
+            <div class="totals">
               <div class="total-line">
-                <span>VAT (20%):</span>
-                <span>£${transaction.vat.toFixed(2)}</span>
+                <span>Subtotal:</span>
+                <span>£${subtotal.toFixed(2)}</span>
               </div>
-            ` : ''}
-            <div class="total-line grand-total">
-              <span>TOTAL:</span>
-              <span>£${(transaction.total || 0).toFixed(2)}</span>
-            </div>
-          </div>
-
-          <div class="payment-info">
-            PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
-            ${transaction.payment_details?.split_payment ? `
-              <div style="font-size: ${fontSize - 2}px; margin-top: 5px;">
-                Split: 
-                ${transaction.payment_details.split_payment.cash ? `Cash: £${transaction.payment_details.split_payment.cash.toFixed(2)} ` : ''}
-                ${transaction.payment_details.split_payment.card ? `Card: £${transaction.payment_details.split_payment.card.toFixed(2)} ` : ''}
-                ${transaction.payment_details.split_payment.balance ? `Balance: £${transaction.payment_details.split_payment.balance.toFixed(2)}` : ''}
-              </div>
-            ` : ''}
-          </div>
-          
-          ${transaction.balance_deducted && transaction.balance_deducted > 0 && selectedCustomer ? `
-            <div class="balance-info">
-              <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
-              <div>Remaining Balance: £${(selectedCustomer.balance).toFixed(2)}</div>
-            </div>
-          ` : ''}
-          
-          ${showBarcodeOnReceipt ? `
-            <div class="barcode-container">
-              <canvas id="barcodeCanvas"></canvas>
-            </div>
-          ` : ''}
-          
-          <div class="footer">
-            <div style="font-weight: bold; margin: 10px 0;">THANK YOU!</div>
-            ${receiptFooter}
-          </div>
-          
-          <script>
-            window.onload = function() {
-              ${showBarcodeOnReceipt ? `
-                try {
-                  JsBarcode("#barcodeCanvas", "TXN${transaction.id}", {
-                    format: "${barcodeType}",
-                    width: 2,
-                    height: 50,
-                    displayValue: true,
-                    fontSize: 12,
-                    textMargin: 5
-                  });
-                } catch (e) {
-                  console.error("Barcode error:", e);
-                }
+              ${vat > 0 ? `
+                <div class="total-line">
+                  <span>VAT (20%):</span>
+                  <span>£${vat.toFixed(2)}</span>
+                </div>
               ` : ''}
-              
-              window.print();
-              setTimeout(() => {
-                window.close();
-              }, 1000);
-            };
-          </script>
-        </body>
-        </html>
-      `;
+              <div class="total-line grand-total">
+                <span>TOTAL:</span>
+                <span>£${total.toFixed(2)}</span>
+              </div>
+            </div>
 
-      receiptWindow.document.write(receiptHTML);
-      receiptWindow.document.close();
+            <div class="payment-info">
+              PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
+              ${transaction.payment_details?.split_payment ? `
+                <div style="font-size: ${fontSize - 2}px; margin-top: 5px;">
+                  Split: 
+                  ${transaction.payment_details.split_payment.cash ? `Cash: £${transaction.payment_details.split_payment.cash.toFixed(2)} ` : ''}
+                  ${transaction.payment_details.split_payment.card ? `Card: £${transaction.payment_details.split_payment.card.toFixed(2)} ` : ''}
+                  ${transaction.payment_details.split_payment.balance ? `Balance: £${transaction.payment_details.split_payment.balance.toFixed(2)}` : ''}
+                </div>
+              ` : ''}
+            </div>
+            
+            ${transaction.balance_deducted && transaction.balance_deducted > 0 && selectedCustomer ? `
+              <div class="balance-info">
+                <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
+                <div>Remaining Balance: £${(selectedCustomer.balance).toFixed(2)}</div>
+              </div>
+            ` : ''}
+            
+            ${showBarcodeOnReceipt ? `
+              <div class="barcode-container">
+                <canvas id="barcodeCanvas"></canvas>
+              </div>
+            ` : ''}
+            
+            <div class="footer">
+              <div style="font-weight: bold; margin: 10px 0;">THANK YOU!</div>
+              ${receiptFooter}
+            </div>
+            
+            <script>
+              window.onload = function() {
+                ${showBarcodeOnReceipt ? `
+                  try {
+                    JsBarcode("#barcodeCanvas", "TXN${transaction.id}", {
+                      format: "${barcodeType}",
+                      width: 2,
+                      height: 50,
+                      displayValue: true,
+                      fontSize: 12,
+                      textMargin: 5
+                    });
+                  } catch (e) {
+                    console.error("Barcode error:", e);
+                    document.querySelector('.barcode-container').innerHTML = '<div>Transaction #${transaction.id}</div>';
+                  }
+                ` : ''}
+                
+                // Small delay to ensure barcode is rendered
+                setTimeout(() => {
+                  window.print();
+                  setTimeout(() => {
+                    window.close();
+                  }, 500);
+                }, 100);
+              };
+            </script>
+          </body>
+          </html>
+        `;
+
+        receiptWindow.document.write(receiptHTML);
+        receiptWindow.document.close();
+        
+        // Reset button state
+        if (receiptButton) {
+          receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
+          receiptButton.removeAttribute('disabled');
+        }
+      }, 100);
     } catch (error) {
       console.error("Error printing receipt:", error);
       alert("Error printing receipt");
+      
+      // Reset button state on error
+      const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
+      if (receiptButton) {
+        receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
+        receiptButton.removeAttribute('disabled');
+      }
     }
   };
 
   // Calculate statistics for a specific customer
   const getCustomerStats = (customerId: number) => {
-    const customerTrans = customerTransactions.filter(t => t.customer_id === customerId);
     const totalSpent = customerTotalSpent[customerId] || 0;
-    const avgTransaction = customerTrans.length > 0 ? totalSpent / customerTrans.length : 0;
-    const lastPurchase = customerTrans.length > 0 ? customerTrans[0].created_at : null;
+    const transactionCount = customerTransactionCounts[customerId] || 0;
+    const avgTransaction = transactionCount > 0 ? totalSpent / transactionCount : 0;
+    
+    // Get last purchase from cached data
+    let lastPurchase = null;
+    if (typeof window !== 'undefined') {
+      const cachedData = localStorage.getItem('customerTransactions');
+      if (cachedData) {
+        const transactionsByCustomer = JSON.parse(cachedData);
+        if (transactionsByCustomer[customerId] && transactionsByCustomer[customerId].length > 0) {
+          lastPurchase = transactionsByCustomer[customerId][0].created_at;
+        }
+      }
+    }
     
     return {
       totalSpent,
       avgTransaction,
-      transactionCount: customerTrans.length,
+      transactionCount,
       lastPurchase
     };
   };
@@ -1497,6 +1693,7 @@ export default function Customers() {
                           </div>
                           <div className="flex gap-2">
                             <button
+                              data-transaction-id={transaction.id}
                               onClick={() => printTransactionReceipt(transaction)}
                               className="px-3 py-1.5 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all text-sm flex items-center gap-2"
                             >
