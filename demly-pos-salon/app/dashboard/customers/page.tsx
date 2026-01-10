@@ -62,7 +62,7 @@ interface Transaction {
   products?: TransactionProduct[];
   payment_details?: any;
   balance_deducted?: number;
-  transaction_items?: TransactionItem[];
+  transaction_items?: RawTransactionItem[];
 }
 
 interface TransactionProduct {
@@ -74,20 +74,16 @@ interface TransactionProduct {
   total: number;
 }
 
-interface TransactionItem {
+interface RawTransactionItem {
   id: number;
   transaction_id: number;
-  service_id?: number;
-  product_id?: number;
-  name: string;
   quantity: number;
-  price: number;
-  total: number;
-  created_at: string;
-  services?: {
+  price_at_time: number;
+  services: {
     name: string;
     price: number;
   };
+  created_at?: string;
 }
 
 interface BalanceTransaction {
@@ -303,7 +299,7 @@ export default function Customers() {
           }
 
           // Transform items to products
-          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
+          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: RawTransactionItem) => {
             const price = item.price_at_time || item.services?.price || 0;
             const quantity = item.quantity || 0;
             const total = price * quantity;
@@ -335,7 +331,7 @@ export default function Customers() {
             notes: tx.notes,
             created_at: tx.created_at,
             products: products,
-            transaction_items: tx.transaction_items
+            transaction_items: tx.transaction_items as RawTransactionItem[]
           });
         });
 
@@ -399,7 +395,7 @@ export default function Customers() {
         // Transform the data
         const transformedTransactions: Transaction[] = transactionsData.map(tx => {
           // Transform items to products
-          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
+          const products: TransactionProduct[] = (tx.transaction_items || []).map((item: RawTransactionItem) => {
             const price = item.price_at_time || item.services?.price || 0;
             const quantity = item.quantity || 0;
             const total = price * quantity;
@@ -433,7 +429,7 @@ export default function Customers() {
             products: products,
             payment_details: tx.payment_details,
             balance_deducted: tx.balance_deducted,
-            transaction_items: tx.transaction_items
+            transaction_items: tx.transaction_items as RawTransactionItem[]
           };
         });
 
@@ -706,8 +702,15 @@ export default function Customers() {
       // Show loading state
       const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
       if (receiptButton) {
+        const originalHTML = receiptButton.innerHTML;
         receiptButton.innerHTML = '<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>';
-        receiptButton.setAttribute('disabled', 'true');
+        (receiptButton as HTMLButtonElement).disabled = true;
+
+        // Restore button state after 3 seconds even if error
+        setTimeout(() => {
+          receiptButton.innerHTML = originalHTML;
+          (receiptButton as HTMLButtonElement).disabled = false;
+        }, 3000);
       }
 
       // Load receipt settings asynchronously
@@ -982,8 +985,10 @@ export default function Customers() {
         
         // Reset button state
         if (receiptButton) {
-          receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
-          receiptButton.removeAttribute('disabled');
+          setTimeout(() => {
+            receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
+            (receiptButton as HTMLButtonElement).disabled = false;
+          }, 2000);
         }
       }, 100);
     } catch (error) {
@@ -994,7 +999,7 @@ export default function Customers() {
       const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
       if (receiptButton) {
         receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
-        receiptButton.removeAttribute('disabled');
+        (receiptButton as HTMLButtonElement).disabled = false;
       }
     }
   };
