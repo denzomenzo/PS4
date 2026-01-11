@@ -1,19 +1,11 @@
-// /app/dashboard/customers/page.tsx - UPDATED VERSION
-// Update the imports in /app/dashboard/customers/page.tsx
+// /app/dashboard/customers/page.tsx - COMPLETE FIXED VERSION
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
-import {
-  logAuditAction,  // Keep the general function
-  logCustomerCreated,
-  logCustomerUpdated,
-  logCustomerDeleted,
-  logBalanceAdjusted,
-  logReceiptPrinted
-} from "@/lib/auditLogger";  // Add specific functions
+import { logAuditAction } from "@/lib/auditLogger";
 import ReceiptPrint, { ReceiptData } from "@/components/receipts/ReceiptPrint";
 import { 
   ArrowLeft, Plus, Search, Edit2, Trash2, X, Mail, Phone, 
@@ -79,6 +71,8 @@ interface CustomerStats {
 
 export default function Customers() {
   const userId = useUserId();
+  const { staff: currentStaff } = useStaffAuth();
+  
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +183,6 @@ export default function Customers() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // FIXED: Proper transaction loading
   const loadCustomers = async () => {
     if (!userId || !isMounted.current) return;
     
@@ -213,7 +206,7 @@ export default function Customers() {
       setCustomers(normalizedCustomers);
       setFilteredCustomers(normalizedCustomers);
 
-      // Load all transactions for stats
+      // Load all transactions for stats - FIXED QUERY
       const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
@@ -222,11 +215,11 @@ export default function Customers() {
           total,
           final_amount,
           created_at,
-          transaction_items!inner (
+          transaction_items (
             id,
             quantity,
             price_at_time,
-            service:services!inner (
+            services (
               name,
               price
             )
@@ -251,7 +244,7 @@ export default function Customers() {
           // Calculate from transaction items if available
           if (t.transaction_items && t.transaction_items.length > 0) {
             return sum + t.transaction_items.reduce((itemSum: number, item: any) => {
-              const price = item.price_at_time || item.service?.price || 0;
+              const price = item.price_at_time || (item.services?.[0]?.price || 0);
               return itemSum + (price * (item.quantity || 1));
             }, 0);
           }
@@ -284,22 +277,21 @@ export default function Customers() {
     }
   };
 
-  // FIXED: Proper transaction details loading
   const loadCustomerDetails = async (customerId: number) => {
     if (!customerId || !userId) return;
     
     setDetailsLoading(true);
     try {
-      // Load transactions with proper joins
+      // Load transactions with proper joins - FIXED QUERY
       const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
           *,
-          transaction_items!inner (
+          transaction_items (
             id,
             quantity,
             price_at_time,
-            service:services!inner (
+            services (
               name,
               price
             )
@@ -314,7 +306,7 @@ export default function Customers() {
           // Calculate from transaction items
           const items = tx.transaction_items || [];
           const subtotal = items.reduce((sum: number, item: any) => {
-            const price = item.price_at_time || item.service?.price || 0;
+            const price = item.price_at_time || (item.services?.[0]?.price || 0);
             return sum + (price * (item.quantity || 1));
           }, 0);
           
@@ -392,198 +384,213 @@ export default function Customers() {
   };
 
   const saveCustomer = async () => {
-  if (!formName.trim() || !userId) {
-    alert("Name is required");
-    return;
-  }
+    if (!formName.trim() || !userId) {
+      alert("Name is required");
+      return;
+    }
 
-  try {
-    const balanceValue = parseFloat(formBalance) || 0;
+    try {
+      const balanceValue = parseFloat(formBalance) || 0;
 
-    if (editingCustomer) {
-      // Log customer update
-      await logCustomerUpdated(
-        editingCustomer.id,
-        {
-          name: editingCustomer.name,
-          phone: editingCustomer.phone,
-          email: editingCustomer.email,
-          notes: editingCustomer.notes,
-          balance: editingCustomer.balance
+      if (editingCustomer) {
+        // Log customer update
+        await logAuditAction({
+          action: "CUSTOMER_UPDATED",
+          entityType: "customer",
+          entityId: editingCustomer.id.toString(),
+          oldValues: {
+            name: editingCustomer.name,
+            phone: editingCustomer.phone,
+            email: editingCustomer.email,
+            notes: editingCustomer.notes,
+            balance: editingCustomer.balance
+          },
+          newValues: {
+            name: formName,
+            phone: formPhone,
+            email: formEmail,
+            notes: formNotes,
+            balance: balanceValue
+          },
+          staffId: currentStaff?.id
+        });
+
+        const { error } = await supabase
+          .from("customers")
+          .update({
+            name: formName,
+            phone: formPhone || null,
+            email: formEmail || null,
+            notes: formNotes || null,
+            balance: balanceValue
+          })
+          .eq("id", editingCustomer.id);
+
+        if (error) throw error;
+
+        if (balanceValue !== editingCustomer.balance) {
+          await supabase.from("customer_balance_history").insert({
+            user_id: userId,
+            customer_id: editingCustomer.id,
+            amount: balanceValue - editingCustomer.balance,
+            previous_balance: editingCustomer.balance,
+            new_balance: balanceValue,
+            note: "Manual balance adjustment"
+          });
+        }
+      } else {
+        const { data: newCustomer, error } = await supabase
+          .from("customers")
+          .insert({
+            user_id: userId,
+            name: formName,
+            phone: formPhone || null,
+            email: formEmail || null,
+            notes: formNotes || null,
+            balance: balanceValue
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Log customer creation
+        if (newCustomer) {
+          await logAuditAction({
+            action: "CUSTOMER_CREATED",
+            entityType: "customer",
+            entityId: newCustomer.id.toString(),
+            staffId: currentStaff?.id
+          });
+        }
+      }
+
+      setShowModal(false);
+      await loadCustomers();
+      alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
+    } catch (error: any) {
+      console.error("Error saving customer:", error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  const adjustBalance = async () => {
+    if (!balanceCustomer || !balanceAmount || !userId) {
+      alert("Please enter an amount");
+      return;
+    }
+
+    const amount = parseFloat(balanceAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+
+    const currentBalance = balanceCustomer.balance;
+    const adjustment = balanceAction === "add" ? amount : -amount;
+    const newBalance = currentBalance + adjustment;
+
+    try {
+      // Log balance adjustment
+      await logAuditAction({
+        action: "CUSTOMER_BALANCE_ADJUSTED",
+        entityType: "customer",
+        entityId: balanceCustomer.id.toString(),
+        oldValues: { balance: currentBalance },
+        newValues: { 
+          balance: newBalance,
+          adjustment: adjustment,
+          action: balanceAction,
+          note: balanceNote
         },
-        {
-          name: formName,
-          phone: formPhone,
-          email: formEmail,
-          notes: formNotes,
-          balance: balanceValue
-        },
-        currentStaff?.id
-      );
+        staffId: currentStaff?.id
+      });
 
       const { error } = await supabase
         .from("customers")
-        .update({
-          name: formName,
-          phone: formPhone || null,
-          email: formEmail || null,
-          notes: formNotes || null,
-          balance: balanceValue
-        })
-        .eq("id", editingCustomer.id);
+        .update({ balance: newBalance })
+        .eq("id", balanceCustomer.id);
 
       if (error) throw error;
 
-      if (balanceValue !== editingCustomer.balance) {
-        await supabase.from("customer_balance_history").insert({
-          user_id: userId,
-          customer_id: editingCustomer.id,
-          amount: balanceValue - editingCustomer.balance,
-          previous_balance: editingCustomer.balance,
-          new_balance: balanceValue,
-          note: "Manual balance adjustment"
+      await supabase.from("customer_balance_history").insert({
+        user_id: userId,
+        customer_id: balanceCustomer.id,
+        amount: adjustment,
+        previous_balance: currentBalance,
+        new_balance: newBalance,
+        note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
+      });
+
+      const updatedCustomer = { ...balanceCustomer, balance: newBalance };
+      setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+      setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+      setBalanceCustomer(updatedCustomer);
+
+      setBalanceAmount("");
+      setBalanceNote("");
+
+      setGlobalStats(prev => ({
+        ...prev,
+        totalBalance: prev.totalBalance + adjustment
+      }));
+
+      await loadCustomers();
+      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
+      setTimeout(() => setShowBalanceModal(false), 1000);
+
+    } catch (error: any) {
+      console.error("Error:", error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  const deleteCustomer = async (id: number) => {
+    if (!confirm("Delete this customer? This cannot be undone.")) return;
+
+    try {
+      const customerToDelete = customers.find(c => c.id === id);
+      
+      // Log customer deletion
+      if (customerToDelete) {
+        await logAuditAction({
+          action: "CUSTOMER_DELETED",
+          entityType: "customer",
+          entityId: id.toString(),
+          oldValues: customerToDelete,
+          staffId: currentStaff?.id
         });
       }
-    } else {
-      const { data: newCustomer, error } = await supabase
+
+      const { error } = await supabase
         .from("customers")
-        .insert({
-          user_id: userId,
-          name: formName,
-          phone: formPhone || null,
-          email: formEmail || null,
-          notes: formNotes || null,
-          balance: balanceValue
-        })
-        .select()
-        .single();
+        .delete()
+        .eq("id", id);
 
       if (error) throw error;
+
+      setCustomers(prev => prev.filter(c => c.id !== id));
+      setFilteredCustomers(prev => prev.filter(c => c.id !== id));
       
-      // Log customer creation
-      if (newCustomer) {
-        await logCustomerCreated(newCustomer.id, currentStaff?.id);
-      }
+      await loadCustomers();
+      alert("✅ Customer deleted!");
+    } catch (error: any) {
+      console.error("Error:", error);
+      alert(`Error: ${error.message}`);
     }
-
-    setShowModal(false);
-    await loadCustomers();
-    alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
-  } catch (error: any) {
-    console.error("Error saving customer:", error);
-    alert(`Error: ${error.message}`);
-  }
-};
-
-// In adjustBalance function:
-const adjustBalance = async () => {
-  if (!balanceCustomer || !balanceAmount || !userId) {
-    alert("Please enter an amount");
-    return;
-  }
-
-  const amount = parseFloat(balanceAmount);
-  if (isNaN(amount) || amount <= 0) {
-    alert("Please enter a valid amount");
-    return;
-  }
-
-  const currentBalance = balanceCustomer.balance;
-  const adjustment = balanceAction === "add" ? amount : -amount;
-  const newBalance = currentBalance + adjustment;
-
-  try {
-    // Log balance adjustment
-    await logBalanceAdjusted(
-      balanceCustomer.id,
-      adjustment,
-      balanceAction,
-      currentStaff?.id
-    );
-
-    const { error } = await supabase
-      .from("customers")
-      .update({ balance: newBalance })
-      .eq("id", balanceCustomer.id);
-
-    if (error) throw error;
-
-    await supabase.from("customer_balance_history").insert({
-      user_id: userId,
-      customer_id: balanceCustomer.id,
-      amount: adjustment,
-      previous_balance: currentBalance,
-      new_balance: newBalance,
-      note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
-    });
-
-    const updatedCustomer = { ...balanceCustomer, balance: newBalance };
-    setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
-    setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
-    setBalanceCustomer(updatedCustomer);
-
-    setBalanceAmount("");
-    setBalanceNote("");
-
-    setGlobalStats(prev => ({
-      ...prev,
-      totalBalance: prev.totalBalance + adjustment
-    }));
-
-    await loadCustomers();
-    alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
-    setTimeout(() => setShowBalanceModal(false), 1000);
-
-  } catch (error: any) {
-    console.error("Error:", error);
-    alert(`Error: ${error.message}`);
-  }
-};
-
-// In deleteCustomer function:
-const deleteCustomer = async (id: number) => {
-  if (!confirm("Delete this customer? This cannot be undone.")) return;
-
-  try {
-    const customerToDelete = customers.find(c => c.id === id);
-    
-    // Log customer deletion
-    if (customerToDelete) {
-      await logCustomerDeleted(
-        id,
-        customerToDelete,
-        currentStaff?.id
-      );
-    }
-
-    const { error } = await supabase
-      .from("customers")
-      .delete()
-      .eq("id", id);
-
-    if (error) throw error;
-
-    setCustomers(prev => prev.filter(c => c.id !== id));
-    setFilteredCustomers(prev => prev.filter(c => c.id !== id));
-    
-    await loadCustomers();
-    alert("✅ Customer deleted!");
-  } catch (error: any) {
-    console.error("Error:", error);
-    alert(`Error: ${error.message}`);
-  }
-};
+  };
 
   const printTransactionReceipt = async (transaction: Transaction) => {
     if (!selectedCustomer || !receiptSettings) return;
     
     try {
-      // Log audit action
+      // Log receipt printing
       await logAuditAction({
         action: "RECEIPT_PRINTED",
         entityType: "transaction",
         entityId: transaction.id.toString(),
-        newValues: { customer_id: selectedCustomer.id }
+        newValues: { customer_id: selectedCustomer.id },
+        staffId: currentStaff?.id
       });
 
       // Prepare receipt data
@@ -622,30 +629,18 @@ const deleteCustomer = async (id: number) => {
         },
         products: transaction.transaction_items?.map((item: any) => ({
           id: item.id,
-          name: item.service?.name || 'Item',
-          price: item.price_at_time || item.service?.price || 0,
+          name: item.services?.[0]?.name || 'Item',
+          price: item.price_at_time || item.services?.[0]?.price || 0,
           quantity: item.quantity || 1,
-          discount: 0, // You can add discount calculation if needed
-          total: (item.price_at_time || item.service?.price || 0) * (item.quantity || 1)
+          discount: 0,
+          total: (item.price_at_time || item.services?.[0]?.price || 0) * (item.quantity || 1)
         })) || []
       };
 
-      setSelectedReceipt(receiptData);
-      setShowReceipt(true);
-
-    } catch (error) {
-      console.error("Error printing receipt:", error);
-      alert("Error printing receipt");
-    }
-  };
-
-  // Render receipt in new window
-  useEffect(() => {
-    if (showReceipt && selectedReceipt) {
+      // Open receipt in new window
       const receiptWindow = window.open('', '_blank');
       if (!receiptWindow) {
         alert("Please allow pop-ups to print receipts");
-        setShowReceipt(false);
         return;
       }
 
@@ -653,23 +648,79 @@ const deleteCustomer = async (id: number) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Receipt #${selectedReceipt.id}</title>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+          <title>Receipt #${receiptData.id}</title>
         </head>
         <body>
           <div id="receipt-root"></div>
+          <script>
+            const receiptData = ${JSON.stringify(receiptData)};
+            
+            // Simple receipt HTML (can be replaced with React component later)
+            const receiptHTML = \`
+              <div style="font-family: 'Courier New', monospace; padding: 20px; max-width: 80mm; margin: 0 auto; font-size: \${receiptData.receiptSettings?.fontSize || 12}px;">
+                <div style="text-align: center; margin-bottom: 10px;">
+                  <h1 style="font-size: \${(receiptData.receiptSettings?.fontSize || 12) + 4}px; margin: 5px 0;">\${receiptData.businessInfo?.name}</h1>
+                  <div style="font-size: \${(receiptData.receiptSettings?.fontSize || 12) - 2}px;">
+                    \${receiptData.businessInfo?.address ? '<div>' + receiptData.businessInfo.address + '</div>' : ''}
+                    \${receiptData.businessInfo?.phone ? '<div>Tel: ' + receiptData.businessInfo.phone + '</div>' : ''}
+                  </div>
+                </div>
+                <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
+                <div>
+                  <div><strong>Receipt #\${receiptData.id}</strong></div>
+                  <div>\${new Date(receiptData.createdAt).toLocaleString('en-GB')}</div>
+                  <div>Customer: \${receiptData.customer?.name}</div>
+                </div>
+                <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
+                \${receiptData.products?.map(item => \`
+                  <div style="display: flex; justify-content: space-between; margin: 4px 0;">
+                    <div style="flex: 1;">
+                      <div>\${item.name}</div>
+                      <div style="font-size: \${(receiptData.receiptSettings?.fontSize || 12) - 3}px; color: #666;">
+                        \${item.quantity} x £\${item.price.toFixed(2)}
+                      </div>
+                    </div>
+                    <div style="font-weight: bold;">£\${item.total.toFixed(2)}</div>
+                  </div>
+                \`).join('') || '<div>No items</div>'}
+                <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
+                <div style="margin-top: 10px;">
+                  <div style="display: flex; justify-content: space-between;">
+                    <span>Subtotal:</span>
+                    <span>£\${receiptData.subtotal.toFixed(2)}</span>
+                  </div>
+                  \${receiptData.vat > 0 ? \`
+                    <div style="display: flex; justify-content: space-between;">
+                      <span>VAT (20%):</span>
+                      <span>£\${receiptData.vat.toFixed(2)}</span>
+                    </div>
+                  \` : ''}
+                  <div style="display: flex; justify-content: space-between; font-size: \${(receiptData.receiptSettings?.fontSize || 12) + 2}px; margin-top: 6px; padding-top: 6px; border-top: 2px solid #000;">
+                    <span>TOTAL:</span>
+                    <span>£\${receiptData.total.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div style="text-align: center; margin-top: 15px; font-style: italic;">
+                  \${receiptData.receiptSettings?.footer}
+                </div>
+              </div>
+            \`;
+            
+            document.getElementById('receipt-root').innerHTML = receiptHTML;
+            window.print();
+            setTimeout(() => window.close(), 1000);
+          </script>
         </body>
         </html>
       `);
 
-      // We need to render React component here
-      // For simplicity, we'll use the ReceiptPrint component
-      // In a real app, you might want to use ReactDOM.render or a different approach
-      
       receiptWindow.document.close();
-      setShowReceipt(false);
+
+    } catch (error) {
+      console.error("Error printing receipt:", error);
+      alert("Error printing receipt");
     }
-  }, [showReceipt, selectedReceipt]);
+  };
 
   if (loading) {
     return (
@@ -1338,8 +1389,8 @@ const deleteCustomer = async (id: number) => {
                           <div className="space-y-2">
                             {transaction.transaction_items.slice(0, 3).map((item: any) => (
                               <div key={item.id} className="flex justify-between text-sm">
-                                <span>{item.service?.name || 'Item'} x{item.quantity || 1}</span>
-                                <span>£{((item.price_at_time || item.service?.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
+                                <span>{item.services?.[0]?.name || 'Item'} x{item.quantity || 1}</span>
+                                <span>£{((item.price_at_time || item.services?.[0]?.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
                               </div>
                             ))}
                             {transaction.transaction_items.length > 3 && (
@@ -1444,5 +1495,3 @@ const deleteCustomer = async (id: number) => {
     </div>
   );
 }
-
-
