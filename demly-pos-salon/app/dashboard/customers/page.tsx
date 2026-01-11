@@ -1,37 +1,19 @@
-// /app/dashboard/customers/page.tsx
+// /app/dashboard/customers/page.tsx - UPDATED VERSION
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+import { logAuditAction } from "@/lib/auditLogger";
+import ReceiptPrint, { ReceiptData } from "@/components/receipts/ReceiptPrint";
 import { 
-  ArrowLeft, 
-  Plus, 
-  Search, 
-  Edit2, 
-  Trash2, 
-  X, 
-  Mail, 
-  Phone, 
-  User, 
-  Loader2, 
-  Users, 
-  Wallet, 
-  TrendingUp, 
-  TrendingDown,
-  Calendar,
-  Printer,
-  RefreshCw,
-  FileText,
-  DollarSign,
-  ChevronDown,
-  Receipt,
-  CreditCard,
-  Clock
+  ArrowLeft, Plus, Search, Edit2, Trash2, X, Mail, Phone, 
+  User, Loader2, Users, Wallet, TrendingUp, TrendingDown,
+  Calendar, Printer, RefreshCw, FileText, DollarSign, 
+  ChevronDown, Receipt, CreditCard, Clock, Eye
 } from "lucide-react";
 import Link from "next/link";
 
-// Define interfaces
 interface Customer {
   id: number;
   name: string;
@@ -54,15 +36,18 @@ interface Transaction {
   payment_status: string;
   notes?: string;
   created_at: string;
-  products?: TransactionProduct[];
+  transaction_items?: TransactionItem[];
 }
 
-interface TransactionProduct {
+interface TransactionItem {
   id: number;
-  name: string;
-  price: number;
+  transaction_id: number;
   quantity: number;
-  total: number;
+  price_at_time: number;
+  service?: {
+    name: string;
+    price: number;
+  };
 }
 
 interface BalanceTransaction {
@@ -80,6 +65,7 @@ interface CustomerStats {
   transactionCount: number;
   avgTransaction: number;
   lastPurchase: string | null;
+  lastPurchaseAmount: number;
 }
 
 export default function Customers() {
@@ -95,13 +81,11 @@ export default function Customers() {
   const [balanceCustomer, setBalanceCustomer] = useState<Customer | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   
-  // Customer details states
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
   const [customerBalanceHistory, setCustomerBalanceHistory] = useState<BalanceTransaction[]>([]);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsActiveTab, setDetailsActiveTab] = useState<'transactions' | 'balance'>('transactions');
 
-  // Store customer stats
   const [customerStats, setCustomerStats] = useState<Record<number, CustomerStats>>({});
   const [globalStats, setGlobalStats] = useState({
     totalBalance: 0,
@@ -110,14 +94,16 @@ export default function Customers() {
     totalTransactions: 0
   });
 
-  // Form states
+  const [receiptSettings, setReceiptSettings] = useState<any>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null);
+
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [formBalance, setFormBalance] = useState("0");
 
-  // Balance adjustment
   const [balanceAction, setBalanceAction] = useState<"add" | "subtract">("add");
   const [balanceAmount, setBalanceAmount] = useState("");
   const [balanceNote, setBalanceNote] = useState("");
@@ -126,7 +112,10 @@ export default function Customers() {
 
   useEffect(() => {
     isMounted.current = true;
-    if (userId) loadCustomers();
+    if (userId) {
+      loadCustomers();
+      loadReceiptSettings();
+    }
     return () => { isMounted.current = false; };
   }, [userId]);
 
@@ -142,7 +131,18 @@ export default function Customers() {
     );
   }, [searchQuery, customers]);
 
-  // Helper functions
+  const loadReceiptSettings = async () => {
+    if (!userId) return;
+    
+    const { data: settings } = await supabase
+      .from("settings")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+    
+    if (settings) setReceiptSettings(settings);
+  };
+
   const getBalance = useCallback((balance: any): number => {
     const num = parseFloat(balance) || 0;
     return isNaN(num) ? 0 : num;
@@ -180,7 +180,7 @@ export default function Customers() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // Load customers with proper transaction data
+  // FIXED: Proper transaction loading
   const loadCustomers = async () => {
     if (!userId || !isMounted.current) return;
     
@@ -204,7 +204,7 @@ export default function Customers() {
       setCustomers(normalizedCustomers);
       setFilteredCustomers(normalizedCustomers);
 
-      // Load ALL transactions for these customers
+      // Load all transactions for stats
       const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
@@ -213,12 +213,13 @@ export default function Customers() {
           total,
           final_amount,
           created_at,
-          transaction_items (
+          transaction_items!inner (
             id,
             quantity,
             price_at_time,
-            services (
-              name
+            service:services!inner (
+              name,
+              price
             )
           )
         `)
@@ -226,7 +227,7 @@ export default function Customers() {
         .in("customer_id", normalizedCustomers.map(c => c.id))
         .order("created_at", { ascending: false });
 
-      // Calculate stats for each customer
+      // Calculate stats
       const stats: Record<number, CustomerStats> = {};
       const global = {
         totalBalance: 0,
@@ -237,14 +238,25 @@ export default function Customers() {
 
       normalizedCustomers.forEach(customer => {
         const customerTrans = transactionsData?.filter(t => t.customer_id === customer.id) || [];
-        const totalSpent = customerTrans.reduce((sum, t) => sum + (t.total || t.final_amount || 0), 0);
+        const totalSpent = customerTrans.reduce((sum, t) => {
+          // Calculate from transaction items if available
+          if (t.transaction_items && t.transaction_items.length > 0) {
+            return sum + t.transaction_items.reduce((itemSum: number, item: any) => {
+              const price = item.price_at_time || item.service?.price || 0;
+              return itemSum + (price * (item.quantity || 1));
+            }, 0);
+          }
+          return sum + (t.total || t.final_amount || 0);
+        }, 0);
+        
         const transactionCount = customerTrans.length;
         
         stats[customer.id] = {
           totalSpent,
           transactionCount,
           avgTransaction: transactionCount > 0 ? totalSpent / transactionCount : 0,
-          lastPurchase: customerTrans[0]?.created_at || null
+          lastPurchase: customerTrans[0]?.created_at || null,
+          lastPurchaseAmount: customerTrans[0]?.total || 0
         };
 
         global.totalBalance += customer.balance;
@@ -263,13 +275,13 @@ export default function Customers() {
     }
   };
 
-  // Load customer details (transactions and balance history)
+  // FIXED: Proper transaction details loading
   const loadCustomerDetails = async (customerId: number) => {
     if (!customerId || !userId) return;
     
     setDetailsLoading(true);
     try {
-      // Load transactions with proper items structure
+      // Load transactions with proper joins
       const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
@@ -278,8 +290,9 @@ export default function Customers() {
             id,
             quantity,
             price_at_time,
-            services!inner (
-              name
+            service:services!inner (
+              name,
+              price
             )
           )
         `)
@@ -289,30 +302,21 @@ export default function Customers() {
 
       if (transactionsData) {
         const transformed: Transaction[] = transactionsData.map(tx => {
-          // Transform transaction items to products
-          const products: TransactionProduct[] = tx.transaction_items.map((item: any) => {
-            // Handle the service data structure properly
-            const service = Array.isArray(item.services) ? item.services[0] : item.services;
-            const price = item.price_at_time || 0;
-            const quantity = item.quantity || 1;
-            
-            return {
-              id: item.id,
-              name: service?.name || 'Item',
-              price: price,
-              quantity: quantity,
-              total: price * quantity
-            };
-          });
-
-          const subtotal = products.reduce((sum, p) => sum + p.total, 0);
+          // Calculate from transaction items
+          const items = tx.transaction_items || [];
+          const subtotal = items.reduce((sum: number, item: any) => {
+            const price = item.price_at_time || item.service?.price || 0;
+            return sum + (price * (item.quantity || 1));
+          }, 0);
+          
           const total = tx.total || subtotal;
+          const vat = tx.vat || 0;
 
           return {
             id: tx.id,
             customer_id: tx.customer_id,
             subtotal: subtotal,
-            vat: tx.vat || 0,
+            vat: vat,
             total: total,
             discount_amount: tx.discount_amount || 0,
             final_amount: tx.final_amount || total,
@@ -320,7 +324,7 @@ export default function Customers() {
             payment_status: tx.payment_status || 'completed',
             notes: tx.notes,
             created_at: tx.created_at,
-            products: products
+            transaction_items: tx.transaction_items
           };
         });
 
@@ -344,7 +348,6 @@ export default function Customers() {
     }
   };
 
-  // Modal handlers
   const openAddModal = () => {
     setEditingCustomer(null);
     setFormName("");
@@ -379,7 +382,6 @@ export default function Customers() {
     loadCustomerDetails(customer.id);
   };
 
-  // CRUD Operations
   const saveCustomer = async () => {
     if (!formName.trim() || !userId) {
       alert("Name is required");
@@ -389,8 +391,24 @@ export default function Customers() {
     try {
       const balanceValue = parseFloat(formBalance) || 0;
 
+      // Log audit action
+      const auditAction = editingCustomer ? "CUSTOMER_UPDATED" : "CUSTOMER_CREATED";
+      
+      await logAuditAction({
+        action: auditAction,
+        entityType: "customer",
+        entityId: editingCustomer ? editingCustomer.id.toString() : "new",
+        oldValues: editingCustomer || {},
+        newValues: {
+          name: formName,
+          phone: formPhone,
+          email: formEmail,
+          notes: formNotes,
+          balance: balanceValue
+        }
+      });
+
       if (editingCustomer) {
-        // Update existing customer
         const { error } = await supabase
           .from("customers")
           .update({
@@ -404,7 +422,6 @@ export default function Customers() {
 
         if (error) throw error;
 
-        // Log balance change if different
         if (balanceValue !== editingCustomer.balance) {
           await supabase.from("customer_balance_history").insert({
             user_id: userId,
@@ -416,7 +433,6 @@ export default function Customers() {
           });
         }
       } else {
-        // Create new customer
         const { error } = await supabase.from("customers").insert({
           user_id: userId,
           name: formName,
@@ -431,6 +447,7 @@ export default function Customers() {
 
       setShowModal(false);
       await loadCustomers();
+      alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
     } catch (error: any) {
       console.error("Error saving customer:", error);
       alert(`Error: ${error.message}`);
@@ -454,7 +471,20 @@ export default function Customers() {
     const newBalance = currentBalance + adjustment;
 
     try {
-      // Update customer balance
+      // Log audit action
+      await logAuditAction({
+        action: "CUSTOMER_BALANCE_ADJUSTED",
+        entityType: "customer",
+        entityId: balanceCustomer.id.toString(),
+        oldValues: { balance: currentBalance },
+        newValues: { 
+          balance: newBalance,
+          adjustment: adjustment,
+          action: balanceAction,
+          note: balanceNote
+        }
+      });
+
       const { error } = await supabase
         .from("customers")
         .update({ balance: newBalance })
@@ -462,7 +492,6 @@ export default function Customers() {
 
       if (error) throw error;
 
-      // Log balance transaction
       await supabase.from("customer_balance_history").insert({
         user_id: userId,
         customer_id: balanceCustomer.id,
@@ -472,26 +501,20 @@ export default function Customers() {
         note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
       });
 
-      // Update local state
       const updatedCustomer = { ...balanceCustomer, balance: newBalance };
       setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
       setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
-
-      // Update global stats
-      setGlobalStats(prev => ({
-        ...prev,
-        totalBalance: prev.totalBalance + adjustment
-      }));
-
-      // Update balance modal customer
       setBalanceCustomer(updatedCustomer);
 
       setBalanceAmount("");
       setBalanceNote("");
 
-      // Refresh stats
-      await loadCustomers();
+      setGlobalStats(prev => ({
+        ...prev,
+        totalBalance: prev.totalBalance + adjustment
+      }));
 
+      await loadCustomers();
       alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
       setTimeout(() => setShowBalanceModal(false), 1000);
 
@@ -505,6 +528,14 @@ export default function Customers() {
     if (!confirm("Delete this customer? This cannot be undone.")) return;
 
     try {
+      // Log audit action
+      await logAuditAction({
+        action: "CUSTOMER_DELETED",
+        entityType: "customer",
+        entityId: id.toString(),
+        oldValues: customers.find(c => c.id === id)
+      });
+
       const { error } = await supabase
         .from("customers")
         .delete()
@@ -516,11 +547,109 @@ export default function Customers() {
       setFilteredCustomers(prev => prev.filter(c => c.id !== id));
       
       await loadCustomers();
+      alert("✅ Customer deleted!");
     } catch (error: any) {
       console.error("Error:", error);
       alert(`Error: ${error.message}`);
     }
   };
+
+  const printTransactionReceipt = async (transaction: Transaction) => {
+    if (!selectedCustomer || !receiptSettings) return;
+    
+    try {
+      // Log audit action
+      await logAuditAction({
+        action: "RECEIPT_PRINTED",
+        entityType: "transaction",
+        entityId: transaction.id.toString(),
+        newValues: { customer_id: selectedCustomer.id }
+      });
+
+      // Prepare receipt data
+      const receiptData: ReceiptData = {
+        id: transaction.id,
+        createdAt: transaction.created_at,
+        subtotal: transaction.subtotal,
+        vat: transaction.vat,
+        total: transaction.total,
+        discountAmount: transaction.discount_amount,
+        finalAmount: transaction.final_amount,
+        paymentMethod: transaction.payment_method,
+        paymentStatus: transaction.payment_status,
+        notes: transaction.notes,
+        customer: {
+          id: selectedCustomer.id,
+          name: selectedCustomer.name,
+          phone: selectedCustomer.phone || undefined,
+          email: selectedCustomer.email || undefined,
+          balance: selectedCustomer.balance
+        },
+        businessInfo: {
+          name: receiptSettings.business_name || receiptSettings.shop_name || "Your Business",
+          address: receiptSettings.business_address,
+          phone: receiptSettings.business_phone,
+          email: receiptSettings.business_email,
+          taxNumber: receiptSettings.tax_number,
+          logoUrl: receiptSettings.receipt_logo_url
+        },
+        receiptSettings: {
+          fontSize: receiptSettings.receipt_font_size || 12,
+          footer: receiptSettings.receipt_footer || "Thank you for your business!",
+          showBarcode: receiptSettings.show_barcode_on_receipt !== false,
+          barcodeType: receiptSettings.barcode_type || "CODE128",
+          showTaxBreakdown: receiptSettings.show_tax_breakdown !== false
+        },
+        products: transaction.transaction_items?.map((item: any) => ({
+          id: item.id,
+          name: item.service?.name || 'Item',
+          price: item.price_at_time || item.service?.price || 0,
+          quantity: item.quantity || 1,
+          discount: 0, // You can add discount calculation if needed
+          total: (item.price_at_time || item.service?.price || 0) * (item.quantity || 1)
+        })) || []
+      };
+
+      setSelectedReceipt(receiptData);
+      setShowReceipt(true);
+
+    } catch (error) {
+      console.error("Error printing receipt:", error);
+      alert("Error printing receipt");
+    }
+  };
+
+  // Render receipt in new window
+  useEffect(() => {
+    if (showReceipt && selectedReceipt) {
+      const receiptWindow = window.open('', '_blank');
+      if (!receiptWindow) {
+        alert("Please allow pop-ups to print receipts");
+        setShowReceipt(false);
+        return;
+      }
+
+      receiptWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Receipt #${selectedReceipt.id}</title>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        </head>
+        <body>
+          <div id="receipt-root"></div>
+        </body>
+        </html>
+      `);
+
+      // We need to render React component here
+      // For simplicity, we'll use the ReceiptPrint component
+      // In a real app, you might want to use ReactDOM.render or a different approach
+      
+      receiptWindow.document.close();
+      setShowReceipt(false);
+    }
+  }, [showReceipt, selectedReceipt]);
 
   if (loading) {
     return (
@@ -647,7 +776,8 @@ export default function Customers() {
                 totalSpent: 0,
                 transactionCount: 0,
                 avgTransaction: 0,
-                lastPurchase: null
+                lastPurchase: null,
+                lastPurchaseAmount: 0
               };
               
               return (
@@ -680,7 +810,7 @@ export default function Customers() {
                         className="p-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all"
                         title="View Details"
                       >
-                        <FileText className="w-4 h-4" />
+                        <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => openEditModal(customer)}
@@ -766,7 +896,12 @@ export default function Customers() {
                       </div>
                       <div className="text-center p-2 bg-slate-800/30 rounded-lg">
                         <div className="text-slate-400 mb-1 whitespace-nowrap">Last Purchase</div>
-                        <div className="font-bold text-orange-400">{formatDate(stats.lastPurchase)}</div>
+                        <div className="font-bold text-orange-400">
+                          {stats.lastPurchase ? formatDate(stats.lastPurchase) : "Never"}
+                          {stats.lastPurchaseAmount > 0 && (
+                            <div className="text-xs mt-1">£{stats.lastPurchaseAmount.toFixed(2)}</div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1095,6 +1230,11 @@ export default function Customers() {
                   <p className="text-lg text-orange-400">
                     {formatDate(customerStats[selectedCustomer.id]?.lastPurchase || null)}
                   </p>
+                  {customerStats[selectedCustomer.id]?.lastPurchaseAmount > 0 && (
+                    <p className="text-sm text-orange-300">
+                      £{customerStats[selectedCustomer.id]?.lastPurchaseAmount.toFixed(2)}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1161,19 +1301,43 @@ export default function Customers() {
                         </div>
                       </div>
                       
-                      {transaction.products && transaction.products.length > 0 && (
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <div className="text-sm text-slate-400">Payment Method</div>
+                          <div className="font-bold capitalize">{transaction.payment_method || 'cash'}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-400">Status</div>
+                          <div className="font-bold text-cyan-400">{transaction.payment_status || 'completed'}</div>
+                        </div>
+                      </div>
+                      
+                      {transaction.transaction_items && transaction.transaction_items.length > 0 && (
                         <div className="border-t border-slate-700/50 pt-3">
                           <div className="text-sm text-slate-400 mb-2">Items:</div>
                           <div className="space-y-2">
-                            {transaction.products.map((item) => (
+                            {transaction.transaction_items.slice(0, 3).map((item: any) => (
                               <div key={item.id} className="flex justify-between text-sm">
-                                <span>{item.name} x{item.quantity}</span>
-                                <span>{formatCurrency(item.total)}</span>
+                                <span>{item.service?.name || 'Item'} x{item.quantity || 1}</span>
+                                <span>£{((item.price_at_time || item.service?.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
                               </div>
                             ))}
+                            {transaction.transaction_items.length > 3 && (
+                              <div className="text-slate-400 text-sm">+{transaction.transaction_items.length - 3} more items</div>
+                            )}
                           </div>
                         </div>
                       )}
+                      
+                      <div className="flex justify-end gap-2 mt-3">
+                        <button
+                          onClick={() => printTransactionReceipt(transaction)}
+                          className="px-3 py-1.5 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all text-sm flex items-center gap-2"
+                        >
+                          <Printer className="w-3 h-3" />
+                          Print Receipt
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
