@@ -49,6 +49,15 @@ export interface ReceiptData {
   staffName?: string;
 }
 
+export interface ReceiptProduct {
+  id: number;
+  name: string;
+  price: number;
+  quantity: number;
+  discount: number;
+  total: number;
+}
+
 interface ReceiptPrintProps {
   data: ReceiptData;
   onClose?: () => void;
@@ -507,3 +516,4 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
     </div>
   );
 }
+
