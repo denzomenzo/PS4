@@ -202,40 +202,62 @@ function CustomersContent() {
   const fetchCustomerTransactions = async (customerId: string) => {
   try {
     setLoadingTransactions(true);
-    console.log('Fetching transactions for customer:', customerId);
     
-    // First get transactions
-    const { data: transactions, error: transactionsError } = await supabase
+    // Simple query without any joins
+    const { data: transactions, error } = await supabase
       .from('transactions')
       .select('*')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
     
-    if (transactionsError) {
-      console.error('Error fetching transactions:', transactionsError);
-      throw transactionsError;
+    if (error) {
+      console.error('Error fetching transactions:', error);
+      throw error;
     }
     
     console.log('Transactions found:', transactions?.length);
     
-    if (!transactions || transactions.length === 0) {
+    // If we have transactions, try to get items separately
+    if (transactions && transactions.length > 0) {
+      const transactionIds = transactions.map(t => t.id);
+      
+      // Try to get transaction items
+      try {
+        const { data: transactionItems } = await supabase
+          .from('transaction_items')
+          .select('*')
+          .in('transaction_id', transactionIds);
+        
+        // Combine data
+        const transformedTransactions = transactions.map(transaction => {
+          const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
+          return {
+            ...transaction,
+            products: items // Just include items, no product details
+          };
+        });
+        
+        setCustomerTransactions(transformedTransactions);
+      } catch (itemsError) {
+        console.error('Error fetching transaction items:', itemsError);
+        // Fallback: just use transactions without items
+        const transformedTransactions = transactions.map(transaction => ({
+          ...transaction,
+          products: []
+        }));
+        setCustomerTransactions(transformedTransactions);
+      }
+    } else {
       setCustomerTransactions([]);
-      return;
     }
     
-    // Get transaction IDs
-    const transactionIds = transactions.map(t => t.id);
-    
-    // Fetch transaction items WITHOUT the products join
-    const { data: transactionItems, error: itemsError } = await supabase
-      .from('transaction_items')
-      .select('*')
-      .in('transaction_id', transactionIds);
-    
-    if (itemsError) {
-      console.error('Error fetching transaction items:', itemsError);
-      // Continue without items
-    }
+  } catch (error) {
+    console.error('Error in fetchCustomerTransactions:', error);
+    setCustomerTransactions([]);
+  } finally {
+    setLoadingTransactions(false);
+  }
+};
     
     // If you need product names, fetch them separately
     const productIds = transactionItems?.map(item => item.product_id).filter(Boolean) || [];
@@ -1017,5 +1039,6 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
 
