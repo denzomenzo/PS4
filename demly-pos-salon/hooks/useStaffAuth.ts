@@ -1,7 +1,7 @@
-// hooks/useStaffAuth.ts - Complete Implementation
+// hooks/useStaffAuth.ts - Fixed version
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { logLogin, logLogout } from "@/lib/auditLogger";
+import { logLogin, logLogout } from "@/lib/auditLogger"; // Now these functions exist
 
 export interface Staff {
   id: number;
