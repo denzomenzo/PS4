@@ -1,4 +1,4 @@
-// app/components/ErrorBoundary.tsx
+// components/ErrorBoundary.tsx
 "use client";
 
 import { Component, ErrorInfo, ReactNode } from 'react';
@@ -6,6 +6,7 @@ import { Component, ErrorInfo, ReactNode } from 'react';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  FallbackComponent?: React.ComponentType<{ error: Error; resetErrorBoundary: () => void }>;
 }
 
 interface State {
@@ -27,9 +28,19 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
+  resetErrorBoundary = () => {
+    this.setState({ hasError: false, error: undefined });
+  };
+
   render() {
     if (this.state.hasError) {
-      return this.props.fallback || (
+      const { fallback, FallbackComponent } = this.props;
+      
+      if (FallbackComponent && this.state.error) {
+        return <FallbackComponent error={this.state.error} resetErrorBoundary={this.resetErrorBoundary} />;
+      }
+      
+      return fallback || (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-lg">
             <h2 className="text-xl font-bold text-red-600 mb-4">Something went wrong</h2>
@@ -44,7 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 Reload Page
               </button>
               <button
-                onClick={() => this.setState({ hasError: false })}
+                onClick={this.resetErrorBoundary}
                 className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
               >
                 Try Again
