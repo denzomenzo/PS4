@@ -1,10 +1,19 @@
 // /app/dashboard/customers/page.tsx - UPDATED VERSION
+// Update the imports in /app/dashboard/customers/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { logAuditAction } from "@/lib/auditLogger";
+import { useStaffAuth } from "@/hooks/useStaffAuth";
+import {
+  logAuditAction,  // Keep the general function
+  logCustomerCreated,
+  logCustomerUpdated,
+  logCustomerDeleted,
+  logBalanceAdjusted,
+  logReceiptPrinted
+} from "@/lib/auditLogger";  // Add specific functions
 import ReceiptPrint, { ReceiptData } from "@/components/receipts/ReceiptPrint";
 import { 
   ArrowLeft, Plus, Search, Edit2, Trash2, X, Mail, Phone, 
@@ -1435,4 +1444,5 @@ const deleteCustomer = async (id: number) => {
     </div>
   );
 }
+
 
