@@ -17,7 +17,7 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import Link from 'next/link';
-import ReceiptPrint from '@/components/receipts/ReceiptPrint';
+import ReceiptPrint, { type ReceiptData } from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
   id: string;
@@ -74,51 +74,6 @@ interface ReceiptSettings {
   barcode_type: string;
 }
 
-// Local interfaces for receipt data
-interface ReceiptData {
-  id: string | number;
-  createdAt: string;
-  subtotal: number;
-  vat: number;
-  total: number;
-  discountAmount: number;
-  paymentMethod: string;
-  paymentStatus: string;
-  notes?: string;
-  products?: Array<{
-    id: string | number;
-    name: string;
-    price: number;
-    quantity: number;
-    discount: number;
-    total: number;
-  }>;
-  customer?: {
-    id: string;
-    name: string;
-    phone?: string;
-    email?: string;
-    balance?: number;
-  };
-  businessInfo?: {
-    name: string;
-    address?: string;
-    phone?: string;
-    email?: string;
-    taxNumber?: string;
-    logoUrl?: string;
-  };
-  receiptSettings?: {
-    fontSize: number;
-    footer: string;
-    showBarcode: boolean;
-    barcodeType: string;
-    showTaxBreakdown: boolean;
-  };
-  balanceDeducted?: number;
-  paymentDetails?: any;
-  staffName?: string;
-}
 
 // Helper function to format dates
 const formatDate = (dateString: string, includeTime: boolean = true) => {
@@ -304,7 +259,7 @@ export default function CustomersPage() {
       
       // Prepare receipt data
       const receiptData: ReceiptData = {
-        id: transaction.id,
+        id: transaction.id || 0,
         createdAt: transaction.created_at,
         subtotal,
         vat,
@@ -315,7 +270,7 @@ export default function CustomersPage() {
         notes: transaction.notes,
         products: receiptProducts,
         customer: {
-          id: customer.id,
+          id: customer.id || 0,
           name: customer.name,
           email: customer.email,
           phone: customer.phone,
@@ -784,3 +739,4 @@ export default function CustomersPage() {
     </div>
   );
 }
+
