@@ -45,22 +45,6 @@ interface Transaction {
   balance_deducted: number;
   created_at: string;
   notes: string | null;
-  products?: any[];
-}
-
-interface TransactionItem {
-  id: string;
-  transaction_id: string;
-  product_id: string;
-  product: {
-    id: string;
-    name: string;
-    sku: string;
-    price: number;
-  } | null;
-  quantity: number;
-  price: number;
-  discount: number;
 }
 
 // Helper function to format dates
@@ -109,63 +93,10 @@ function CustomersContent() {
   const [receiptData, setReceiptData] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   
-  // Default receipt settings
-  const defaultReceiptSettings = {
-    business_name: 'Your Business',
-    business_address: '',
-    business_phone: '',
-    business_email: '',
-    tax_number: '',
-    receipt_footer: 'Thank you for your business!',
-    receipt_font_size: 12,
-    receipt_logo_url: '',
-    show_barcode_on_receipt: true,
-    barcode_type: 'CODE128'
-  };
-
   // Fetch customers
   useEffect(() => {
     fetchCustomers();
   }, []);
-  
-  // Add real-time subscription for customer updates
-  useEffect(() => {
-    if (!selectedCustomer?.id) return;
-    
-    const customerSubscription = supabase
-      .channel('customer-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'customers',
-          filter: `id=eq.${selectedCustomer.id}`
-        },
-        (payload) => {
-          console.log('Customer updated:', payload.new);
-          // Update selected customer
-          setSelectedCustomer(payload.new as Customer);
-          
-          // Update customers list
-          setCustomers(prev => 
-            prev.map(c => 
-              c.id === selectedCustomer.id ? { ...c, ...payload.new } : c
-            )
-          );
-          
-          // Refresh transactions if balance was updated
-          if (payload.new.balance !== selectedCustomer.balance) {
-            fetchCustomerTransactions(selectedCustomer.id);
-          }
-        }
-      )
-      .subscribe();
-    
-    return () => {
-      customerSubscription.unsubscribe();
-    };
-  }, [selectedCustomer?.id]);
   
   // Fetch customers with search
   const fetchCustomers = async () => {
@@ -184,203 +115,35 @@ function CustomersContent() {
       const { data, error } = await query;
       
       if (error) {
-        console.error('Supabase error:', error);
+        console.error('Error fetching customers:', error);
         setCustomers([]);
         return;
       }
       
-      setCustomers(Array.isArray(data) ? data : []);
+      setCustomers(data || []);
       
     } catch (error) {
-      console.error('Error fetching customers:', error);
+      console.error('Error:', error);
       setCustomers([]);
     } finally {
       setLoading(false);
     }
   };
   
+  // Fetch customer transactions - SIMPLE VERSION
   const fetchCustomerTransactions = async (customerId: string) => {
-  try {
-    setLoadingTransactions(true);
-    
-    // Simple query without any joins
-    const { data: transactions, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching transactions:', error);
-      throw error;
-    }
-    
-    console.log('Transactions found:', transactions?.length);
-    
-    // If we have transactions, try to get items separately
-    if (transactions && transactions.length > 0) {
-      const transactionIds = transactions.map(t => t.id);
+    try {
+      setLoadingTransactions(true);
       
-      // Try to get transaction items
-      try {
-        const { data: transactionItems } = await supabase
-          .from('transaction_items')
-          .select('*')
-          .in('transaction_id', transactionIds);
-        
-        // Combine data
-        const transformedTransactions = transactions.map(transaction => {
-          const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
-          return {
-            ...transaction,
-            products: items // Just include items, no product details
-          };
-        });
-        
-        setCustomerTransactions(transformedTransactions);
-      } catch (itemsError) {
-        console.error('Error fetching transaction items:', itemsError);
-        // Fallback: just use transactions without items
-        const transformedTransactions = transactions.map(transaction => ({
-          ...transaction,
-          products: []
-        }));
-        setCustomerTransactions(transformedTransactions);
-      }
-    } else {
-      setCustomerTransactions([]);
-    }
-    
-  } catch (error) {
-    console.error('Error in fetchCustomerTransactions:', error);
-    setCustomerTransactions([]);
-  } finally {
-    setLoadingTransactions(false);
-  }
-};
-    
-    // If you need product names, fetch them separately
-    const productIds = transactionItems?.map(item => item.product_id).filter(Boolean) || [];
-    let productsMap: Record<string, any> = {};
-    
-    if (productIds.length > 0) {
-      const { data: products, error: productsError } = await supabase
-        .from('products')
-        .select('id, name, sku, price')
-        .in('id', productIds);
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
       
-      if (!productsError && products) {
-        // Create a map for quick lookup
-        productsMap = products.reduce((map: Record<string, any>, product) => {
-          map[product.id] = product;
-          return map;
-        }, {});
-      }
-    }
-    
-    // Combine data
-    const transformedTransactions = transactions.map(transaction => {
-      const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
-      return {
-        ...transaction,
-        products: items.map(item => ({
-          ...item,
-          product: productsMap[item.product_id] || { 
-            id: item.product_id, 
-            name: 'Product', 
-            sku: '', 
-            price: 0 
-          }
-        }))
-      };
-    });
-    
-    console.log('Transformed transactions:', transformedTransactions);
-    setCustomerTransactions(transformedTransactions);
-    
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    setCustomerTransactions([]);
-  } finally {
-    setLoadingTransactions(false);
-  }
-};
-    
-    // Get transaction IDs
-    const transactionIds = transactions.map(t => t.id);
-    
-    // Fetch transaction items WITHOUT the products join
-    const { data: transactionItems, error: itemsError } = await supabase
-      .from('transaction_items')
-      .select('*')
-      .in('transaction_id', transactionIds);
-    
-    if (itemsError) {
-      console.error('Error fetching transaction items:', itemsError);
-      // Continue without items
-    }
-    
-    // If you need product names, fetch them separately
-    const productIds = transactionItems?.map(item => item.product_id).filter(Boolean) || [];
-    let productsMap = {};
-    
-    if (productIds.length > 0) {
-      const { data: products, error: productsError } = await supabase
-        .from('products')
-        .select('id, name, sku, price')
-        .in('id', productIds);
+      if (error) throw error;
       
-      if (!productsError && products) {
-        // Create a map for quick lookup
-        productsMap = products.reduce((map, product) => {
-          map[product.id] = product;
-          return map;
-        }, {});
-      }
-    }
-    
-    // Combine data
-    const transformedTransactions = transactions.map(transaction => {
-      const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
-      return {
-        ...transaction,
-        products: items.map(item => ({
-          ...item,
-          product: productsMap[item.product_id] || { 
-            id: item.product_id, 
-            name: 'Product', 
-            sku: '', 
-            price: 0 
-          }
-        }))
-      };
-    });
-    
-    console.log('Transformed transactions:', transformedTransactions);
-    setCustomerTransactions(transformedTransactions);
-    
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    setCustomerTransactions([]);
-  } finally {
-    setLoadingTransactions(false);
-  }
-};
-      
-      // Combine data
-      const transformedTransactions = transactions.map(transaction => {
-        const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
-        return {
-          ...transaction,
-          products: items.map(item => ({
-            ...item,
-            product: item.product || { id: '', name: 'Unknown Product', sku: '', price: 0 }
-          }))
-        };
-      });
-      
-      console.log('Transformed transactions:', transformedTransactions);
-      setCustomerTransactions(transformedTransactions);
+      setCustomerTransactions(data || []);
       
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -392,14 +155,13 @@ function CustomersContent() {
   
   // Handle customer selection
   const handleCustomerSelect = async (customer: Customer) => {
-    console.log('Selecting customer:', customer.id, customer.name);
     setSelectedCustomer(customer);
     await fetchCustomerTransactions(customer.id);
   };
   
   // Calculate customer stats
   const calculateCustomerStats = () => {
-    if (!selectedCustomer || !customerTransactions || customerTransactions.length === 0) {
+    if (!selectedCustomer || customerTransactions.length === 0) {
       return {
         totalSpent: 0,
         avgTransaction: 0,
@@ -430,35 +192,18 @@ function CustomersContent() {
         customers.find(c => c.id === transaction.customer_id) || 
         { id: '', name: 'Customer', email: '', phone: '', balance: 0 };
       
-      // Transform products for receipt
-      const receiptProducts = (transaction.products || []).map((item: any) => ({
-        id: item.id || Math.random(),
-        name: item.product?.name || 'Product',
-        price: getSafeNumber(item.price),
-        quantity: getSafeNumber(item.quantity),
-        discount: getSafeNumber(item.discount),
-        total: (getSafeNumber(item.price) * getSafeNumber(item.quantity)) - getSafeNumber(item.discount)
-      }));
-      
-      // Calculate totals
-      const subtotal = getSafeNumber(transaction.subtotal) || 
-        receiptProducts.reduce((sum, item) => sum + item.total, 0);
-      
-      const vat = getSafeNumber(transaction.vat);
-      const total = getSafeNumber(transaction.total) || subtotal + vat;
-      
       // Prepare receipt data
       const receiptData = {
         id: transaction.id,
         createdAt: transaction.created_at,
-        subtotal,
-        vat,
-        total,
-        discountAmount: receiptProducts.reduce((sum, item) => sum + getSafeNumber(item.discount), 0),
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
+        discountAmount: 0,
         paymentMethod: transaction.payment_method || 'cash',
         paymentStatus: transaction.status || 'completed',
         notes: transaction.notes,
-        products: receiptProducts,
+        products: [], // Empty for now
         customer: {
           id: parseInt(customer.id) || 0,
           name: customer.name,
@@ -467,18 +212,18 @@ function CustomersContent() {
           balance: getSafeNumber(customer.balance)
         },
         businessInfo: {
-          name: defaultReceiptSettings.business_name,
-          address: defaultReceiptSettings.business_address,
-          phone: defaultReceiptSettings.business_phone,
-          email: defaultReceiptSettings.business_email,
-          taxNumber: defaultReceiptSettings.tax_number,
-          logoUrl: defaultReceiptSettings.receipt_logo_url
+          name: 'Your Business',
+          address: '',
+          phone: '',
+          email: '',
+          taxNumber: '',
+          logoUrl: ''
         },
         receiptSettings: {
-          fontSize: defaultReceiptSettings.receipt_font_size,
-          footer: defaultReceiptSettings.receipt_footer,
-          showBarcode: defaultReceiptSettings.show_barcode_on_receipt,
-          barcodeType: defaultReceiptSettings.barcode_type,
+          fontSize: 12,
+          footer: 'Thank you for your business!',
+          showBarcode: true,
+          barcodeType: 'CODE128',
           showTaxBreakdown: true
         },
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
@@ -504,16 +249,9 @@ function CustomersContent() {
   
   // Delete customer
   const deleteCustomer = async (customerId: string) => {
-    if (!confirm('Are you sure you want to delete this customer? This will also delete all their transactions.')) return;
+    if (!confirm('Are you sure you want to delete this customer?')) return;
     
     try {
-      // First delete related transactions
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('customer_id', customerId);
-      
-      // Then delete the customer
       const { error } = await supabase
         .from('customers')
         .delete()
@@ -527,11 +265,9 @@ function CustomersContent() {
         setSelectedCustomer(null);
         setCustomerTransactions([]);
       }
-      
-      alert('Customer deleted successfully');
     } catch (error) {
       console.error('Error deleting customer:', error);
-      alert('Failed to delete customer. Make sure they have no pending transactions.');
+      alert('Failed to delete customer');
     }
   };
   
@@ -547,13 +283,13 @@ function CustomersContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header - GREEN TEXT */}
+      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-green-700">Customers</h1>
         <p className="text-green-600 mt-2">Manage your customers and view their transactions</p>
       </div>
       
-      {/* Stats Overview - GREEN LABELS, BLACK NUMBERS */}
+      {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
@@ -773,7 +509,7 @@ function CustomersContent() {
                   </div>
                 </div>
                 
-                {/* Customer Stats - GREEN LABELS, BLACK NUMBERS */}
+                {/* Customer Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm font-medium text-green-600">Total Spent</div>
@@ -816,7 +552,7 @@ function CustomersContent() {
               <div className="bg-white rounded-xl shadow-sm border">
                 <div className="p-6 border-b">
                   <h2 className="text-xl font-bold text-gray-900">Transaction History ({customerTransactions.length})</h2>
-                  <p className="text-sm text-gray-500 mt-1">Click print receipt to view transaction details</p>
+                  <p className="text-sm text-gray-500 mt-1">All transactions for this customer</p>
                 </div>
                 
                 {loadingTransactions ? (
@@ -827,7 +563,7 @@ function CustomersContent() {
                 ) : customerTransactions.length === 0 ? (
                   <div className="p-8 text-center">
                     <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500">No transactions found for this customer</p>
+                    <p className="text-gray-500">No transactions found</p>
                     <p className="text-sm text-gray-400 mt-1">Transactions will appear here after purchases</p>
                   </div>
                 ) : (
@@ -865,27 +601,24 @@ function CustomersContent() {
                           </div>
                         </div>
                         
-                        {/* Transaction Items */}
-                        {transaction.products && transaction.products.length > 0 && (
-                          <div className="mt-3 pl-4 border-l-2 border-green-200">
-                            <p className="text-xs font-medium text-green-600 mb-2">ITEMS:</p>
-                            {transaction.products.slice(0, 3).map((item: any, index: number) => (
-                              <div key={item.id || index} className="text-sm text-gray-600 mb-1 flex justify-between">
-                                <span>
-                                  {getSafeNumber(item.quantity)} × {item.product?.name || 'Product'}
-                                </span>
-                                <span className="font-medium">
-                                  £{(getSafeNumber(item.price) * getSafeNumber(item.quantity) - getSafeNumber(item.discount)).toFixed(2)}
-                                </span>
-                              </div>
-                            ))}
-                            {transaction.products.length > 3 && (
-                              <div className="text-sm text-gray-500 mt-2">
-                                +{transaction.products.length - 3} more items
-                              </div>
-                            )}
+                        {/* Transaction Details */}
+                        <div className="mt-3 text-sm text-gray-600 space-y-1">
+                          <div className="flex justify-between">
+                            <span>Subtotal:</span>
+                            <span>£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
                           </div>
-                        )}
+                          {getSafeNumber(transaction.vat) > 0 && (
+                            <div className="flex justify-between">
+                              <span>VAT:</span>
+                              <span>£{getSafeNumber(transaction.vat).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {transaction.notes && (
+                            <div className="mt-2 text-gray-500">
+                              <span className="font-medium">Note:</span> {transaction.notes}
+                            </div>
+                          )}
+                        </div>
                         
                         {/* Transaction Actions */}
                         <div className="flex gap-2 mt-3">
@@ -918,15 +651,6 @@ function CustomersContent() {
                 <p className="text-gray-500 max-w-sm">
                   Select a customer from the list to view their details and transaction history
                 </p>
-                <div className="mt-4 text-sm text-green-600">
-                  <p>You can view:</p>
-                  <ul className="mt-2 space-y-1">
-                    <li>• Customer balance and details</li>
-                    <li>• Transaction history</li>
-                    <li>• Purchase statistics</li>
-                    <li>• Print receipts</li>
-                  </ul>
-                </div>
               </div>
             </div>
           )}
@@ -948,22 +672,6 @@ function CustomersContent() {
             </div>
             <div className="overflow-auto max-h-[calc(90vh-80px)]">
               <ReceiptPrint data={receiptData} onClose={closeReceiptModal} />
-            </div>
-            <div className="p-4 border-t bg-gray-50">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => window.print()}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-                >
-                  Print Receipt
-                </button>
-                <button
-                  onClick={closeReceiptModal}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
-                >
-                  Close
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -1019,12 +727,6 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
           >
             Return to Dashboard
           </button>
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition-colors"
-          >
-            Reload Page
-          </button>
         </div>
       </div>
     </div>
@@ -1039,6 +741,3 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
-
-
-
