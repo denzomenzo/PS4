@@ -76,6 +76,45 @@ interface ReceiptSettings {
   barcode_type: string;
 }
 
+interface ReceiptData {
+  id: number | string;
+  createdAt: string;
+  subtotal: number;
+  vat: number;
+  total: number;
+  discountAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  notes?: string;
+  products?: any[];
+  customer?: {
+    id: string;  // Change from number to string
+    name: string;
+    phone?: string;
+    email?: string;
+    balance?: number;
+  };
+  businessInfo?: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    taxNumber?: string;
+    logoUrl?: string;
+  };
+  receiptSettings?: {
+    fontSize: number;
+    footer: string;
+    showBarcode: boolean;
+    barcodeType: string;
+    showTaxBreakdown: boolean;
+  };
+  balanceDeducted?: number;
+  paymentDetails?: any;
+  staffName?: string;
+}
+
+
 // Helper function to format dates using native JavaScript
 const formatDate = (dateString: string, includeTime: boolean = true) => {
   try {
@@ -749,6 +788,7 @@ export default function CustomersPage() {
     </div>
   );
 }
+
 
 
 
