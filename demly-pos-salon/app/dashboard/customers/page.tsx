@@ -77,6 +77,13 @@ const formatDate = (dateString: string, includeTime: boolean = true) => {
   }
 };
 
+// Helper function to safely get numbers
+const getSafeNumber = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
+};
+
 function CustomersContent() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,44 +113,40 @@ function CustomersContent() {
     fetchCustomers();
   }, []);
   
+  // Fetch customers with search - FIXED VERSION
   const fetchCustomers = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-    
-    // Make sure supabase is initialized
-    if (!supabase) {
-      throw new Error('Database connection not available');
+    try {
+      setLoading(true);
+      
+      let query = supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (searchQuery) {
+        query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Supabase error:', error);
+        // Handle error gracefully
+        setCustomers([]);
+        return;
+      }
+      
+      // Ensure data is always an array
+      setCustomers(Array.isArray(data) ? data : []);
+      
+    } catch (error) {
+      console.error('Error fetching customers:', error);
+      // Handle error gracefully
+      setCustomers([]);
+    } finally {
+      setLoading(false);
     }
-    
-    let query = supabase
-      .from('customers')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (searchQuery) {
-      query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
-    }
-    
-    const { data, error: supabaseError } = await query;
-    
-    if (supabaseError) {
-      console.error('Supabase error:', supabaseError);
-      throw new Error(`Database error: ${supabaseError.message}`);
-    }
-    
-    // Ensure data is always an array
-    setCustomers(Array.isArray(data) ? data : []);
-    
-  } catch (err: any) {
-    console.error('Error fetching customers:', err);
-    setError(err.message || 'Failed to load customers');
-    // Set customers to empty array on error
-    setCustomers([]);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
   
   // Fetch customer transactions
   const fetchCustomerTransactions = async (customerId: string) => {
@@ -175,6 +178,7 @@ function CustomersContent() {
       setCustomerTransactions(transformedTransactions);
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setCustomerTransactions([]);
     } finally {
       setLoadingTransactions(false);
     }
@@ -198,7 +202,7 @@ function CustomersContent() {
     }
     
     const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
-    const totalSpent = completedTransactions.reduce((sum, t) => sum + (t.total || 0), 0);
+    const totalSpent = completedTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
     const avgTransaction = completedTransactions.length > 0 
       ? totalSpent / completedTransactions.length 
       : 0;
@@ -223,18 +227,18 @@ function CustomersContent() {
       const receiptProducts = (transaction.products || []).map((item: any) => ({
         id: item.id || Math.random(),
         name: item.product?.name || 'Product',
-        price: item.price || 0,
-        quantity: item.quantity || 1,
-        discount: item.discount || 0,
-        total: (item.price || 0) * (item.quantity || 1) - (item.discount || 0)
+        price: getSafeNumber(item.price),
+        quantity: getSafeNumber(item.quantity),
+        discount: getSafeNumber(item.discount),
+        total: getSafeNumber(item.price) * getSafeNumber(item.quantity) - getSafeNumber(item.discount)
       }));
       
       // Calculate totals
-      const subtotal = transaction.subtotal || 
+      const subtotal = getSafeNumber(transaction.subtotal) || 
         receiptProducts.reduce((sum, item) => sum + item.total, 0);
       
-      const vat = transaction.vat || 0;
-      const total = transaction.total || subtotal + vat;
+      const vat = getSafeNumber(transaction.vat);
+      const total = getSafeNumber(transaction.total) || subtotal + vat;
       
       // Prepare receipt data
       const receiptData = {
@@ -253,7 +257,7 @@ function CustomersContent() {
           name: customer.name,
           email: customer.email,
           phone: customer.phone,
-          balance: customer.balance
+          balance: getSafeNumber(customer.balance)
         },
         businessInfo: {
           name: defaultReceiptSettings.business_name,
@@ -270,7 +274,7 @@ function CustomersContent() {
           barcodeType: defaultReceiptSettings.barcode_type,
           showTaxBreakdown: true
         },
-        balanceDeducted: transaction.balance_deducted || 0,
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
         staffName: 'Staff'
       };
@@ -316,10 +320,10 @@ function CustomersContent() {
   };
   
   // Filtered customers based on search
-  const filteredCustomers = customers.filter(customer =>
-    customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    customer.phone.includes(searchQuery)
+  const filteredCustomers = (customers || []).filter(customer =>
+    customer.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    customer.phone?.includes(searchQuery)
   );
   
   // Calculate stats
@@ -333,13 +337,13 @@ function CustomersContent() {
         <p className="text-gray-600 mt-2">Manage your customers and view their transactions</p>
       </div>
       
-      {/* Stats Overview */}
+      {/* Stats Overview - FIXED with safe number handling */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Total Customers</p>
-              <p className="text-2xl font-bold mt-1">{customers.length}</p>
+              <p className="text-2xl font-bold mt-1">{(customers || []).length}</p>
             </div>
             <div className="p-3 bg-blue-50 rounded-lg">
               <UserPlus className="w-6 h-6 text-blue-600" />
@@ -352,7 +356,7 @@ function CustomersContent() {
             <div>
               <p className="text-sm text-gray-500">Total Balance Owed</p>
               <p className="text-2xl font-bold mt-1">
-                £{customers.reduce((sum, c) => sum + (c.balance || 0), 0).toFixed(2)}
+                £{(customers || []).reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
               </p>
             </div>
             <div className="p-3 bg-green-50 rounded-lg">
@@ -366,7 +370,7 @@ function CustomersContent() {
             <div>
               <p className="text-sm text-gray-500">Active Customers</p>
               <p className="text-2xl font-bold mt-1">
-                {customers.filter(c => (c.balance || 0) > 0).length}
+                {(customers || []).filter(c => getSafeNumber(c.balance) > 0).length}
               </p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg">
@@ -380,8 +384,8 @@ function CustomersContent() {
             <div>
               <p className="text-sm text-gray-500">Avg. Loyalty Points</p>
               <p className="text-2xl font-bold mt-1">
-                {customers.length > 0 
-                  ? Math.round(customers.reduce((sum, c) => sum + (c.loyalty_points || 0), 0) / customers.length)
+                {(customers || []).length > 0 
+                  ? Math.round((customers || []).reduce((sum, c) => sum + getSafeNumber(c.loyalty_points), 0) / (customers || []).length)
                   : 0}
               </p>
             </div>
@@ -462,7 +466,7 @@ function CustomersContent() {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{customer.name}</h3>
+                        <h3 className="font-semibold text-gray-900">{customer.name || 'Unnamed Customer'}</h3>
                         <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
                           {customer.phone && (
                             <span className="flex items-center gap-1">
@@ -480,12 +484,12 @@ function CustomersContent() {
                       </div>
                       <div className="text-right">
                         <div className={`font-bold ${
-                          (customer.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'
+                          getSafeNumber(customer.balance) > 0 ? 'text-red-600' : 'text-green-600'
                         }`}>
-                          £{(customer.balance || 0).toFixed(2)}
+                          £{getSafeNumber(customer.balance).toFixed(2)}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          {customer.loyalty_points || 0} pts
+                          {getSafeNumber(customer.loyalty_points)} pts
                         </div>
                       </div>
                     </div>
@@ -524,7 +528,7 @@ function CustomersContent() {
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name}</h2>
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
                     <div className="flex items-center gap-4 mt-2 text-gray-600">
                       {selectedCustomer.phone && (
                         <span className="flex items-center gap-2">
@@ -542,9 +546,9 @@ function CustomersContent() {
                   </div>
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
-                      (selectedCustomer.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'
+                      getSafeNumber(selectedCustomer.balance) > 0 ? 'text-red-600' : 'text-green-600'
                     }`}>
-                      £{(selectedCustomer.balance || 0).toFixed(2)}
+                      £{getSafeNumber(selectedCustomer.balance).toFixed(2)}
                     </div>
                     <div className="text-sm text-gray-500">Current Balance</div>
                   </div>
@@ -566,7 +570,7 @@ function CustomersContent() {
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-500">Loyalty Points</div>
-                    <div className="text-xl font-bold mt-1">{selectedCustomer.loyalty_points || 0}</div>
+                    <div className="text-xl font-bold mt-1">{getSafeNumber(selectedCustomer.loyalty_points)}</div>
                   </div>
                 </div>
                 
@@ -612,7 +616,7 @@ function CustomersContent() {
                         <div className="flex items-center justify-between mb-2">
                           <div>
                             <div className="font-semibold text-gray-900">
-                              Transaction #{transaction.id.slice(-6)}
+                              Transaction #{transaction.id?.slice(-6) || 'Unknown'}
                             </div>
                             <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
                               <span className="flex items-center gap-1">
@@ -626,16 +630,16 @@ function CustomersContent() {
                                   ? 'bg-yellow-100 text-yellow-800'
                                   : 'bg-red-100 text-red-800'
                               }`}>
-                                {transaction.status}
+                                {transaction.status || 'unknown'}
                               </span>
                             </div>
                           </div>
                           <div className="text-right">
                             <div className="font-bold text-gray-900">
-                              £{(transaction.total || 0).toFixed(2)}
+                              £{getSafeNumber(transaction.total).toFixed(2)}
                             </div>
                             <div className="text-sm text-gray-500 capitalize">
-                              {transaction.payment_method}
+                              {transaction.payment_method || 'unknown'}
                             </div>
                           </div>
                         </div>
@@ -645,10 +649,10 @@ function CustomersContent() {
                           <div className="mt-3 pl-4 border-l-2 border-gray-200">
                             {transaction.products.slice(0, 2).map((item: any) => (
                               <div key={item.id} className="text-sm text-gray-600 mb-1">
-                                {item.quantity} × {item.product?.name || 'Product'}
-                                {item.discount > 0 && (
+                                {getSafeNumber(item.quantity)} × {item.product?.name || 'Product'}
+                                {getSafeNumber(item.discount) > 0 && (
                                   <span className="text-red-500 ml-2">
-                                    (-£{item.discount.toFixed(2)})
+                                    (-£{getSafeNumber(item.discount).toFixed(2)})
                                   </span>
                                 )}
                               </div>
@@ -670,10 +674,10 @@ function CustomersContent() {
                             <Printer className="w-3 h-3" />
                             Print Receipt
                           </button>
-                          {transaction.balance_deducted > 0 && (
+                          {getSafeNumber(transaction.balance_deducted) > 0 && (
                             <div className="flex-1 px-3 py-1.5 text-sm bg-purple-50 text-purple-600 rounded flex items-center justify-center gap-1">
                               <DollarSign className="w-3 h-3" />
-                              £{transaction.balance_deducted.toFixed(2)} balance used
+                              £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
                             </div>
                           )}
                         </div>
@@ -783,9 +787,8 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
 // Main export wrapped with ErrorBoundary
 export default function CustomersPage() {
   return (
-    <ErrorBoundary FallbackComponent={CustomersErrorFallback}>
+    <ErrorBoundary fallback={<CustomersErrorFallback />}>
       <CustomersContent />
     </ErrorBoundary>
   );
 }
-
