@@ -122,19 +122,55 @@ export default function CustomersPage() {
   }, []);
   
   // Fetch receipt settings
-  const fetchReceiptSettings = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('receipt_settings')
-        .select('*')
-        .single();
-      
-      if (error) throw error;
-      setReceiptSettings(data);
-    } catch (error) {
+  // Update the fetchReceiptSettings function:
+const fetchReceiptSettings = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('receipt_settings')
+      .select('*')
+      .maybeSingle(); // Use maybeSingle instead of single
+    
+    if (error) {
       console.error('Error fetching receipt settings:', error);
+      // Set default settings if table doesn't exist
+      setReceiptSettings({
+        id: 'default',
+        business_name: 'Your Business',
+        business_address: '',
+        business_phone: '',
+        business_email: '',
+        tax_number: '',
+        receipt_footer: 'Thank you for your business!',
+        receipt_font_size: 12,
+        receipt_logo_url: '',
+        show_barcode_on_receipt: true,
+        barcode_type: 'CODE128'
+      });
+      return;
     }
-  };
+    
+    if (data) {
+      setReceiptSettings(data);
+    } else {
+      // Use default settings if no record exists
+      setReceiptSettings({
+        id: 'default',
+        business_name: 'Your Business',
+        business_address: '',
+        business_phone: '',
+        business_email: '',
+        tax_number: '',
+        receipt_footer: 'Thank you for your business!',
+        receipt_font_size: 12,
+        receipt_logo_url: '',
+        show_barcode_on_receipt: true,
+        barcode_type: 'CODE128'
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching receipt settings:', error);
+  }
+};
   
   // Fetch customers with search
   const fetchCustomers = async () => {
@@ -739,4 +775,5 @@ export default function CustomersPage() {
     </div>
   );
 }
+
 
