@@ -18,7 +18,6 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import Link from 'next/link';
-import { format } from 'date-fns';
 import ReceiptPrint, { ReceiptData, ReceiptProduct } from '@/components/receipts/ReceiptPrint';
 
 const supabase = createClient();
@@ -77,6 +76,44 @@ interface ReceiptSettings {
   show_barcode_on_receipt: boolean;
   barcode_type: string;
 }
+
+// Helper function to format dates using native JavaScript
+const formatDate = (dateString: string, includeTime: boolean = true) => {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return 'Invalid date';
+    }
+    
+    if (includeTime) {
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } else {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return dateString;
+  }
+};
+
+// Helper to format currency
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2
+  }).format(amount);
+};
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -612,7 +649,7 @@ export default function CustomersPage() {
                             <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
-                                {format(new Date(transaction.created_at), 'dd/MM/yyyy HH:mm')}
+                                {formatDate(transaction.created_at, true)}
                               </span>
                               <span className={`px-2 py-0.5 rounded-full text-xs ${
                                 transaction.status === 'completed' 
