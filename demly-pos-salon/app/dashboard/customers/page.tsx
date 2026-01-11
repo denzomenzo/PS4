@@ -17,7 +17,7 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import Link from 'next/link';
-import ReceiptPrint, { type ReceiptData } from '@/components/receipts/ReceiptPrint';
+import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
   id: string;
@@ -43,37 +43,8 @@ interface Transaction {
   balance_deducted: number;
   created_at: string;
   notes: string;
-  products?: TransactionProduct[];
+  products?: any[];
 }
-
-interface TransactionProduct {
-  id: string;
-  transaction_id: string;
-  product_id: string;
-  quantity: number;
-  price: number;
-  discount: number;
-  product: {
-    id: string;
-    name: string;
-    sku: string;
-  };
-}
-
-interface ReceiptSettings {
-  id: string;
-  business_name: string;
-  business_address: string;
-  business_phone: string;
-  business_email: string;
-  tax_number: string;
-  receipt_footer: string;
-  receipt_font_size: number;
-  receipt_logo_url: string;
-  show_barcode_on_receipt: boolean;
-  barcode_type: string;
-}
-
 
 // Helper function to format dates
 const formatDate = (dateString: string, includeTime: boolean = true) => {
@@ -111,40 +82,27 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null);
-  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [receiptData, setReceiptData] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   
+  // Default receipt settings
+  const defaultReceiptSettings = {
+    business_name: 'Your Business',
+    business_address: '',
+    business_phone: '',
+    business_email: '',
+    tax_number: '',
+    receipt_footer: 'Thank you for your business!',
+    receipt_font_size: 12,
+    receipt_logo_url: '',
+    show_barcode_on_receipt: true,
+    barcode_type: 'CODE128'
+  };
+
   // Fetch customers
   useEffect(() => {
     fetchCustomers();
-    fetchReceiptSettings();
   }, []);
-  
-  // Fetch receipt settings
-  // Update the fetchReceiptSettings function:
-const fetchReceiptSettings = async () => {
-  try {
-    const { data, error } = await supabase
-      .from('receipt_settings')
-      .select('*')
-      .limit(1);
-    
-    if (error) {
-      console.log('Receipt settings table might not exist, using defaults:', error.message);
-      // Use default settings
-      return;
-    }
-    
-    if (data && data.length > 0) {
-      setReceiptSettings(data[0]);
-    }
-    // If no data, defaults are already set in state
-  } catch (error) {
-    console.log('Error fetching receipt settings:', error);
-    // Continue with defaults
-  }
-};
   
   // Fetch customers with search
   const fetchCustomers = async () => {
@@ -213,7 +171,7 @@ const fetchReceiptSettings = async () => {
   
   // Calculate customer stats
   const calculateCustomerStats = () => {
-    if (!selectedCustomer || customerTransactions.length === 0) {
+    if (!selectedCustomer || !customerTransactions || customerTransactions.length === 0) {
       return {
         totalSpent: 0,
         avgTransaction: 0,
@@ -222,23 +180,17 @@ const fetchReceiptSettings = async () => {
       };
     }
     
-    const totalSpent = customerTransactions
-      .filter(t => t.status === 'completed')
-      .reduce((sum, t) => sum + t.total, 0);
-    
-    const avgTransaction = customerTransactions.length > 0 
-      ? totalSpent / customerTransactions.length 
+    const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
+    const totalSpent = completedTransactions.reduce((sum, t) => sum + (t.total || 0), 0);
+    const avgTransaction = completedTransactions.length > 0 
+      ? totalSpent / completedTransactions.length 
       : 0;
     
-    const lastTransaction = customerTransactions.length > 0
-      ? customerTransactions[0]
-      : null;
-    
     return {
-      totalSpent,
-      avgTransaction,
+      totalSpent: Number(totalSpent.toFixed(2)),
+      avgTransaction: Number(avgTransaction.toFixed(2)),
       totalTransactions: customerTransactions.length,
-      lastTransaction
+      lastTransaction: customerTransactions[0] || null
     };
   };
   
@@ -251,16 +203,16 @@ const fetchReceiptSettings = async () => {
         { id: '', name: 'Customer', email: '', phone: '', balance: 0 };
       
       // Transform products for receipt
-      const receiptProducts = (transaction.products || []).map(item => ({
-        id: item.id,
+      const receiptProducts = (transaction.products || []).map((item: any) => ({
+        id: item.id || Math.random(),
         name: item.product?.name || 'Product',
-        price: item.price,
-        quantity: item.quantity,
+        price: item.price || 0,
+        quantity: item.quantity || 1,
         discount: item.discount || 0,
-        total: (item.price * item.quantity) - (item.discount || 0)
+        total: (item.price || 0) * (item.quantity || 1) - (item.discount || 0)
       }));
       
-      // Calculate totals if missing
+      // Calculate totals
       const subtotal = transaction.subtotal || 
         receiptProducts.reduce((sum, item) => sum + item.total, 0);
       
@@ -268,8 +220,8 @@ const fetchReceiptSettings = async () => {
       const total = transaction.total || subtotal + vat;
       
       // Prepare receipt data
-      const receiptData: ReceiptData = {
-        id: transaction.id || 0,
+      const receiptData = {
+        id: transaction.id,
         createdAt: transaction.created_at,
         subtotal,
         vat,
@@ -280,25 +232,25 @@ const fetchReceiptSettings = async () => {
         notes: transaction.notes,
         products: receiptProducts,
         customer: {
-          id: customer.id || 0,
+          id: parseInt(customer.id) || 0,
           name: customer.name,
           email: customer.email,
           phone: customer.phone,
           balance: customer.balance
         },
         businessInfo: {
-          name: receiptSettings?.business_name || 'Your Business',
-          address: receiptSettings?.business_address || '',
-          phone: receiptSettings?.business_phone || '',
-          email: receiptSettings?.business_email || '',
-          taxNumber: receiptSettings?.tax_number || '',
-          logoUrl: receiptSettings?.receipt_logo_url || ''
+          name: defaultReceiptSettings.business_name,
+          address: defaultReceiptSettings.business_address,
+          phone: defaultReceiptSettings.business_phone,
+          email: defaultReceiptSettings.business_email,
+          taxNumber: defaultReceiptSettings.tax_number,
+          logoUrl: defaultReceiptSettings.receipt_logo_url
         },
         receiptSettings: {
-          fontSize: receiptSettings?.receipt_font_size || 12,
-          footer: receiptSettings?.receipt_footer || 'Thank you for your business!',
-          showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-          barcodeType: receiptSettings?.barcode_type || 'CODE128',
+          fontSize: defaultReceiptSettings.receipt_font_size,
+          footer: defaultReceiptSettings.receipt_footer,
+          showBarcode: defaultReceiptSettings.show_barcode_on_receipt,
+          barcodeType: defaultReceiptSettings.barcode_type,
           showTaxBreakdown: true
         },
         balanceDeducted: transaction.balance_deducted || 0,
@@ -383,7 +335,7 @@ const fetchReceiptSettings = async () => {
             <div>
               <p className="text-sm text-gray-500">Total Balance Owed</p>
               <p className="text-2xl font-bold mt-1">
-                £{customers.reduce((sum, c) => sum + c.balance, 0).toFixed(2)}
+                £{customers.reduce((sum, c) => sum + (c.balance || 0), 0).toFixed(2)}
               </p>
             </div>
             <div className="p-3 bg-green-50 rounded-lg">
@@ -397,7 +349,7 @@ const fetchReceiptSettings = async () => {
             <div>
               <p className="text-sm text-gray-500">Active Customers</p>
               <p className="text-2xl font-bold mt-1">
-                {customers.filter(c => c.balance > 0 || customerTransactions.length > 0).length}
+                {customers.filter(c => (c.balance || 0) > 0).length}
               </p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg">
@@ -412,7 +364,7 @@ const fetchReceiptSettings = async () => {
               <p className="text-sm text-gray-500">Avg. Loyalty Points</p>
               <p className="text-2xl font-bold mt-1">
                 {customers.length > 0 
-                  ? Math.round(customers.reduce((sum, c) => sum + c.loyalty_points, 0) / customers.length)
+                  ? Math.round(customers.reduce((sum, c) => sum + (c.loyalty_points || 0), 0) / customers.length)
                   : 0}
               </p>
             </div>
@@ -511,12 +463,12 @@ const fetchReceiptSettings = async () => {
                       </div>
                       <div className="text-right">
                         <div className={`font-bold ${
-                          customer.balance > 0 ? 'text-red-600' : 'text-green-600'
+                          (customer.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'
                         }`}>
-                          £{customer.balance.toFixed(2)}
+                          £{(customer.balance || 0).toFixed(2)}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          {customer.loyalty_points} pts
+                          {customer.loyalty_points || 0} pts
                         </div>
                       </div>
                     </div>
@@ -573,9 +525,9 @@ const fetchReceiptSettings = async () => {
                   </div>
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
-                      selectedCustomer.balance > 0 ? 'text-red-600' : 'text-green-600'
+                      (selectedCustomer.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'
                     }`}>
-                      £{selectedCustomer.balance.toFixed(2)}
+                      £{(selectedCustomer.balance || 0).toFixed(2)}
                     </div>
                     <div className="text-sm text-gray-500">Current Balance</div>
                   </div>
@@ -585,19 +537,19 @@ const fetchReceiptSettings = async () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-500">Total Spent</div>
-                    <div className="text-xl font-bold mt-1">£{stats.totalSpent.toFixed(2)}</div>
+                    <div className="text-xl font-bold mt-1">£{(stats.totalSpent || 0).toFixed(2)}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-500">Avg Transaction</div>
-                    <div className="text-xl font-bold mt-1">£{stats.avgTransaction.toFixed(2)}</div>
+                    <div className="text-xl font-bold mt-1">£{(stats.avgTransaction || 0).toFixed(2)}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-500">Total Transactions</div>
-                    <div className="text-xl font-bold mt-1">{stats.totalTransactions}</div>
+                    <div className="text-xl font-bold mt-1">{stats.totalTransactions || 0}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-500">Loyalty Points</div>
-                    <div className="text-xl font-bold mt-1">{selectedCustomer.loyalty_points}</div>
+                    <div className="text-xl font-bold mt-1">{selectedCustomer.loyalty_points || 0}</div>
                   </div>
                 </div>
                 
@@ -663,7 +615,7 @@ const fetchReceiptSettings = async () => {
                           </div>
                           <div className="text-right">
                             <div className="font-bold text-gray-900">
-                              £{transaction.total.toFixed(2)}
+                              £{(transaction.total || 0).toFixed(2)}
                             </div>
                             <div className="text-sm text-gray-500 capitalize">
                               {transaction.payment_method}
@@ -672,23 +624,25 @@ const fetchReceiptSettings = async () => {
                         </div>
                         
                         {/* Transaction Items */}
-                        <div className="mt-3 pl-4 border-l-2 border-gray-200">
-                          {transaction.products?.slice(0, 2).map((item) => (
-                            <div key={item.id} className="text-sm text-gray-600 mb-1">
-                              {item.quantity} × {item.product?.name}
-                              {item.discount > 0 && (
-                                <span className="text-red-500 ml-2">
-                                  (-£{item.discount.toFixed(2)})
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                          {transaction.products && transaction.products.length > 2 && (
-                            <div className="text-sm text-gray-500">
-                              +{transaction.products.length - 2} more items
-                            </div>
-                          )}
-                        </div>
+                        {transaction.products && transaction.products.length > 0 && (
+                          <div className="mt-3 pl-4 border-l-2 border-gray-200">
+                            {transaction.products.slice(0, 2).map((item: any) => (
+                              <div key={item.id} className="text-sm text-gray-600 mb-1">
+                                {item.quantity} × {item.product?.name || 'Product'}
+                                {item.discount > 0 && (
+                                  <span className="text-red-500 ml-2">
+                                    (-£{item.discount.toFixed(2)})
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {transaction.products.length > 2 && (
+                              <div className="text-sm text-gray-500">
+                                +{transaction.products.length - 2} more items
+                              </div>
+                            )}
+                          </div>
+                        )}
                         
                         {/* Transaction Actions */}
                         <div className="flex gap-2 mt-3">
@@ -749,6 +703,3 @@ const fetchReceiptSettings = async () => {
     </div>
   );
 }
-
-
-
