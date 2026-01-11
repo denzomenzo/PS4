@@ -199,47 +199,91 @@ function CustomersContent() {
     }
   };
   
-  // Fetch customer transactions - FIXED VERSION
-  const fetchCustomerTransactions = async (customerId: string) => {
-    try {
-      setLoadingTransactions(true);
-      console.log('Fetching transactions for customer:', customerId);
+  // Update fetchCustomerTransactions function
+const fetchCustomerTransactions = async (customerId: string) => {
+  try {
+    setLoadingTransactions(true);
+    console.log('Fetching transactions for customer:', customerId);
+    
+    // First get transactions
+    const { data: transactions, error: transactionsError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    
+    if (transactionsError) {
+      console.error('Error fetching transactions:', transactionsError);
+      throw transactionsError;
+    }
+    
+    console.log('Transactions found:', transactions?.length);
+    
+    if (!transactions || transactions.length === 0) {
+      setCustomerTransactions([]);
+      return;
+    }
+    
+    // Get transaction IDs
+    const transactionIds = transactions.map(t => t.id);
+    
+    // Fetch transaction items WITHOUT the products join
+    const { data: transactionItems, error: itemsError } = await supabase
+      .from('transaction_items')
+      .select('*')
+      .in('transaction_id', transactionIds);
+    
+    if (itemsError) {
+      console.error('Error fetching transaction items:', itemsError);
+      // Continue without items
+    }
+    
+    // If you need product names, fetch them separately
+    const productIds = transactionItems?.map(item => item.product_id).filter(Boolean) || [];
+    let productsMap = {};
+    
+    if (productIds.length > 0) {
+      const { data: products, error: productsError } = await supabase
+        .from('products')
+        .select('id, name, sku, price')
+        .in('id', productIds);
       
-      // First get transactions
-      const { data: transactions, error: transactionsError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('customer_id', customerId)
-        .order('created_at', { ascending: false });
-      
-      if (transactionsError) {
-        console.error('Error fetching transactions:', transactionsError);
-        throw transactionsError;
+      if (!productsError && products) {
+        // Create a map for quick lookup
+        productsMap = products.reduce((map, product) => {
+          map[product.id] = product;
+          return map;
+        }, {});
       }
-      
-      console.log('Transactions found:', transactions?.length);
-      
-      if (!transactions || transactions.length === 0) {
-        setCustomerTransactions([]);
-        return;
-      }
-      
-      // Get transaction IDs
-      const transactionIds = transactions.map(t => t.id);
-      
-      // Fetch transaction items with products
-      const { data: transactionItems, error: itemsError } = await supabase
-        .from('transaction_items')
-        .select(`
-          *,
-          product:products(id, name, sku, price)
-        `)
-        .in('transaction_id', transactionIds);
-      
-      if (itemsError) {
-        console.error('Error fetching transaction items:', itemsError);
-        // Continue without items
-      }
+    }
+    
+    // Combine data
+    const transformedTransactions = transactions.map(transaction => {
+      const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
+      return {
+        ...transaction,
+        products: items.map(item => ({
+          ...item,
+          product: productsMap[item.product_id] || { 
+            id: item.product_id, 
+            name: 'Product', 
+            sku: '', 
+            price: 0 
+          }
+        }))
+      };
+    });
+    
+    console.log('Transformed transactions:', transformedTransactions);
+    setCustomerTransactions(transformedTransactions);
+    
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    setCustomerTransactions([]);
+  } finally {
+    setLoadingTransactions(false);
+  }
+};
       
       // Combine data
       const transformedTransactions = transactions.map(transaction => {
@@ -913,3 +957,4 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
