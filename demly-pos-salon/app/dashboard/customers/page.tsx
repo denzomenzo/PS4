@@ -251,14 +251,14 @@ export default function CustomersPage() {
         { id: '', name: 'Customer', email: '', phone: '', balance: 0 };
       
       // Transform products for receipt
-      const receiptProducts: ReceiptProduct[] = (transaction.products || []).map(item => ({
-        id: item.id,
-        name: item.product?.name || 'Product',
-        price: item.price,
-        quantity: item.quantity,
-        discount: item.discount || 0,
-        total: (item.price * item.quantity) - (item.discount || 0)
-      }));
+      const receiptProducts = (transaction.products || []).map(item => ({
+  id: item.id,
+  name: item.product?.name || 'Product',
+  price: item.price,
+  quantity: item.quantity,
+  discount: item.discount || 0,
+  total: (item.price * item.quantity) - (item.discount || 0)
+}));
       
       // Calculate totals if missing
       const subtotal = transaction.subtotal || 
@@ -749,6 +749,7 @@ export default function CustomersPage() {
     </div>
   );
 }
+
 
 
 
