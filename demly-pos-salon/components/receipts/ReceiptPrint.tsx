@@ -20,12 +20,12 @@ export interface ReceiptData {
   cart?: any[];
   customer_id?: number;
   customer?: {
-    id: number;
-    name: string;
-    phone?: string;
-    email?: string;
-    balance?: number;
-  };
+  id: number | string; // Accept both
+  name: string;
+  phone?: string;
+  email?: string;
+  balance?: number;
+};
   businessInfo?: {
     name: string;
     address?: string;
@@ -516,4 +516,5 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
     </div>
   );
 }
+
 
