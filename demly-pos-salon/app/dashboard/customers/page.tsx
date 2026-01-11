@@ -106,29 +106,44 @@ function CustomersContent() {
     fetchCustomers();
   }, []);
   
-  // Fetch customers with search
   const fetchCustomers = async () => {
-    try {
-      setLoading(true);
-      let query = supabase
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (searchQuery) {
-        query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
-      }
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      setCustomers(data || []);
-    } catch (error) {
-      console.error('Error fetching customers:', error);
-    } finally {
-      setLoading(false);
+  try {
+    setLoading(true);
+    setError(null);
+    
+    // Make sure supabase is initialized
+    if (!supabase) {
+      throw new Error('Database connection not available');
     }
-  };
+    
+    let query = supabase
+      .from('customers')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (searchQuery) {
+      query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
+    }
+    
+    const { data, error: supabaseError } = await query;
+    
+    if (supabaseError) {
+      console.error('Supabase error:', supabaseError);
+      throw new Error(`Database error: ${supabaseError.message}`);
+    }
+    
+    // Ensure data is always an array
+    setCustomers(Array.isArray(data) ? data : []);
+    
+  } catch (err: any) {
+    console.error('Error fetching customers:', err);
+    setError(err.message || 'Failed to load customers');
+    // Set customers to empty array on error
+    setCustomers([]);
+  } finally {
+    setLoading(false);
+  }
+};
   
   // Fetch customer transactions
   const fetchCustomerTransactions = async (customerId: string) => {
@@ -773,3 +788,4 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
