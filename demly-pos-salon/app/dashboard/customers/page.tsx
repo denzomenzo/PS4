@@ -20,7 +20,6 @@ import {
 import Link from 'next/link';
 import ReceiptPrint, { ReceiptData, ReceiptProduct } from '@/components/receipts/ReceiptPrint';
 
-const supabase = createClient();
 
 interface Customer {
   id: string;
@@ -750,5 +749,6 @@ export default function CustomersPage() {
     </div>
   );
 }
+
 
 
