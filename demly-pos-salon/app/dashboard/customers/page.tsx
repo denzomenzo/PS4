@@ -34,7 +34,7 @@ interface Customer {
 }
 
 interface Transaction {
-  id: string;
+  id: string | number; // Can be string OR number
   customer_id: string;
   total: number;
   subtotal: number;
@@ -81,6 +81,14 @@ const getSafeNumber = (value: any): number => {
   if (value === null || value === undefined) return 0;
   const num = Number(value);
   return isNaN(num) ? 0 : num;
+};
+
+// Helper function to safely get transaction ID string
+const getTransactionIdDisplay = (id: string | number | null | undefined): string => {
+  if (!id) return 'Unknown';
+  
+  const idStr = String(id);
+  return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
 };
 
 function CustomersContent() {
@@ -130,7 +138,7 @@ function CustomersContent() {
     }
   };
   
-  // Fetch customer transactions - SIMPLE VERSION
+  // Fetch customer transactions
   const fetchCustomerTransactions = async (customerId: string) => {
     try {
       setLoadingTransactions(true);
@@ -203,9 +211,9 @@ function CustomersContent() {
         paymentMethod: transaction.payment_method || 'cash',
         paymentStatus: transaction.status || 'completed',
         notes: transaction.notes,
-        products: [], // Empty for now
+        products: [],
         customer: {
-          id: parseInt(customer.id) || 0,
+          id: customer.id,
           name: customer.name,
           email: customer.email || '',
           phone: customer.phone || '',
@@ -569,11 +577,11 @@ function CustomersContent() {
                 ) : (
                   <div className="divide-y">
                     {customerTransactions.map((transaction) => (
-                      <div key={transaction.id} className="p-4 hover:bg-gray-50">
+                      <div key={String(transaction.id)} className="p-4 hover:bg-gray-50">
                         <div className="flex items-center justify-between mb-2">
                           <div>
                             <div className="font-semibold text-gray-900">
-                              Transaction #{transaction.id?.slice(-6) || 'Unknown'}
+                              Transaction {getTransactionIdDisplay(transaction.id)}
                             </div>
                             <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
                               <span className="flex items-center gap-1">
