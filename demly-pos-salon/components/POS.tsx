@@ -7,6 +7,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
+import { updateCustomerBalanceAfterTransaction } from '@/lib/updateCustomerBalance';
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
@@ -2444,6 +2445,12 @@ export default function POS() {
         </div>
       )}
 
+      await updateCustomerBalanceAfterTransaction(
+           customerId,
+           transactionTotal,
+           balanceUsed
+         );
+
       {/* Recent Transactions Modal */}
       {showTransactionsModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -2505,3 +2512,4 @@ export default function POS() {
     </div>
   );
 }
+
