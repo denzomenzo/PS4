@@ -128,47 +128,21 @@ const fetchReceiptSettings = async () => {
     const { data, error } = await supabase
       .from('receipt_settings')
       .select('*')
-      .maybeSingle(); // Use maybeSingle instead of single
+      .limit(1);
     
     if (error) {
-      console.error('Error fetching receipt settings:', error);
-      // Set default settings if table doesn't exist
-      setReceiptSettings({
-        id: 'default',
-        business_name: 'Your Business',
-        business_address: '',
-        business_phone: '',
-        business_email: '',
-        tax_number: '',
-        receipt_footer: 'Thank you for your business!',
-        receipt_font_size: 12,
-        receipt_logo_url: '',
-        show_barcode_on_receipt: true,
-        barcode_type: 'CODE128'
-      });
+      console.log('Receipt settings table might not exist, using defaults:', error.message);
+      // Use default settings
       return;
     }
     
-    if (data) {
-      setReceiptSettings(data);
-    } else {
-      // Use default settings if no record exists
-      setReceiptSettings({
-        id: 'default',
-        business_name: 'Your Business',
-        business_address: '',
-        business_phone: '',
-        business_email: '',
-        tax_number: '',
-        receipt_footer: 'Thank you for your business!',
-        receipt_font_size: 12,
-        receipt_logo_url: '',
-        show_barcode_on_receipt: true,
-        barcode_type: 'CODE128'
-      });
+    if (data && data.length > 0) {
+      setReceiptSettings(data[0]);
     }
+    // If no data, defaults are already set in state
   } catch (error) {
-    console.error('Error fetching receipt settings:', error);
+    console.log('Error fetching receipt settings:', error);
+    // Continue with defaults
   }
 };
   
@@ -775,5 +749,6 @@ const fetchReceiptSettings = async () => {
     </div>
   );
 }
+
 
 
