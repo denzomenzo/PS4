@@ -1,4 +1,3 @@
-// app/dashboard/customers/page.tsx
 "use client";
 
 import { useEffect, useState } from 'react';
@@ -18,8 +17,7 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import Link from 'next/link';
-import ReceiptPrint, { ReceiptData, ReceiptProduct } from '@/components/receipts/ReceiptPrint';
-
+import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
   id: string;
@@ -76,8 +74,9 @@ interface ReceiptSettings {
   barcode_type: string;
 }
 
+// Local interfaces for receipt data
 interface ReceiptData {
-  id: number | string;
+  id: string | number;
   createdAt: string;
   subtotal: number;
   vat: number;
@@ -86,9 +85,16 @@ interface ReceiptData {
   paymentMethod: string;
   paymentStatus: string;
   notes?: string;
-  products?: any[];
+  products?: Array<{
+    id: string | number;
+    name: string;
+    price: number;
+    quantity: number;
+    discount: number;
+    total: number;
+  }>;
   customer?: {
-    id: string;  // Change from number to string
+    id: string;
     name: string;
     phone?: string;
     email?: string;
@@ -114,8 +120,7 @@ interface ReceiptData {
   staffName?: string;
 }
 
-
-// Helper function to format dates using native JavaScript
+// Helper function to format dates
 const formatDate = (dateString: string, includeTime: boolean = true) => {
   try {
     const date = new Date(dateString);
@@ -142,15 +147,6 @@ const formatDate = (dateString: string, includeTime: boolean = true) => {
     console.error('Error formatting date:', error);
     return dateString;
   }
-};
-
-// Helper to format currency
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency: 'GBP',
-    minimumFractionDigits: 2
-  }).format(amount);
 };
 
 export default function CustomersPage() {
@@ -281,7 +277,7 @@ export default function CustomersPage() {
     };
   };
   
-  // Print transaction receipt - SIMPLIFIED VERSION
+  // Print transaction receipt
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       // Get customer data
@@ -291,13 +287,13 @@ export default function CustomersPage() {
       
       // Transform products for receipt
       const receiptProducts = (transaction.products || []).map(item => ({
-  id: item.id,
-  name: item.product?.name || 'Product',
-  price: item.price,
-  quantity: item.quantity,
-  discount: item.discount || 0,
-  total: (item.price * item.quantity) - (item.discount || 0)
-}));
+        id: item.id,
+        name: item.product?.name || 'Product',
+        price: item.price,
+        quantity: item.quantity,
+        discount: item.discount || 0,
+        total: (item.price * item.quantity) - (item.discount || 0)
+      }));
       
       // Calculate totals if missing
       const subtotal = transaction.subtotal || 
@@ -342,7 +338,7 @@ export default function CustomersPage() {
         },
         balanceDeducted: transaction.balance_deducted || 0,
         paymentDetails: transaction.payment_details || {},
-        staffName: 'Staff' // You can get this from auth or transaction data
+        staffName: 'Staff'
       };
       
       // Set receipt data and show modal
@@ -788,8 +784,3 @@ export default function CustomersPage() {
     </div>
   );
 }
-
-
-
-
-
