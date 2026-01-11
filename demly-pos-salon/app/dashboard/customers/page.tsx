@@ -24,13 +24,13 @@ import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 interface Customer {
   id: string;
   name: string;
-  email: string;
-  phone: string;
-  address: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
   balance: number;
   loyalty_points: number;
   created_at: string;
-  notes: string;
+  notes: string | null;
 }
 
 interface Transaction {
@@ -40,12 +40,27 @@ interface Transaction {
   subtotal: number;
   vat: number;
   status: 'completed' | 'pending' | 'refunded';
-  payment_method: 'cash' | 'card' | 'split';
+  payment_method: 'cash' | 'card' | 'split' | 'balance';
   payment_details: any;
   balance_deducted: number;
   created_at: string;
-  notes: string;
+  notes: string | null;
   products?: any[];
+}
+
+interface TransactionItem {
+  id: string;
+  transaction_id: string;
+  product_id: string;
+  product: {
+    id: string;
+    name: string;
+    sku: string;
+    price: number;
+  } | null;
+  quantity: number;
+  price: number;
+  discount: number;
 }
 
 // Helper function to format dates
@@ -113,7 +128,46 @@ function CustomersContent() {
     fetchCustomers();
   }, []);
   
-  // Fetch customers with search - FIXED VERSION
+  // Add real-time subscription for customer updates
+  useEffect(() => {
+    if (!selectedCustomer?.id) return;
+    
+    const customerSubscription = supabase
+      .channel('customer-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'customers',
+          filter: `id=eq.${selectedCustomer.id}`
+        },
+        (payload) => {
+          console.log('Customer updated:', payload.new);
+          // Update selected customer
+          setSelectedCustomer(payload.new as Customer);
+          
+          // Update customers list
+          setCustomers(prev => 
+            prev.map(c => 
+              c.id === selectedCustomer.id ? { ...c, ...payload.new } : c
+            )
+          );
+          
+          // Refresh transactions if balance was updated
+          if (payload.new.balance !== selectedCustomer.balance) {
+            fetchCustomerTransactions(selectedCustomer.id);
+          }
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      customerSubscription.unsubscribe();
+    };
+  }, [selectedCustomer?.id]);
+  
+  // Fetch customers with search
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -131,51 +185,77 @@ function CustomersContent() {
       
       if (error) {
         console.error('Supabase error:', error);
-        // Handle error gracefully
         setCustomers([]);
         return;
       }
       
-      // Ensure data is always an array
       setCustomers(Array.isArray(data) ? data : []);
       
     } catch (error) {
       console.error('Error fetching customers:', error);
-      // Handle error gracefully
       setCustomers([]);
     } finally {
       setLoading(false);
     }
   };
   
-  // Fetch customer transactions
+  // Fetch customer transactions - FIXED VERSION
   const fetchCustomerTransactions = async (customerId: string) => {
     try {
       setLoadingTransactions(true);
+      console.log('Fetching transactions for customer:', customerId);
+      
+      // First get transactions
       const { data: transactions, error: transactionsError } = await supabase
         .from('transactions')
-        .select(`
-          *,
-          transaction_items(
-            *,
-            product:products(id, name, sku)
-          )
-        `)
+        .select('*')
         .eq('customer_id', customerId)
         .order('created_at', { ascending: false });
       
-      if (transactionsError) throw transactionsError;
+      if (transactionsError) {
+        console.error('Error fetching transactions:', transactionsError);
+        throw transactionsError;
+      }
       
-      // Transform the data structure
-      const transformedTransactions = (transactions || []).map(transaction => ({
-        ...transaction,
-        products: transaction.transaction_items?.map((item: any) => ({
-          ...item,
-          product: item.product || { id: '', name: 'Unknown Product', sku: '' }
-        })) || []
-      }));
+      console.log('Transactions found:', transactions?.length);
       
+      if (!transactions || transactions.length === 0) {
+        setCustomerTransactions([]);
+        return;
+      }
+      
+      // Get transaction IDs
+      const transactionIds = transactions.map(t => t.id);
+      
+      // Fetch transaction items with products
+      const { data: transactionItems, error: itemsError } = await supabase
+        .from('transaction_items')
+        .select(`
+          *,
+          product:products(id, name, sku, price)
+        `)
+        .in('transaction_id', transactionIds);
+      
+      if (itemsError) {
+        console.error('Error fetching transaction items:', itemsError);
+        // Continue without items
+      }
+      
+      // Combine data
+      const transformedTransactions = transactions.map(transaction => {
+        const items = transactionItems?.filter(item => item.transaction_id === transaction.id) || [];
+        return {
+          ...transaction,
+          products: items.map(item => ({
+            ...item,
+            product: item.product || { id: '', name: 'Unknown Product', sku: '', price: 0 }
+          }))
+        };
+      });
+      
+      console.log('Transformed transactions:', transformedTransactions);
       setCustomerTransactions(transformedTransactions);
+      
     } catch (error) {
       console.error('Error fetching transactions:', error);
       setCustomerTransactions([]);
@@ -186,6 +266,7 @@ function CustomersContent() {
   
   // Handle customer selection
   const handleCustomerSelect = async (customer: Customer) => {
+    console.log('Selecting customer:', customer.id, customer.name);
     setSelectedCustomer(customer);
     await fetchCustomerTransactions(customer.id);
   };
@@ -230,7 +311,7 @@ function CustomersContent() {
         price: getSafeNumber(item.price),
         quantity: getSafeNumber(item.quantity),
         discount: getSafeNumber(item.discount),
-        total: getSafeNumber(item.price) * getSafeNumber(item.quantity) - getSafeNumber(item.discount)
+        total: (getSafeNumber(item.price) * getSafeNumber(item.quantity)) - getSafeNumber(item.discount)
       }));
       
       // Calculate totals
@@ -247,7 +328,7 @@ function CustomersContent() {
         subtotal,
         vat,
         total,
-        discountAmount: receiptProducts.reduce((sum, item) => sum + item.discount, 0),
+        discountAmount: receiptProducts.reduce((sum, item) => sum + getSafeNumber(item.discount), 0),
         paymentMethod: transaction.payment_method || 'cash',
         paymentStatus: transaction.status || 'completed',
         notes: transaction.notes,
@@ -255,8 +336,8 @@ function CustomersContent() {
         customer: {
           id: parseInt(customer.id) || 0,
           name: customer.name,
-          email: customer.email,
-          phone: customer.phone,
+          email: customer.email || '',
+          phone: customer.phone || '',
           balance: getSafeNumber(customer.balance)
         },
         businessInfo: {
@@ -297,9 +378,16 @@ function CustomersContent() {
   
   // Delete customer
   const deleteCustomer = async (customerId: string) => {
-    if (!confirm('Are you sure you want to delete this customer?')) return;
+    if (!confirm('Are you sure you want to delete this customer? This will also delete all their transactions.')) return;
     
     try {
+      // First delete related transactions
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('customer_id', customerId);
+      
+      // Then delete the customer
       const { error } = await supabase
         .from('customers')
         .delete()
@@ -313,9 +401,11 @@ function CustomersContent() {
         setSelectedCustomer(null);
         setCustomerTransactions([]);
       }
+      
+      alert('Customer deleted successfully');
     } catch (error) {
       console.error('Error deleting customer:', error);
-      alert('Failed to delete customer');
+      alert('Failed to delete customer. Make sure they have no pending transactions.');
     }
   };
   
@@ -331,22 +421,22 @@ function CustomersContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
+      {/* Header - GREEN TEXT */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
-        <p className="text-gray-600 mt-2">Manage your customers and view their transactions</p>
+        <h1 className="text-3xl font-bold text-green-700">Customers</h1>
+        <p className="text-green-600 mt-2">Manage your customers and view their transactions</p>
       </div>
       
-      {/* Stats Overview - FIXED with safe number handling */}
+      {/* Stats Overview - GREEN LABELS, BLACK NUMBERS */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Customers</p>
-              <p className="text-2xl font-bold mt-1">{(customers || []).length}</p>
+              <p className="text-sm font-medium text-green-600">Total Customers</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">{(customers || []).length}</p>
             </div>
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <UserPlus className="w-6 h-6 text-blue-600" />
+            <div className="p-3 bg-green-50 rounded-lg">
+              <UserPlus className="w-6 h-6 text-green-600" />
             </div>
           </div>
         </div>
@@ -354,13 +444,13 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Balance Owed</p>
-              <p className="text-2xl font-bold mt-1">
+              <p className="text-sm font-medium text-green-600">Total Balance Owed</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">
                 £{(customers || []).reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
               </p>
             </div>
-            <div className="p-3 bg-green-50 rounded-lg">
-              <CreditCard className="w-6 h-6 text-green-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <CreditCard className="w-6 h-6 text-blue-600" />
             </div>
           </div>
         </div>
@@ -368,8 +458,8 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Active Customers</p>
-              <p className="text-2xl font-bold mt-1">
+              <p className="text-sm font-medium text-green-600">Active Customers</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">
                 {(customers || []).filter(c => getSafeNumber(c.balance) > 0).length}
               </p>
             </div>
@@ -382,8 +472,8 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Avg. Loyalty Points</p>
-              <p className="text-2xl font-bold mt-1">
+              <p className="text-sm font-medium text-green-600">Avg. Loyalty Points</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">
                 {(customers || []).length > 0 
                   ? Math.round((customers || []).reduce((sum, c) => sum + getSafeNumber(c.loyalty_points), 0) / (customers || []).length)
                   : 0}
@@ -407,7 +497,7 @@ function CustomersContent() {
                 <input
                   type="text"
                   placeholder="Search customers..."
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyUp={(e) => {
@@ -417,13 +507,13 @@ function CustomersContent() {
               </div>
               <button
                 onClick={fetchCustomers}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
               >
                 Search
               </button>
               <Link
                 href="/dashboard/customers/new"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
               >
                 <UserPlus className="w-4 h-4" />
                 Add
@@ -435,7 +525,7 @@ function CustomersContent() {
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             {loading ? (
               <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
                 <p className="mt-2 text-gray-500">Loading customers...</p>
               </div>
             ) : filteredCustomers.length === 0 ? (
@@ -448,7 +538,7 @@ function CustomersContent() {
                       setSearchQuery('');
                       fetchCustomers();
                     }}
-                    className="mt-2 text-blue-600 hover:text-blue-700"
+                    className="mt-2 text-green-600 hover:text-green-700 font-medium"
                   >
                     Clear search
                   </button>
@@ -460,7 +550,7 @@ function CustomersContent() {
                   <div
                     key={customer.id}
                     className={`p-4 cursor-pointer transition-colors hover:bg-gray-50 ${
-                      selectedCustomer?.id === customer.id ? 'bg-blue-50' : ''
+                      selectedCustomer?.id === customer.id ? 'bg-green-50 border-l-4 border-l-green-500' : ''
                     }`}
                     onClick={() => handleCustomerSelect(customer)}
                   >
@@ -496,7 +586,7 @@ function CustomersContent() {
                     <div className="flex gap-2 mt-3">
                       <Link
                         href={`/dashboard/customers/${customer.id}/edit`}
-                        className="flex-1 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center gap-1"
+                        className="flex-1 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center gap-1 font-medium"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Edit className="w-3 h-3" />
@@ -507,7 +597,7 @@ function CustomersContent() {
                           e.stopPropagation();
                           deleteCustomer(customer.id);
                         }}
-                        className="flex-1 px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 flex items-center justify-center gap-1"
+                        className="flex-1 px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 flex items-center justify-center gap-1 font-medium"
                       >
                         <Trash2 className="w-3 h-3" />
                         Delete
@@ -551,33 +641,36 @@ function CustomersContent() {
                       £{getSafeNumber(selectedCustomer.balance).toFixed(2)}
                     </div>
                     <div className="text-sm text-gray-500">Current Balance</div>
+                    <div className="text-xs text-green-600 mt-1">
+                      {getSafeNumber(selectedCustomer.loyalty_points)} loyalty points
+                    </div>
                   </div>
                 </div>
                 
-                {/* Customer Stats */}
+                {/* Customer Stats - GREEN LABELS, BLACK NUMBERS */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-gray-50 p-4 rounded-lg">
-                    <div className="text-sm text-gray-500">Total Spent</div>
-                    <div className="text-xl font-bold mt-1">£{(stats.totalSpent || 0).toFixed(2)}</div>
+                    <div className="text-sm font-medium text-green-600">Total Spent</div>
+                    <div className="text-xl font-bold mt-1 text-gray-900">£{(stats.totalSpent || 0).toFixed(2)}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
-                    <div className="text-sm text-gray-500">Avg Transaction</div>
-                    <div className="text-xl font-bold mt-1">£{(stats.avgTransaction || 0).toFixed(2)}</div>
+                    <div className="text-sm font-medium text-green-600">Avg Transaction</div>
+                    <div className="text-xl font-bold mt-1 text-gray-900">£{(stats.avgTransaction || 0).toFixed(2)}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
-                    <div className="text-sm text-gray-500">Total Transactions</div>
-                    <div className="text-xl font-bold mt-1">{stats.totalTransactions || 0}</div>
+                    <div className="text-sm font-medium text-green-600">Total Transactions</div>
+                    <div className="text-xl font-bold mt-1 text-gray-900">{stats.totalTransactions || 0}</div>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg">
-                    <div className="text-sm text-gray-500">Loyalty Points</div>
-                    <div className="text-xl font-bold mt-1">{getSafeNumber(selectedCustomer.loyalty_points)}</div>
+                    <div className="text-sm font-medium text-green-600">Loyalty Points</div>
+                    <div className="text-xl font-bold mt-1 text-gray-900">{getSafeNumber(selectedCustomer.loyalty_points)}</div>
                   </div>
                 </div>
                 
                 {/* Customer Notes */}
                 {selectedCustomer.notes && (
                   <div className="mb-6">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Notes</h3>
+                    <h3 className="text-sm font-semibold text-green-600 mb-2">Notes</h3>
                     <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
                       <p className="text-gray-700">{selectedCustomer.notes}</p>
                     </div>
@@ -587,7 +680,7 @@ function CustomersContent() {
                 {/* Address */}
                 {selectedCustomer.address && (
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Address</h3>
+                    <h3 className="text-sm font-semibold text-green-600 mb-2">Address</h3>
                     <p className="text-gray-600">{selectedCustomer.address}</p>
                   </div>
                 )}
@@ -596,18 +689,20 @@ function CustomersContent() {
               {/* Transactions */}
               <div className="bg-white rounded-xl shadow-sm border">
                 <div className="p-6 border-b">
-                  <h2 className="text-xl font-bold text-gray-900">Transactions ({customerTransactions.length})</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Transaction History ({customerTransactions.length})</h2>
+                  <p className="text-sm text-gray-500 mt-1">Click print receipt to view transaction details</p>
                 </div>
                 
                 {loadingTransactions ? (
                   <div className="p-8 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
                     <p className="mt-2 text-gray-500">Loading transactions...</p>
                   </div>
                 ) : customerTransactions.length === 0 ? (
                   <div className="p-8 text-center">
                     <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500">No transactions found</p>
+                    <p className="text-gray-500">No transactions found for this customer</p>
+                    <p className="text-sm text-gray-400 mt-1">Transactions will appear here after purchases</p>
                   </div>
                 ) : (
                   <div className="divide-y">
@@ -646,20 +741,21 @@ function CustomersContent() {
                         
                         {/* Transaction Items */}
                         {transaction.products && transaction.products.length > 0 && (
-                          <div className="mt-3 pl-4 border-l-2 border-gray-200">
-                            {transaction.products.slice(0, 2).map((item: any) => (
-                              <div key={item.id} className="text-sm text-gray-600 mb-1">
-                                {getSafeNumber(item.quantity)} × {item.product?.name || 'Product'}
-                                {getSafeNumber(item.discount) > 0 && (
-                                  <span className="text-red-500 ml-2">
-                                    (-£{getSafeNumber(item.discount).toFixed(2)})
-                                  </span>
-                                )}
+                          <div className="mt-3 pl-4 border-l-2 border-green-200">
+                            <p className="text-xs font-medium text-green-600 mb-2">ITEMS:</p>
+                            {transaction.products.slice(0, 3).map((item: any, index: number) => (
+                              <div key={item.id || index} className="text-sm text-gray-600 mb-1 flex justify-between">
+                                <span>
+                                  {getSafeNumber(item.quantity)} × {item.product?.name || 'Product'}
+                                </span>
+                                <span className="font-medium">
+                                  £{(getSafeNumber(item.price) * getSafeNumber(item.quantity) - getSafeNumber(item.discount)).toFixed(2)}
+                                </span>
                               </div>
                             ))}
-                            {transaction.products.length > 2 && (
-                              <div className="text-sm text-gray-500">
-                                +{transaction.products.length - 2} more items
+                            {transaction.products.length > 3 && (
+                              <div className="text-sm text-gray-500 mt-2">
+                                +{transaction.products.length - 3} more items
                               </div>
                             )}
                           </div>
@@ -669,13 +765,13 @@ function CustomersContent() {
                         <div className="flex gap-2 mt-3">
                           <button
                             onClick={() => printTransactionReceipt(transaction)}
-                            className="flex-1 px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex items-center justify-center gap-1"
+                            className="flex-1 px-3 py-1.5 text-sm bg-green-50 text-green-600 rounded hover:bg-green-100 flex items-center justify-center gap-1 font-medium"
                           >
                             <Printer className="w-3 h-3" />
                             Print Receipt
                           </button>
                           {getSafeNumber(transaction.balance_deducted) > 0 && (
-                            <div className="flex-1 px-3 py-1.5 text-sm bg-purple-50 text-purple-600 rounded flex items-center justify-center gap-1">
+                            <div className="flex-1 px-3 py-1.5 text-sm bg-purple-50 text-purple-600 rounded flex items-center justify-center gap-1 font-medium">
                               <DollarSign className="w-3 h-3" />
                               £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
                             </div>
@@ -696,6 +792,15 @@ function CustomersContent() {
                 <p className="text-gray-500 max-w-sm">
                   Select a customer from the list to view their details and transaction history
                 </p>
+                <div className="mt-4 text-sm text-green-600">
+                  <p>You can view:</p>
+                  <ul className="mt-2 space-y-1">
+                    <li>• Customer balance and details</li>
+                    <li>• Transaction history</li>
+                    <li>• Purchase statistics</li>
+                    <li>• Print receipts</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
@@ -706,8 +811,8 @@ function CustomersContent() {
       {showReceiptModal && receiptData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-semibold">Receipt Preview</h3>
+            <div className="p-4 border-b flex justify-between items-center bg-green-50">
+              <h3 className="text-lg font-semibold text-green-700">Receipt Preview</h3>
               <button
                 onClick={closeReceiptModal}
                 className="text-gray-500 hover:text-gray-700"
@@ -717,6 +822,22 @@ function CustomersContent() {
             </div>
             <div className="overflow-auto max-h-[calc(90vh-80px)]">
               <ReceiptPrint data={receiptData} onClose={closeReceiptModal} />
+            </div>
+            <div className="p-4 border-t bg-gray-50">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >
+                  Print Receipt
+                </button>
+                <button
+                  onClick={closeReceiptModal}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -762,7 +883,7 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
         <div className="space-y-3">
           <button
             onClick={resetErrorBoundary}
-            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
           >
             Try Loading Again
           </button>
