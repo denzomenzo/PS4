@@ -383,176 +383,187 @@ export default function Customers() {
   };
 
   const saveCustomer = async () => {
-    if (!formName.trim() || !userId) {
-      alert("Name is required");
-      return;
-    }
+  if (!formName.trim() || !userId) {
+    alert("Name is required");
+    return;
+  }
 
-    try {
-      const balanceValue = parseFloat(formBalance) || 0;
+  try {
+    const balanceValue = parseFloat(formBalance) || 0;
 
-      // Log audit action
-      const auditAction = editingCustomer ? "CUSTOMER_UPDATED" : "CUSTOMER_CREATED";
-      
-      await logAuditAction({
-        action: auditAction,
-        entityType: "customer",
-        entityId: editingCustomer ? editingCustomer.id.toString() : "new",
-        oldValues: editingCustomer || {},
-        newValues: {
+    if (editingCustomer) {
+      // Log customer update
+      await logCustomerUpdated(
+        editingCustomer.id,
+        {
+          name: editingCustomer.name,
+          phone: editingCustomer.phone,
+          email: editingCustomer.email,
+          notes: editingCustomer.notes,
+          balance: editingCustomer.balance
+        },
+        {
           name: formName,
           phone: formPhone,
           email: formEmail,
           notes: formNotes,
           balance: balanceValue
-        }
-      });
+        },
+        currentStaff?.id
+      );
 
-      if (editingCustomer) {
-        const { error } = await supabase
-          .from("customers")
-          .update({
-            name: formName,
-            phone: formPhone || null,
-            email: formEmail || null,
-            notes: formNotes || null,
-            balance: balanceValue
-          })
-          .eq("id", editingCustomer.id);
+      const { error } = await supabase
+        .from("customers")
+        .update({
+          name: formName,
+          phone: formPhone || null,
+          email: formEmail || null,
+          notes: formNotes || null,
+          balance: balanceValue
+        })
+        .eq("id", editingCustomer.id);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        if (balanceValue !== editingCustomer.balance) {
-          await supabase.from("customer_balance_history").insert({
-            user_id: userId,
-            customer_id: editingCustomer.id,
-            amount: balanceValue - editingCustomer.balance,
-            previous_balance: editingCustomer.balance,
-            new_balance: balanceValue,
-            note: "Manual balance adjustment"
-          });
-        }
-      } else {
-        const { error } = await supabase.from("customers").insert({
+      if (balanceValue !== editingCustomer.balance) {
+        await supabase.from("customer_balance_history").insert({
+          user_id: userId,
+          customer_id: editingCustomer.id,
+          amount: balanceValue - editingCustomer.balance,
+          previous_balance: editingCustomer.balance,
+          new_balance: balanceValue,
+          note: "Manual balance adjustment"
+        });
+      }
+    } else {
+      const { data: newCustomer, error } = await supabase
+        .from("customers")
+        .insert({
           user_id: userId,
           name: formName,
           phone: formPhone || null,
           email: formEmail || null,
           notes: formNotes || null,
           balance: balanceValue
-        });
-
-        if (error) throw error;
-      }
-
-      setShowModal(false);
-      await loadCustomers();
-      alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
-    } catch (error: any) {
-      console.error("Error saving customer:", error);
-      alert(`Error: ${error.message}`);
-    }
-  };
-
-  const adjustBalance = async () => {
-    if (!balanceCustomer || !balanceAmount || !userId) {
-      alert("Please enter an amount");
-      return;
-    }
-
-    const amount = parseFloat(balanceAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
-
-    const currentBalance = balanceCustomer.balance;
-    const adjustment = balanceAction === "add" ? amount : -amount;
-    const newBalance = currentBalance + adjustment;
-
-    try {
-      // Log audit action
-      await logAuditAction({
-        action: "CUSTOMER_BALANCE_ADJUSTED",
-        entityType: "customer",
-        entityId: balanceCustomer.id.toString(),
-        oldValues: { balance: currentBalance },
-        newValues: { 
-          balance: newBalance,
-          adjustment: adjustment,
-          action: balanceAction,
-          note: balanceNote
-        }
-      });
-
-      const { error } = await supabase
-        .from("customers")
-        .update({ balance: newBalance })
-        .eq("id", balanceCustomer.id);
+        })
+        .select()
+        .single();
 
       if (error) throw error;
-
-      await supabase.from("customer_balance_history").insert({
-        user_id: userId,
-        customer_id: balanceCustomer.id,
-        amount: adjustment,
-        previous_balance: currentBalance,
-        new_balance: newBalance,
-        note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
-      });
-
-      const updatedCustomer = { ...balanceCustomer, balance: newBalance };
-      setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
-      setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
-      setBalanceCustomer(updatedCustomer);
-
-      setBalanceAmount("");
-      setBalanceNote("");
-
-      setGlobalStats(prev => ({
-        ...prev,
-        totalBalance: prev.totalBalance + adjustment
-      }));
-
-      await loadCustomers();
-      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
-      setTimeout(() => setShowBalanceModal(false), 1000);
-
-    } catch (error: any) {
-      console.error("Error:", error);
-      alert(`Error: ${error.message}`);
-    }
-  };
-
-  const deleteCustomer = async (id: number) => {
-    if (!confirm("Delete this customer? This cannot be undone.")) return;
-
-    try {
-      // Log audit action
-      await logAuditAction({
-        action: "CUSTOMER_DELETED",
-        entityType: "customer",
-        entityId: id.toString(),
-        oldValues: customers.find(c => c.id === id)
-      });
-
-      const { error } = await supabase
-        .from("customers")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-
-      setCustomers(prev => prev.filter(c => c.id !== id));
-      setFilteredCustomers(prev => prev.filter(c => c.id !== id));
       
-      await loadCustomers();
-      alert("✅ Customer deleted!");
-    } catch (error: any) {
-      console.error("Error:", error);
-      alert(`Error: ${error.message}`);
+      // Log customer creation
+      if (newCustomer) {
+        await logCustomerCreated(newCustomer.id, currentStaff?.id);
+      }
     }
-  };
+
+    setShowModal(false);
+    await loadCustomers();
+    alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
+  } catch (error: any) {
+    console.error("Error saving customer:", error);
+    alert(`Error: ${error.message}`);
+  }
+};
+
+// In adjustBalance function:
+const adjustBalance = async () => {
+  if (!balanceCustomer || !balanceAmount || !userId) {
+    alert("Please enter an amount");
+    return;
+  }
+
+  const amount = parseFloat(balanceAmount);
+  if (isNaN(amount) || amount <= 0) {
+    alert("Please enter a valid amount");
+    return;
+  }
+
+  const currentBalance = balanceCustomer.balance;
+  const adjustment = balanceAction === "add" ? amount : -amount;
+  const newBalance = currentBalance + adjustment;
+
+  try {
+    // Log balance adjustment
+    await logBalanceAdjusted(
+      balanceCustomer.id,
+      adjustment,
+      balanceAction,
+      currentStaff?.id
+    );
+
+    const { error } = await supabase
+      .from("customers")
+      .update({ balance: newBalance })
+      .eq("id", balanceCustomer.id);
+
+    if (error) throw error;
+
+    await supabase.from("customer_balance_history").insert({
+      user_id: userId,
+      customer_id: balanceCustomer.id,
+      amount: adjustment,
+      previous_balance: currentBalance,
+      new_balance: newBalance,
+      note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
+    });
+
+    const updatedCustomer = { ...balanceCustomer, balance: newBalance };
+    setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+    setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+    setBalanceCustomer(updatedCustomer);
+
+    setBalanceAmount("");
+    setBalanceNote("");
+
+    setGlobalStats(prev => ({
+      ...prev,
+      totalBalance: prev.totalBalance + adjustment
+    }));
+
+    await loadCustomers();
+    alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
+    setTimeout(() => setShowBalanceModal(false), 1000);
+
+  } catch (error: any) {
+    console.error("Error:", error);
+    alert(`Error: ${error.message}`);
+  }
+};
+
+// In deleteCustomer function:
+const deleteCustomer = async (id: number) => {
+  if (!confirm("Delete this customer? This cannot be undone.")) return;
+
+  try {
+    const customerToDelete = customers.find(c => c.id === id);
+    
+    // Log customer deletion
+    if (customerToDelete) {
+      await logCustomerDeleted(
+        id,
+        customerToDelete,
+        currentStaff?.id
+      );
+    }
+
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+
+    setCustomers(prev => prev.filter(c => c.id !== id));
+    setFilteredCustomers(prev => prev.filter(c => c.id !== id));
+    
+    await loadCustomers();
+    alert("✅ Customer deleted!");
+  } catch (error: any) {
+    console.error("Error:", error);
+    alert(`Error: ${error.message}`);
+  }
+};
 
   const printTransactionReceipt = async (transaction: Transaction) => {
     if (!selectedCustomer || !receiptSettings) return;
@@ -1424,3 +1435,4 @@ export default function Customers() {
     </div>
   );
 }
+
