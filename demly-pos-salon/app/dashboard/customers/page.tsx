@@ -1,7 +1,7 @@
 // /app/dashboard/customers/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { 
@@ -20,23 +20,18 @@ import {
   TrendingUp, 
   TrendingDown,
   Calendar,
-  ShoppingBag,
-  CreditCard,
-  Receipt,
   Printer,
-  Clock,
   RefreshCw,
   FileText,
   DollarSign,
   ChevronDown,
-  History,
-  Tag,
-  AlertCircle,
-  CheckCircle
+  Receipt,
+  CreditCard,
+  Clock
 } from "lucide-react";
 import Link from "next/link";
 
-// Define all interfaces inline
+// Define interfaces
 interface Customer {
   id: number;
   name: string;
@@ -60,9 +55,6 @@ interface Transaction {
   notes?: string;
   created_at: string;
   products?: TransactionProduct[];
-  payment_details?: any;
-  balance_deducted?: number;
-  transaction_items?: RawTransactionItem[];
 }
 
 interface TransactionProduct {
@@ -70,22 +62,7 @@ interface TransactionProduct {
   name: string;
   price: number;
   quantity: number;
-  discount: number;
   total: number;
-}
-
-interface RawTransactionItem {
-  id: number;
-  transaction_id: number;
-  quantity: number;
-  price_at_time: number;
-  services: Service[];
-  created_at?: string;
-}
-
-interface Service {
-  name: string;
-  price: number;
 }
 
 interface BalanceTransaction {
@@ -96,6 +73,13 @@ interface BalanceTransaction {
   new_balance: number;
   note: string | null;
   created_at: string;
+}
+
+interface CustomerStats {
+  totalSpent: number;
+  transactionCount: number;
+  avgTransaction: number;
+  lastPurchase: string | null;
 }
 
 export default function Customers() {
@@ -117,16 +101,14 @@ export default function Customers() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsActiveTab, setDetailsActiveTab] = useState<'transactions' | 'balance'>('transactions');
 
-  // Store customer stats locally for each customer
-  const [customerTotalSpent, setCustomerTotalSpent] = useState<Record<number, number>>({});
-  const [customerTransactionCounts, setCustomerTransactionCounts] = useState<Record<number, number>>({});
-
-  // Helper function to ensure balance is always a number
-  const getBalance = useCallback((balance: any): number => {
-    if (balance === null || balance === undefined) return 0;
-    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
-    return isNaN(num) ? 0 : num;
-  }, []);
+  // Store customer stats
+  const [customerStats, setCustomerStats] = useState<Record<number, CustomerStats>>({});
+  const [globalStats, setGlobalStats] = useState({
+    totalBalance: 0,
+    customersWithBalance: 0,
+    customersWithNegativeBalance: 0,
+    totalTransactions: 0
+  });
 
   // Form states
   const [formName, setFormName] = useState("");
@@ -140,291 +122,197 @@ export default function Customers() {
   const [balanceAmount, setBalanceAmount] = useState("");
   const [balanceNote, setBalanceNote] = useState("");
 
-  // Quick stats
-  const [customerStats, setCustomerStats] = useState<{
-    totalBalance: number;
-    customersWithBalance: number;
-    customersWithNegativeBalance: number;
-    totalTransactions: number;
-  }>({
-    totalBalance: 0,
-    customersWithBalance: 0,
-    customersWithNegativeBalance: 0,
-    totalTransactions: 0
-  });
+  const isMounted = useRef(true);
 
   useEffect(() => {
-    if (userId) {
-      loadCustomers();
-    }
+    isMounted.current = true;
+    if (userId) loadCustomers();
+    return () => { isMounted.current = false; };
   }, [userId]);
 
   useEffect(() => {
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      setFilteredCustomers(
-        customers.filter(
-          (c) =>
-            c.name.toLowerCase().includes(query) ||
-            (c.phone && c.phone.toLowerCase().includes(query)) ||
-            (c.email && c.email.toLowerCase().includes(query))
-        )
-      );
-    } else {
-      setFilteredCustomers(customers);
-    }
+    if (!isMounted.current) return;
+    const query = searchQuery.toLowerCase();
+    setFilteredCustomers(
+      customers.filter(c =>
+        c.name.toLowerCase().includes(query) ||
+        (c.phone && c.phone.toLowerCase().includes(query)) ||
+        (c.email && c.email.toLowerCase().includes(query))
+      )
+    );
   }, [searchQuery, customers]);
 
-  const loadCustomers = async () => {
-    setLoading(true);
-    
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error("No user found");
-        setLoading(false);
-        return;
-      }
+  // Helper functions
+  const getBalance = useCallback((balance: any): number => {
+    const num = parseFloat(balance) || 0;
+    return isNaN(num) ? 0 : num;
+  }, []);
 
-      // Load customers
-      const { data: customersData, error: customersError } = await supabase
-        .from("customers")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("name");
-      
-      if (customersError) {
-        console.error("Error loading customers:", customersError);
-        throw customersError;
-      }
-
-      if (customersData) {
-        // Normalize balance to ensure it's always a number
-        const normalizedData = customersData.map(customer => ({
-          ...customer,
-          balance: getBalance(customer.balance)
-        }));
-        setCustomers(normalizedData);
-        setFilteredCustomers(normalizedData);
-
-        // Pre-load transaction data for all customers
-        await preloadCustomerTransactionData(normalizedData, user.id);
-
-        // Calculate stats
-        const totalBalance = normalizedData.reduce((sum, c) => sum + getBalance(c.balance), 0);
-        const customersWithBalance = normalizedData.filter(c => getBalance(c.balance) > 0).length;
-        const customersWithNegativeBalance = normalizedData.filter(c => getBalance(c.balance) < 0).length;
-
-        // Get total transactions count from preloaded data
-        const totalTransactions = Object.values(customerTransactionCounts).reduce((sum, count) => sum + count, 0);
-
-        setCustomerStats({
-          totalBalance,
-          customersWithBalance,
-          customersWithNegativeBalance,
-          totalTransactions
-        });
-      }
-    } catch (error) {
-      console.error("Error loading customers:", error);
-      alert("Error loading customers. Please check your connection.");
-    } finally {
-      setLoading(false);
-    }
+  const getBalanceColor = (balance: number) => {
+    if (balance > 0) return "text-emerald-400";
+    if (balance < 0) return "text-red-400";
+    return "text-slate-400";
   };
 
-  const preloadCustomerTransactionData = async (customers: Customer[], userId: string) => {
+  const getBalanceBgColor = (balance: number) => {
+    if (balance > 0) return "bg-emerald-500/20 border-emerald-500/30";
+    if (balance < 0) return "bg-red-500/20 border-red-500/30";
+    return "bg-slate-500/20 border-slate-500/30";
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: 'GBP'
+    }).format(amount);
+  };
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "Never";
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // Load customers with proper transaction data
+  const loadCustomers = async () => {
+    if (!userId || !isMounted.current) return;
+    
+    setLoading(true);
     try {
-      // Load all transactions for these customers with items
-      const { data: transactionsData, error } = await supabase
+      // Load customers
+      const { data: customersData, error } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name");
+
+      if (error) throw error;
+      if (!customersData) return;
+
+      const normalizedCustomers = customersData.map(c => ({
+        ...c,
+        balance: getBalance(c.balance)
+      }));
+
+      setCustomers(normalizedCustomers);
+      setFilteredCustomers(normalizedCustomers);
+
+      // Load ALL transactions for these customers
+      const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
           id,
           customer_id,
           total,
-          subtotal,
           final_amount,
-          discount_amount,
-          vat,
-          payment_method,
-          payment_status,
-          notes,
           created_at,
           transaction_items (
             id,
-            transaction_id,
             quantity,
             price_at_time,
-            services!inner (
-              name,
-              price
+            services (
+              name
             )
           )
         `)
         .eq("user_id", userId)
-        .in("customer_id", customers.map(c => c.id))
+        .in("customer_id", normalizedCustomers.map(c => c.id))
         .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Error preloading transaction data:", error);
-        return;
-      }
+      // Calculate stats for each customer
+      const stats: Record<number, CustomerStats> = {};
+      const global = {
+        totalBalance: 0,
+        customersWithBalance: 0,
+        customersWithNegativeBalance: 0,
+        totalTransactions: 0
+      };
 
-      if (transactionsData) {
-        // Calculate totals per customer
-        const totals: Record<number, number> = {};
-        const counts: Record<number, number> = {};
-
-        transactionsData.forEach(transaction => {
-          const customerId = transaction.customer_id;
-          const amount = transaction.total || transaction.final_amount || transaction.subtotal || 0;
-          
-          if (!totals[customerId]) {
-            totals[customerId] = 0;
-            counts[customerId] = 0;
-          }
-          totals[customerId] += amount;
-          counts[customerId] = (counts[customerId] || 0) + 1;
-        });
-
-        setCustomerTotalSpent(totals);
-        setCustomerTransactionCounts(counts);
-
-        // Store transaction data for quick access
-        const transactionsByCustomer: Record<number, Transaction[]> = {};
+      normalizedCustomers.forEach(customer => {
+        const customerTrans = transactionsData?.filter(t => t.customer_id === customer.id) || [];
+        const totalSpent = customerTrans.reduce((sum, t) => sum + (t.total || t.final_amount || 0), 0);
+        const transactionCount = customerTrans.length;
         
-        transactionsData.forEach(tx => {
-          const customerId = tx.customer_id;
-          
-          if (!transactionsByCustomer[customerId]) {
-            transactionsByCustomer[customerId] = [];
-          }
+        stats[customer.id] = {
+          totalSpent,
+          transactionCount,
+          avgTransaction: transactionCount > 0 ? totalSpent / transactionCount : 0,
+          lastPurchase: customerTrans[0]?.created_at || null
+        };
 
-          // Transform items to products
-const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
-  // Get the first service from the array
-  const service = item.services && item.services.length > 0 ? item.services[0] : null;
-  const price = item.price_at_time || service?.price || 0;
-  const quantity = item.quantity || 0;
-  const total = price * quantity;
-  
-  return {
-    id: item.id,
-    name: service?.name || 'Unknown Service',
-    price: price,
-    quantity: quantity,
-    discount: 0,
-    total: total
-  };
-});
+        global.totalBalance += customer.balance;
+        if (customer.balance > 0) global.customersWithBalance++;
+        if (customer.balance < 0) global.customersWithNegativeBalance++;
+        global.totalTransactions += transactionCount;
+      });
 
-          const subtotal = products.reduce((sum, p) => sum + p.total, 0);
-          const total = tx.total || tx.final_amount || subtotal;
-          const vat = tx.vat || 0;
+      setCustomerStats(stats);
+      setGlobalStats(global);
 
-          transactionsByCustomer[customerId].push({
-            id: tx.id,
-            customer_id: tx.customer_id,
-            subtotal: subtotal,
-            vat: vat,
-            total: total,
-            discount_amount: tx.discount_amount || 0,
-            final_amount: tx.final_amount || total,
-            payment_method: tx.payment_method || 'cash',
-            payment_status: tx.payment_status || 'completed',
-            notes: tx.notes,
-            created_at: tx.created_at,
-            products: products,
-            transaction_items: tx.transaction_items as any
-          });
-        });
-
-        // Store in localStorage for quick access
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('customerTransactions', JSON.stringify(transactionsByCustomer));
-        }
-      }
     } catch (error) {
-      console.error("Error preloading transaction data:", error);
+      console.error("Error loading customers:", error);
+    } finally {
+      if (isMounted.current) setLoading(false);
     }
   };
 
+  // Load customer details (transactions and balance history)
   const loadCustomerDetails = async (customerId: number) => {
-    if (!customerId) return;
+    if (!customerId || !userId) return;
     
     setDetailsLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      console.log("Loading details for customer:", customerId);
-
-      // First check localStorage for cached data
-      if (typeof window !== 'undefined') {
-        const cachedData = localStorage.getItem('customerTransactions');
-        if (cachedData) {
-          const transactionsByCustomer = JSON.parse(cachedData);
-          if (transactionsByCustomer[customerId]) {
-            console.log("Using cached transaction data");
-            setCustomerTransactions(transactionsByCustomer[customerId]);
-          }
-        }
-      }
-
-      // Always load fresh data but show cached first
-      const { data: transactionsData, error: transactionsError } = await supabase
+      // Load transactions with proper items structure
+      const { data: transactionsData } = await supabase
         .from("transactions")
         .select(`
           *,
-          transaction_items (
+          transaction_items!inner (
             id,
-            transaction_id,
             quantity,
             price_at_time,
             services!inner (
-              name,
-              price
+              name
             )
           )
         `)
         .eq("customer_id", customerId)
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(20);
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
 
-      if (transactionsError) {
-        console.error("Error loading transactions:", transactionsError);
-        // Don't set empty array if we have cached data
-      } else if (transactionsData) {
-        // Transform the data
-        const transformedTransactions: Transaction[] = transactionsData.map(tx => {
-          // Transform items to products
-const products: TransactionProduct[] = (tx.transaction_items || []).map((item: any) => {
-  // Get the first service from the array
-  const service = item.services && item.services.length > 0 ? item.services[0] : null;
-  const price = item.price_at_time || service?.price || 0;
-  const quantity = item.quantity || 0;
-  const total = price * quantity;
-  
-  return {
-    id: item.id,
-    name: service?.name || 'Unknown Service',
-    price: price,
-    quantity: quantity,
-    discount: 0,
-    total: total
-  };
-});
+      if (transactionsData) {
+        const transformed: Transaction[] = transactionsData.map(tx => {
+          // Transform transaction items to products
+          const products: TransactionProduct[] = tx.transaction_items.map((item: any) => {
+            // Handle the service data structure properly
+            const service = Array.isArray(item.services) ? item.services[0] : item.services;
+            const price = item.price_at_time || 0;
+            const quantity = item.quantity || 1;
+            
+            return {
+              id: item.id,
+              name: service?.name || 'Item',
+              price: price,
+              quantity: quantity,
+              total: price * quantity
+            };
+          });
 
           const subtotal = products.reduce((sum, p) => sum + p.total, 0);
-          const total = tx.total || tx.final_amount || subtotal;
-          const vat = tx.vat || 0;
+          const total = tx.total || subtotal;
 
           return {
             id: tx.id,
             customer_id: tx.customer_id,
             subtotal: subtotal,
-            vat: vat,
+            vat: tx.vat || 0,
             total: total,
             discount_amount: tx.discount_amount || 0,
             final_amount: tx.final_amount || total,
@@ -432,40 +320,31 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
             payment_status: tx.payment_status || 'completed',
             notes: tx.notes,
             created_at: tx.created_at,
-            products: products,
-            payment_details: tx.payment_details,
-            balance_deducted: tx.balance_deducted,
-            transaction_items: tx.transaction_items as any
+            products: products
           };
         });
 
-        console.log("Loaded fresh transaction data:", transformedTransactions);
-        setCustomerTransactions(transformedTransactions);
+        setCustomerTransactions(transformed);
       }
 
       // Load balance history
-      const { data: balanceData, error: balanceError } = await supabase
+      const { data: balanceData } = await supabase
         .from("customer_balance_history")
         .select("*")
         .eq("customer_id", customerId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
-      if (balanceError) {
-        console.error("Balance history error:", balanceError);
-        setCustomerBalanceHistory([]);
-      } else {
-        console.log("Loaded balance history:", balanceData?.length || 0);
-        setCustomerBalanceHistory(balanceData || []);
-      }
+      setCustomerBalanceHistory(balanceData || []);
 
     } catch (error) {
       console.error("Error loading customer details:", error);
     } finally {
-      setDetailsLoading(false);
+      if (isMounted.current) setDetailsLoading(false);
     }
   };
 
+  // Modal handlers
   const openAddModal = () => {
     setEditingCustomer(null);
     setFormName("");
@@ -482,7 +361,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
     setFormPhone(customer.phone || "");
     setFormEmail(customer.email || "");
     setFormNotes(customer.notes || "");
-    setFormBalance(getBalance(customer.balance).toString());
+    setFormBalance(customer.balance.toString());
     setShowModal(true);
   };
 
@@ -497,41 +376,21 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
   const openDetailsModal = async (customer: Customer) => {
     setSelectedCustomer(customer);
     setShowDetailsModal(true);
-    setDetailsLoading(true);
-    
-    // Show immediately with cached data
-    if (typeof window !== 'undefined') {
-      const cachedData = localStorage.getItem('customerTransactions');
-      if (cachedData) {
-        const transactionsByCustomer = JSON.parse(cachedData);
-        if (transactionsByCustomer[customer.id]) {
-          setCustomerTransactions(transactionsByCustomer[customer.id]);
-        }
-      }
-    }
-    
-    // Then load fresh data in background
-    setTimeout(() => {
-      loadCustomerDetails(customer.id);
-    }, 100);
+    loadCustomerDetails(customer.id);
   };
 
+  // CRUD Operations
   const saveCustomer = async () => {
-    if (!formName.trim()) {
+    if (!formName.trim() || !userId) {
       alert("Name is required");
       return;
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        alert("Not authenticated");
-        return;
-      }
-
       const balanceValue = parseFloat(formBalance) || 0;
 
       if (editingCustomer) {
+        // Update existing customer
         const { error } = await supabase
           .from("customers")
           .update({
@@ -545,10 +404,10 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
 
         if (error) throw error;
 
-        // Log balance change if it changed
+        // Log balance change if different
         if (balanceValue !== editingCustomer.balance) {
           await supabase.from("customer_balance_history").insert({
-            user_id: user.id,
+            user_id: userId,
             customer_id: editingCustomer.id,
             amount: balanceValue - editingCustomer.balance,
             previous_balance: editingCustomer.balance,
@@ -556,21 +415,10 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
             note: "Manual balance adjustment"
           });
         }
-
-        // Update local state
-        setCustomers(prev => prev.map(c => 
-          c.id === editingCustomer.id ? { 
-            ...c, 
-            name: formName,
-            phone: formPhone || null,
-            email: formEmail || null,
-            notes: formNotes || null,
-            balance: balanceValue
-          } : c
-        ));
       } else {
+        // Create new customer
         const { error } = await supabase.from("customers").insert({
-          user_id: user.id,
+          user_id: userId,
           name: formName,
           phone: formPhone || null,
           email: formEmail || null,
@@ -583,15 +431,14 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
 
       setShowModal(false);
       await loadCustomers();
-      alert(`✅ Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
     } catch (error: any) {
       console.error("Error saving customer:", error);
-      alert(`Error saving customer: ${error.message}`);
+      alert(`Error: ${error.message}`);
     }
   };
 
   const adjustBalance = async () => {
-    if (!balanceCustomer || !balanceAmount) {
+    if (!balanceCustomer || !balanceAmount || !userId) {
       alert("Please enter an amount");
       return;
     }
@@ -602,482 +449,77 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
       return;
     }
 
-    // Ensure balance is a number, handling null/undefined
-    const currentBalance = getBalance(balanceCustomer.balance);
-    const adjustmentAmount = balanceAction === "add" ? amount : -amount;
-    const newBalance = currentBalance + adjustmentAmount;
+    const currentBalance = balanceCustomer.balance;
+    const adjustment = balanceAction === "add" ? amount : -amount;
+    const newBalance = currentBalance + adjustment;
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error: updateError } = await supabase
+      // Update customer balance
+      const { error } = await supabase
         .from("customers")
-        .update({ 
-          balance: newBalance
-        })
+        .update({ balance: newBalance })
         .eq("id", balanceCustomer.id);
 
-      if (updateError) throw updateError;
+      if (error) throw error;
 
       // Log balance transaction
       await supabase.from("customer_balance_history").insert({
-        user_id: user.id,
+        user_id: userId,
         customer_id: balanceCustomer.id,
-        amount: adjustmentAmount,
+        amount: adjustment,
         previous_balance: currentBalance,
         new_balance: newBalance,
-        note: balanceNote || (balanceAction === "add" ? "Balance added" : "Balance deducted")
+        note: balanceNote || `${balanceAction === "add" ? "Added" : "Deducted"} balance`
       });
 
-      // Update the balanceCustomer state with the new balance
-      const updatedCustomer = {
-        ...balanceCustomer,
-        balance: newBalance
-      };
+      // Update local state
+      const updatedCustomer = { ...balanceCustomer, balance: newBalance };
+      setCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+      setFilteredCustomers(prev => prev.map(c => c.id === balanceCustomer.id ? updatedCustomer : c));
+
+      // Update global stats
+      setGlobalStats(prev => ({
+        ...prev,
+        totalBalance: prev.totalBalance + adjustment
+      }));
+
+      // Update balance modal customer
       setBalanceCustomer(updatedCustomer);
 
-      // Update customers list
-      setCustomers(prev => prev.map(c => 
-        c.id === balanceCustomer.id ? updatedCustomer : c
-      ));
-
-      // Update filtered customers
-      setFilteredCustomers(prev => prev.map(c => 
-        c.id === balanceCustomer.id ? updatedCustomer : c
-      ));
-
-      // Update customer stats
-      const updatedStats = { ...customerStats };
-      updatedStats.totalBalance += adjustmentAmount;
-      
-      if (currentBalance <= 0 && newBalance > 0) {
-        updatedStats.customersWithBalance += 1;
-      } else if (currentBalance > 0 && newBalance <= 0) {
-        updatedStats.customersWithBalance -= 1;
-      }
-      
-      if (currentBalance >= 0 && newBalance < 0) {
-        updatedStats.customersWithNegativeBalance += 1;
-      } else if (currentBalance < 0 && newBalance >= 0) {
-        updatedStats.customersWithNegativeBalance -= 1;
-      }
-      
-      setCustomerStats(updatedStats);
-
-      // Reset the form
       setBalanceAmount("");
       setBalanceNote("");
 
-      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"} successfully!`);
-      
-      // Close modal after successful update
+      // Refresh stats
+      await loadCustomers();
+
+      alert(`✅ Balance ${balanceAction === "add" ? "added" : "deducted"}!`);
       setTimeout(() => setShowBalanceModal(false), 1000);
+
     } catch (error: any) {
       console.error("Error:", error);
-      alert(`Error adjusting balance: ${error.message}`);
+      alert(`Error: ${error.message}`);
     }
   };
 
   const deleteCustomer = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this customer? This action cannot be undone.")) return;
+    if (!confirm("Delete this customer? This cannot be undone.")) return;
 
     try {
-      const { error } = await supabase.from("customers").delete().eq("id", id);
+      const { error } = await supabase
+        .from("customers")
+        .delete()
+        .eq("id", id);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      // Remove from local state
       setCustomers(prev => prev.filter(c => c.id !== id));
       setFilteredCustomers(prev => prev.filter(c => c.id !== id));
       
-      alert("✅ Customer deleted successfully!");
+      await loadCustomers();
     } catch (error: any) {
-      console.error("Error deleting customer:", error);
-      alert(`Error deleting customer: ${error.message}`);
+      console.error("Error:", error);
+      alert(`Error: ${error.message}`);
     }
-  };
-
-  // Print receipt for a transaction - Non-blocking version
-  const printTransactionReceipt = async (transaction: Transaction) => {
-    if (!selectedCustomer) return;
-    
-    try {
-      // Show loading state
-      const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
-      if (receiptButton) {
-        const originalHTML = receiptButton.innerHTML;
-        receiptButton.innerHTML = '<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>';
-        (receiptButton as HTMLButtonElement).disabled = true;
-
-        // Restore button state after 3 seconds even if error
-        setTimeout(() => {
-          receiptButton.innerHTML = originalHTML;
-          (receiptButton as HTMLButtonElement).disabled = false;
-        }, 3000);
-      }
-
-      // Load receipt settings asynchronously
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: receiptSettings } = await supabase
-        .from("settings")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
-
-      const fontSize = Math.min(Math.max(receiptSettings?.receipt_font_size || 12, 8), 16);
-      const businessName = receiptSettings?.business_name || "Your Business";
-      const businessAddress = receiptSettings?.business_address || "";
-      const businessPhone = receiptSettings?.business_phone || "";
-      const businessEmail = receiptSettings?.business_email || "";
-      const taxNumber = receiptSettings?.tax_number || "";
-      const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
-      const logoUrl = receiptSettings?.receipt_logo_url || "";
-      const showBarcodeOnReceipt = receiptSettings?.show_barcode_on_receipt !== false;
-      const barcodeType = receiptSettings?.barcode_type || "CODE128";
-
-      // Use setTimeout to prevent UI freeze
-      setTimeout(() => {
-        const receiptWindow = window.open('', '_blank');
-        if (!receiptWindow) {
-          alert("Please allow pop-ups to print receipts");
-          return;
-        }
-
-        // Calculate totals
-        const subtotal = transaction.products?.reduce((sum, p) => sum + p.total, 0) || 0;
-        const total = transaction.total || subtotal;
-        const vat = transaction.vat || 0;
-
-        const receiptHTML = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Receipt #${transaction.id}</title>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-            <style>
-              @media print {
-                @page { margin: 0; }
-                body { margin: 10mm; }
-              }
-              body { 
-                font-family: 'Courier New', monospace; 
-                padding: 20px; 
-                max-width: 80mm; 
-                margin: 0 auto; 
-                font-size: ${fontSize}px;
-                line-height: 1.2;
-              }
-              .logo { text-align: center; margin-bottom: 10px; }
-              .logo img { max-width: 100px; max-height: 60px; }
-              h1 { 
-                text-align: center; 
-                font-size: ${fontSize + 4}px; 
-                margin: 5px 0; 
-                font-weight: bold; 
-                text-transform: uppercase;
-              }
-              .business-info { 
-                text-align: center; 
-                font-size: ${fontSize - 2}px; 
-                margin-bottom: 10px; 
-                line-height: 1.3;
-              }
-              .line { 
-                border-bottom: 1px dashed #000; 
-                margin: 8px 0; 
-              }
-              .receipt-header {
-                font-size: ${fontSize - 2}px;
-                margin-bottom: 8px;
-              }
-              .item { 
-                display: flex; 
-                justify-content: space-between; 
-                margin: 4px 0;
-                font-size: ${fontSize}px;
-              }
-              .item-name {
-                flex: 1;
-                padding-right: 10px;
-              }
-              .item-price {
-                white-space: nowrap;
-                font-weight: bold;
-              }
-              .totals { 
-                margin-top: 10px; 
-                font-weight: bold; 
-              }
-              .total-line { 
-                display: flex; 
-                justify-content: space-between; 
-                margin: 4px 0;
-                font-size: ${fontSize}px;
-              }
-              .grand-total {
-                font-size: ${fontSize + 2}px;
-                border-top: 2px solid #000;
-                padding-top: 6px;
-                margin-top: 6px;
-              }
-              .payment-info {
-                margin: 10px 0;
-                padding: 8px;
-                background: #f5f5f5;
-                border: 1px solid #ddd;
-                text-align: center;
-                font-weight: bold;
-                font-size: ${fontSize}px;
-              }
-              .footer { 
-                text-align: center; 
-                margin-top: 15px; 
-                font-size: ${fontSize - 2}px;
-                font-style: italic;
-              }
-              .barcode-container {
-                text-align: center;
-                margin: 15px 0;
-              }
-              .balance-info {
-                text-align: center;
-                font-size: ${fontSize - 2}px;
-                margin: 8px 0;
-                padding: 5px;
-                border: 1px dashed #ccc;
-              }
-              .notes {
-                margin: 8px 0;
-                padding: 5px;
-                font-style: italic;
-                font-size: ${fontSize - 2}px;
-                color: #666;
-              }
-              canvas {
-                max-width: 100%;
-                height: auto;
-              }
-            </style>
-          </head>
-          <body>
-            ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" /></div>` : ''}
-            
-            <h1>${businessName}</h1>
-            
-            <div class="business-info">
-              ${businessAddress ? `<div>${businessAddress}</div>` : ''}
-              ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
-              ${businessEmail ? `<div>${businessEmail}</div>` : ''}
-              ${taxNumber ? `<div>Tax No: ${taxNumber}</div>` : ''}
-            </div>
-            
-            <div class="line"></div>
-            
-            <div class="receipt-header">
-              <div><strong>Receipt #${transaction.id}</strong></div>
-              <div>${new Date(transaction.created_at).toLocaleString('en-GB', { 
-                day: '2-digit', 
-                month: '2-digit', 
-                year: 'numeric', 
-                hour: '2-digit', 
-                minute: '2-digit' 
-              })}</div>
-              <div>Customer: ${selectedCustomer.name}</div>
-              ${transaction.notes ? `<div class="notes">Note: ${transaction.notes}</div>` : ''}
-            </div>
-            
-            <div class="line"></div>
-            
-            ${transaction.products?.map((item: TransactionProduct) => `
-              <div class="item">
-                <div class="item-name">
-                  <div>${item.name}</div>
-                  <div style="font-size: ${fontSize - 3}px; color: #666;">
-                    ${item.quantity} x £${item.price.toFixed(2)}
-                    ${item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
-                  </div>
-                </div>
-                <div class="item-price">£${item.total.toFixed(2)}</div>
-              </div>
-            `).join('') || '<div>No items in this transaction</div>'}
-            
-            <div class="line"></div>
-            
-            <div class="totals">
-              <div class="total-line">
-                <span>Subtotal:</span>
-                <span>£${subtotal.toFixed(2)}</span>
-              </div>
-              ${vat > 0 ? `
-                <div class="total-line">
-                  <span>VAT (20%):</span>
-                  <span>£${vat.toFixed(2)}</span>
-                </div>
-              ` : ''}
-              <div class="total-line grand-total">
-                <span>TOTAL:</span>
-                <span>£${total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            <div class="payment-info">
-              PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
-              ${transaction.payment_details?.split_payment ? `
-                <div style="font-size: ${fontSize - 2}px; margin-top: 5px;">
-                  Split: 
-                  ${transaction.payment_details.split_payment.cash ? `Cash: £${transaction.payment_details.split_payment.cash.toFixed(2)} ` : ''}
-                  ${transaction.payment_details.split_payment.card ? `Card: £${transaction.payment_details.split_payment.card.toFixed(2)} ` : ''}
-                  ${transaction.payment_details.split_payment.balance ? `Balance: £${transaction.payment_details.split_payment.balance.toFixed(2)}` : ''}
-                </div>
-              ` : ''}
-            </div>
-            
-            ${transaction.balance_deducted && transaction.balance_deducted > 0 && selectedCustomer ? `
-              <div class="balance-info">
-                <div>Balance Used: £${transaction.balance_deducted.toFixed(2)}</div>
-                <div>Remaining Balance: £${(selectedCustomer.balance).toFixed(2)}</div>
-              </div>
-            ` : ''}
-            
-            ${showBarcodeOnReceipt ? `
-              <div class="barcode-container">
-                <canvas id="barcodeCanvas"></canvas>
-              </div>
-            ` : ''}
-            
-            <div class="footer">
-              <div style="font-weight: bold; margin: 10px 0;">THANK YOU!</div>
-              ${receiptFooter}
-            </div>
-            
-            <script>
-              window.onload = function() {
-                ${showBarcodeOnReceipt ? `
-                  try {
-                    JsBarcode("#barcodeCanvas", "TXN${transaction.id}", {
-                      format: "${barcodeType}",
-                      width: 2,
-                      height: 50,
-                      displayValue: true,
-                      fontSize: 12,
-                      textMargin: 5
-                    });
-                  } catch (e) {
-                    console.error("Barcode error:", e);
-                    document.querySelector('.barcode-container').innerHTML = '<div>Transaction #${transaction.id}</div>';
-                  }
-                ` : ''}
-                
-                // Small delay to ensure barcode is rendered
-                setTimeout(() => {
-                  window.print();
-                  setTimeout(() => {
-                    window.close();
-                  }, 500);
-                }, 100);
-              };
-            </script>
-          </body>
-          </html>
-        `;
-
-        receiptWindow.document.write(receiptHTML);
-        receiptWindow.document.close();
-        
-        // Reset button state
-        if (receiptButton) {
-          setTimeout(() => {
-            receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
-            (receiptButton as HTMLButtonElement).disabled = false;
-          }, 2000);
-        }
-      }, 100);
-    } catch (error) {
-      console.error("Error printing receipt:", error);
-      alert("Error printing receipt");
-      
-      // Reset button state on error
-      const receiptButton = document.querySelector(`button[data-transaction-id="${transaction.id}"]`);
-      if (receiptButton) {
-        receiptButton.innerHTML = '<Printer className="w-3 h-3" /> Print';
-        (receiptButton as HTMLButtonElement).disabled = false;
-      }
-    }
-  };
-
-  // Calculate statistics for a specific customer
-  const getCustomerStats = (customerId: number) => {
-    const totalSpent = customerTotalSpent[customerId] || 0;
-    const transactionCount = customerTransactionCounts[customerId] || 0;
-    const avgTransaction = transactionCount > 0 ? totalSpent / transactionCount : 0;
-    
-    // Get last purchase from cached data
-    let lastPurchase = null;
-    if (typeof window !== 'undefined') {
-      const cachedData = localStorage.getItem('customerTransactions');
-      if (cachedData) {
-        const transactionsByCustomer = JSON.parse(cachedData);
-        if (transactionsByCustomer[customerId] && transactionsByCustomer[customerId].length > 0) {
-          lastPurchase = transactionsByCustomer[customerId][0].created_at;
-        }
-      }
-    }
-    
-    return {
-      totalSpent,
-      avgTransaction,
-      transactionCount,
-      lastPurchase
-    };
-  };
-
-  const getBalanceColor = (balance: number) => {
-    if (balance > 0) return "text-emerald-400";
-    if (balance < 0) return "text-red-400";
-    return "text-slate-400";
-  };
-
-  const getBalanceBgColor = (balance: number) => {
-    if (balance > 0) return "bg-emerald-500/20 border-emerald-500/30";
-    if (balance < 0) return "bg-red-500/20 border-red-500/30";
-    return "bg-slate-500/20 border-slate-500/30";
-  };
-
-  const getPaymentStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'completed': return 'bg-emerald-500/20 text-emerald-400';
-      case 'pending': return 'bg-yellow-500/20 text-yellow-400';
-      case 'failed': return 'bg-red-500/20 text-red-400';
-      case 'refunded': return 'bg-blue-500/20 text-blue-400';
-      default: return 'bg-slate-500/20 text-slate-400';
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-
-  // Format currency consistently
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-GB', {
-      style: 'currency',
-      currency: 'GBP'
-    }).format(amount);
   };
 
   if (loading) {
@@ -1103,7 +545,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
             </h1>
             <p className="text-lg md:text-xl text-slate-400 mt-2 flex items-center gap-2">
               <Users className="w-5 h-5" />
-              {customers.length} total customers • {customerStats.totalTransactions} transactions
+              {customers.length} total customers • {globalStats.totalTransactions} transactions
             </p>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
@@ -1136,7 +578,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
               <Wallet className="w-8 h-8 text-emerald-400" />
               <p className="text-slate-300 font-bold">Total Balance</p>
             </div>
-            <p className="text-5xl font-black text-emerald-400">{formatCurrency(customerStats.totalBalance)}</p>
+            <p className="text-5xl font-black text-emerald-400">{formatCurrency(globalStats.totalBalance)}</p>
           </div>
 
           <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-6 shadow-xl">
@@ -1144,7 +586,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
               <TrendingUp className="w-8 h-8 text-purple-400" />
               <p className="text-slate-300 font-bold">With Credit</p>
             </div>
-            <p className="text-5xl font-black text-purple-400">{customerStats.customersWithBalance}</p>
+            <p className="text-5xl font-black text-purple-400">{globalStats.customersWithBalance}</p>
           </div>
 
           <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 shadow-xl">
@@ -1152,7 +594,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
               <TrendingDown className="w-8 h-8 text-orange-400" />
               <p className="text-slate-300 font-bold">With Debt</p>
             </div>
-            <p className="text-5xl font-black text-orange-400">{customerStats.customersWithNegativeBalance}</p>
+            <p className="text-5xl font-black text-orange-400">{globalStats.customersWithNegativeBalance}</p>
           </div>
         </div>
 
@@ -1201,7 +643,12 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
             </div>
           ) : (
             filteredCustomers.map((customer) => {
-              const stats = getCustomerStats(customer.id);
+              const stats = customerStats[customer.id] || {
+                totalSpent: 0,
+                transactionCount: 0,
+                avgTransaction: 0,
+                lastPurchase: null
+              };
               
               return (
                 <div
@@ -1274,14 +721,14 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                   </div>
 
                   {/* Balance Section */}
-                  <div className={`mt-4 pt-4 border-t ${getBalanceBgColor(getBalance(customer.balance))} rounded-lg p-4`}>
+                  <div className={`mt-4 pt-4 border-t ${getBalanceBgColor(customer.balance)} rounded-lg p-4`}>
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <Wallet className="w-5 h-5" />
                         <span className="text-sm text-slate-400 font-medium">Current Balance</span>
                       </div>
-                      <span className={`text-2xl font-black ${getBalanceColor(getBalance(customer.balance))}`}>
-                        {formatCurrency(getBalance(customer.balance))}
+                      <span className={`text-2xl font-black ${getBalanceColor(customer.balance)}`}>
+                        {formatCurrency(customer.balance)}
                       </span>
                     </div>
                     
@@ -1302,16 +749,24 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                     </div>
                   </div>
 
-                  {/* Quick Stats */}
+                  {/* Quick Stats - ALIGNED */}
                   <div className="mt-4 pt-4 border-t border-slate-700/50">
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="text-center p-2 bg-slate-800/30 rounded-lg">
-                        <div className="text-slate-400 mb-1">Transactions</div>
-                        <div className="font-bold">{stats.transactionCount}</div>
+                        <div className="text-slate-400 mb-1 whitespace-nowrap">Transactions</div>
+                        <div className="font-bold text-white">{stats.transactionCount}</div>
                       </div>
                       <div className="text-center p-2 bg-slate-800/30 rounded-lg">
-                        <div className="text-slate-400 mb-1">Total Spent</div>
+                        <div className="text-slate-400 mb-1 whitespace-nowrap">Total Spent</div>
                         <div className="font-bold text-emerald-400">{formatCurrency(stats.totalSpent)}</div>
+                      </div>
+                      <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                        <div className="text-slate-400 mb-1 whitespace-nowrap">Avg. Transaction</div>
+                        <div className="font-bold text-cyan-400">{formatCurrency(stats.avgTransaction)}</div>
+                      </div>
+                      <div className="text-center p-2 bg-slate-800/30 rounded-lg">
+                        <div className="text-slate-400 mb-1 whitespace-nowrap">Last Purchase</div>
+                        <div className="font-bold text-orange-400">{formatDate(stats.lastPurchase)}</div>
                       </div>
                     </div>
                   </div>
@@ -1437,15 +892,15 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
               </button>
             </div>
 
-            <div className={`bg-slate-800/50 rounded-xl p-5 mb-6 border ${getBalanceBgColor(getBalance(balanceCustomer.balance))}`}>
+            <div className={`bg-slate-800/50 rounded-xl p-5 mb-6 border ${getBalanceBgColor(balanceCustomer.balance)}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-slate-400">Customer:</span>
                 <span className="font-bold text-white text-lg">{balanceCustomer.name}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Current Balance:</span>
-                <span className={`text-3xl font-black ${getBalanceColor(getBalance(balanceCustomer.balance))}`}>
-                  {formatCurrency(getBalance(balanceCustomer.balance))}
+                <span className={`text-3xl font-black ${getBalanceColor(balanceCustomer.balance)}`}>
+                  {formatCurrency(balanceCustomer.balance)}
                 </span>
               </div>
             </div>
@@ -1497,7 +952,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                 <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-400">Current Balance:</span>
-                    <span className="font-bold">{formatCurrency(getBalance(balanceCustomer.balance))}</span>
+                    <span className="font-bold">{formatCurrency(balanceCustomer.balance)}</span>
                   </div>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-400">
@@ -1511,12 +966,12 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                     <div className="flex justify-between">
                       <span className="font-bold">New Balance:</span>
                       <span className={`text-xl font-black ${getBalanceColor(
-                        getBalance(balanceCustomer.balance) + 
-                        (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount)
+                        balanceCustomer.balance + 
+                        (balanceAction === "add" ? parseFloat(balanceAmount) : -parseFloat(balanceAmount))
                       )}`}>
                         {formatCurrency(
-                          getBalance(balanceCustomer.balance) + 
-                          (balanceAction === "add" ? 1 : -1) * parseFloat(balanceAmount)
+                          balanceCustomer.balance + 
+                          (balanceAction === "add" ? parseFloat(balanceAmount) : -parseFloat(balanceAmount))
                         )}
                       </span>
                     </div>
@@ -1592,8 +1047,8 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                     </div>
                   </div>
                 </div>
-                <div className={`text-3xl font-black ${getBalanceColor(getBalance(selectedCustomer.balance))}`}>
-                  {formatCurrency(getBalance(selectedCustomer.balance))}
+                <div className={`text-3xl font-black ${getBalanceColor(selectedCustomer.balance)}`}>
+                  {formatCurrency(selectedCustomer.balance)}
                 </div>
               </div>
               
@@ -1603,38 +1058,42 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                 </div>
               )}
               
-              {/* Stats */}
+              {/* Stats - ALIGNED */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                 <div className="bg-slate-800/50 rounded-xl p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="flex items-center justify-center gap-2 mb-2 min-h-[40px]">
                     <Receipt className="w-5 h-5 text-cyan-400" />
                     <span className="text-slate-400">Transactions</span>
                   </div>
-                  <p className="text-2xl font-bold">{getCustomerStats(selectedCustomer.id).transactionCount}</p>
+                  <p className="text-2xl font-bold">
+                    {(customerStats[selectedCustomer.id]?.transactionCount || 0)}
+                  </p>
                 </div>
                 <div className="bg-slate-800/50 rounded-xl p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="flex items-center justify-center gap-2 mb-2 min-h-[40px]">
                     <DollarSign className="w-5 h-5 text-emerald-400" />
                     <span className="text-slate-400">Total Spent</span>
                   </div>
-                  <p className="text-2xl font-bold text-emerald-400">{formatCurrency(getCustomerStats(selectedCustomer.id).totalSpent)}</p>
+                  <p className="text-2xl font-bold text-emerald-400">
+                    {formatCurrency(customerStats[selectedCustomer.id]?.totalSpent || 0)}
+                  </p>
                 </div>
                 <div className="bg-slate-800/50 rounded-xl p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="flex items-center justify-center gap-2 mb-2 min-h-[40px]">
                     <CreditCard className="w-5 h-5 text-purple-400" />
                     <span className="text-slate-400">Avg. Transaction</span>
                   </div>
-                  <p className="text-2xl font-bold">{formatCurrency(getCustomerStats(selectedCustomer.id).avgTransaction)}</p>
+                  <p className="text-2xl font-bold text-purple-400">
+                    {formatCurrency(customerStats[selectedCustomer.id]?.avgTransaction || 0)}
+                  </p>
                 </div>
                 <div className="bg-slate-800/50 rounded-xl p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="flex items-center justify-center gap-2 mb-2 min-h-[40px]">
                     <Clock className="w-5 h-5 text-orange-400" />
                     <span className="text-slate-400">Last Purchase</span>
                   </div>
-                  <p className="text-lg">
-                    {getCustomerStats(selectedCustomer.id).lastPurchase 
-                      ? formatDate(getCustomerStats(selectedCustomer.id).lastPurchase!)
-                      : "Never"}
+                  <p className="text-lg text-orange-400">
+                    {formatDate(customerStats[selectedCustomer.id]?.lastPurchase || null)}
                   </p>
                 </div>
               </div>
@@ -1653,7 +1112,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                 >
                   <div className="flex items-center gap-2">
                     <Receipt className="w-5 h-5" />
-                    Transactions ({getCustomerStats(selectedCustomer.id).transactionCount})
+                    Transactions ({customerStats[selectedCustomer.id]?.transactionCount || 0})
                   </div>
                 </button>
                 <button
@@ -1666,7 +1125,7 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
                 >
                   <div className="flex items-center gap-2">
                     <Wallet className="w-5 h-5" />
-                    Balance History ({customerBalanceHistory.filter(b => b.customer_id === selectedCustomer.id).length})
+                    Balance History ({customerBalanceHistory.length})
                   </div>
                 </button>
               </div>
@@ -1680,125 +1139,97 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
               </div>
             ) : detailsActiveTab === 'transactions' ? (
               <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                {customerTransactions.filter(t => t.customer_id === selectedCustomer.id).length === 0 ? (
+                {customerTransactions.length === 0 ? (
                   <div className="text-center py-8 bg-slate-800/30 border border-slate-700/50 rounded-xl">
                     <Receipt className="w-12 h-12 mx-auto mb-4 text-slate-500" />
                     <p className="text-slate-400">No transactions yet</p>
                   </div>
                 ) : (
-                  customerTransactions
-                    .filter(t => t.customer_id === selectedCustomer.id)
-                    .map((transaction) => (
-                      <div key={transaction.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-bold">Transaction #{transaction.id}</span>
-                              <span className={`px-2 py-1 rounded-full text-xs ${getPaymentStatusColor(transaction.payment_status)}`}>
-                                {transaction.payment_status}
-                              </span>
-                            </div>
-                            <div className="text-sm text-slate-400">
-                              {new Date(transaction.created_at).toLocaleString()}
-                            </div>
+                  customerTransactions.map((transaction) => (
+                    <div key={transaction.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold">Transaction #{transaction.id}</span>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              data-transaction-id={transaction.id}
-                              onClick={() => printTransactionReceipt(transaction)}
-                              className="px-3 py-1.5 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-all text-sm flex items-center gap-2"
-                            >
-                              <Printer className="w-3 h-3" />
-                              Print Receipt
-                            </button>
+                          <div className="text-sm text-slate-400">
+                            {new Date(transaction.created_at).toLocaleString()}
                           </div>
                         </div>
-                        
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div>
-                            <div className="text-sm text-slate-400">Payment Method</div>
-                            <div className="font-bold capitalize">{transaction.payment_method || 'cash'}</div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-slate-400">Total Amount</div>
-                            <div className="text-lg font-bold text-emerald-400">{formatCurrency(transaction.total)}</div>
-                          </div>
+                        <div className="text-lg font-bold text-emerald-400">
+                          {formatCurrency(transaction.total)}
                         </div>
-                        
-                        {transaction.products && transaction.products.length > 0 && (
-                          <div className="border-t border-slate-700/50 pt-3">
-                            <div className="text-sm text-slate-400 mb-2">Items:</div>
-                            <div className="space-y-2">
-                              {transaction.products.slice(0, 3).map((item) => (
-                                <div key={item.id} className="flex justify-between text-sm">
-                                  <span>{item.name} x{item.quantity}</span>
-                                  <span>{formatCurrency(item.total)}</span>
-                                </div>
-                              ))}
-                              {transaction.products.length > 3 && (
-                                <div className="text-slate-400 text-sm">+{transaction.products.length - 3} more items</div>
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    ))
+                      
+                      {transaction.products && transaction.products.length > 0 && (
+                        <div className="border-t border-slate-700/50 pt-3">
+                          <div className="text-sm text-slate-400 mb-2">Items:</div>
+                          <div className="space-y-2">
+                            {transaction.products.map((item) => (
+                              <div key={item.id} className="flex justify-between text-sm">
+                                <span>{item.name} x{item.quantity}</span>
+                                <span>{formatCurrency(item.total)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
                 )}
               </div>
             ) : (
               <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                {customerBalanceHistory.filter(b => b.customer_id === selectedCustomer.id).length === 0 ? (
+                {customerBalanceHistory.length === 0 ? (
                   <div className="text-center py-8 bg-slate-800/30 border border-slate-700/50 rounded-xl">
                     <Wallet className="w-12 h-12 mx-auto mb-4 text-slate-500" />
                     <p className="text-slate-400">No balance history</p>
                   </div>
                 ) : (
-                  customerBalanceHistory
-                    .filter(b => b.customer_id === selectedCustomer.id)
-                    .map((history) => (
-                      <div key={history.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${history.amount > 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                              {history.amount > 0 ? (
-                                <TrendingUp className="w-4 h-4 text-emerald-400" />
-                              ) : (
-                                <TrendingDown className="w-4 h-4 text-red-400" />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-bold">
-                                {history.amount > 0 ? 'Balance Added' : 'Balance Deducted'}
-                              </div>
-                              <div className="text-sm text-slate-400">
-                                {new Date(history.created_at).toLocaleString()}
-                              </div>
-                            </div>
-                          </div>
-                          <div className={`text-xl font-bold ${history.amount > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {history.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(history.amount))}
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div>
-                            <div className="text-sm text-slate-400">Previous Balance</div>
-                            <div>{formatCurrency(history.previous_balance)}</div>
+                  customerBalanceHistory.map((history) => (
+                    <div key={history.id} className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${history.amount > 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                            {history.amount > 0 ? (
+                              <TrendingUp className="w-4 h-4 text-emerald-400" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-red-400" />
+                            )}
                           </div>
                           <div>
-                            <div className="text-sm text-slate-400">New Balance</div>
-                            <div className="font-bold">{formatCurrency(history.new_balance)}</div>
+                            <div className="font-bold">
+                              {history.amount > 0 ? 'Balance Added' : 'Balance Deducted'}
+                            </div>
+                            <div className="text-sm text-slate-400">
+                              {new Date(history.created_at).toLocaleString()}
+                            </div>
                           </div>
                         </div>
-                        
-                        {history.note && (
-                          <div className="border-t border-slate-700/50 pt-3">
-                            <div className="text-sm text-slate-400 mb-1">Note:</div>
-                            <div className="text-slate-300">{history.note}</div>
-                          </div>
-                        )}
+                        <div className={`text-xl font-bold ${history.amount > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {history.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(history.amount))}
+                        </div>
                       </div>
-                    ))
+                      
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <div className="text-sm text-slate-400">Previous Balance</div>
+                          <div>{formatCurrency(history.previous_balance)}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-slate-400">New Balance</div>
+                          <div className="font-bold">{formatCurrency(history.new_balance)}</div>
+                        </div>
+                      </div>
+                      
+                      {history.note && (
+                        <div className="border-t border-slate-700/50 pt-3">
+                          <div className="text-sm text-slate-400 mb-1">Note:</div>
+                          <div className="text-slate-300">{history.note}</div>
+                        </div>
+                      )}
+                    </div>
+                  ))
                 )}
               </div>
             )}
@@ -1829,4 +1260,3 @@ const products: TransactionProduct[] = (tx.transaction_items || []).map((item: a
     </div>
   );
 }
-
