@@ -1,4 +1,4 @@
-// components/POS.tsx - RESTORED WITH ALL FUNCTIONALITY + DARK MODE
+// components/POS.tsx - FIXED WITH RECEIPT COMPONENT
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -7,7 +7,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
-import { updateCustomerBalanceAfterTransaction } from '@/lib/updateCustomerBalance';
+import ReceiptPrint, { ReceiptData } from "@/components/receipts/ReceiptPrint";
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
@@ -84,6 +84,8 @@ export default function POS() {
   const [lastScannedProduct, setLastScannedProduct] = useState<Product | null>(null);
   const [allowNegativeBalance, setAllowNegativeBalance] = useState(false);
   const [receiptSettings, setReceiptSettings] = useState<any>(null);
+  const [showReceiptPrint, setShowReceiptPrint] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showMiscModal, setShowMiscModal] = useState(false);
@@ -737,9 +739,53 @@ export default function POS() {
         staffId: currentStaff?.id,
       });
 
-      // Print receipt if requested
+      // Prepare receipt data for printing
       if (printReceiptOption) {
-        printCompletedReceipt(transaction, selectedCustomer, balanceDeducted);
+        const receiptData: ReceiptData = {
+          id: transaction.id,
+          createdAt: new Date().toISOString(),
+          subtotal: subtotal,
+          vat: vat,
+          total: grandTotal,
+          paymentMethod: finalPaymentMethod,
+          products: cart.map(item => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            discount: item.discount || 0,
+            total: (item.price * item.quantity) - (item.discount || 0)
+          })),
+          customer: selectedCustomer ? {
+            id: selectedCustomer.id,
+            name: selectedCustomer.name,
+            phone: selectedCustomer.phone || undefined,
+            email: selectedCustomer.email || undefined,
+            balance: selectedCustomer.balance
+          } : undefined,
+          businessInfo: {
+            name: receiptSettings?.business_name || "Your Business",
+            address: receiptSettings?.business_address,
+            phone: receiptSettings?.business_phone,
+            email: receiptSettings?.business_email,
+            taxNumber: receiptSettings?.tax_number,
+            logoUrl: receiptSettings?.receipt_logo_url
+          },
+          receiptSettings: {
+            fontSize: receiptSettings?.receipt_font_size || 12,
+            footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+            showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+            barcodeType: receiptSettings?.barcode_type || 'CODE128',
+            showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+          },
+          balanceDeducted: balanceDeducted,
+          paymentDetails: paymentDetails,
+          staffName: currentStaff?.name,
+          notes: transactionNotes
+        };
+        
+        setReceiptData(receiptData);
+        setShowReceiptPrint(true);
       }
 
       // Email receipt if requested
@@ -773,210 +819,6 @@ export default function POS() {
     } finally {
       setProcessingPayment(false);
     }
-  };
-
-  const printCompletedReceipt = (transaction: any, customer: Customer | undefined, balanceDeducted: number) => {
-    const receiptWindow = window.open('', '_blank');
-    if (!receiptWindow) return;
-
-    const fontSize = Math.min(Math.max(receiptSettings?.receipt_font_size || 12, 8), 16);
-    const businessName = receiptSettings?.business_name || "Your Business";
-    const businessAddress = receiptSettings?.business_address || "";
-    const businessPhone = receiptSettings?.business_phone || "";
-    const receiptFooter = receiptSettings?.receipt_footer || "Thank you for your business!";
-    const logoUrl = receiptSettings?.receipt_logo_url || "";
-
-    const receiptHTML = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Receipt #${transaction.id}</title>
-        <style>
-          @media print { @page { margin: 0; } body { margin: 10mm; } }
-          body { 
-            font-family: 'Courier New', monospace; 
-            padding: 20px; 
-            max-width: 80mm; 
-            margin: 0 auto; 
-            font-size: ${fontSize}px;
-            line-height: 1.2;
-          }
-          .logo { text-align: center; margin-bottom: 10px; }
-          .logo img { max-width: 100px; max-height: 60px; }
-          h1 { text-align: center; font-size: ${fontSize + 4}px; margin: 5px 0; font-weight: bold; }
-          .business-info { text-align: center; font-size: ${fontSize - 2}px; margin-bottom: 10px; }
-          .item { display: flex; justify-content: space-between; margin: 4px 0; }
-          .totals { margin-top: 10px; font-weight: bold; }
-          .total-line { display: flex; justify-content: space-between; margin: 4px 0; }
-          .grand-total { font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 6px; }
-          .footer { text-align: center; margin-top: 15px; font-size: ${fontSize - 2}px; }
-        </style>
-      </head>
-      <body>
-        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
-        <h1>${businessName}</h1>
-        <div class="business-info">
-          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
-          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
-        </div>
-        <div style="text-align: center; margin: 10px 0;">
-          <strong>Receipt #${transaction.id}</strong><br>
-          ${new Date().toLocaleString('en-GB')}<br>
-          ${customer ? `Customer: ${customer.name}` : ''}
-          ${transactionNotes ? `<br>Note: ${transactionNotes}` : ''}
-        </div>
-        ${cart.map((item) => `
-          <div class="item">
-            <div>
-              <div>${item.name}</div>
-              <div style="font-size: ${fontSize - 3}px;">
-                ${item.quantity} x £${item.price.toFixed(2)}
-                ${item.discount ? ` (-£${item.discount.toFixed(2)})` : ''}
-              </div>
-            </div>
-            <div>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</div>
-          </div>
-        `).join('')}
-        <div class="totals">
-          <div class="total-line">
-            <span>Subtotal:</span>
-            <span>£${subtotal.toFixed(2)}</span>
-          </div>
-          ${vat > 0 ? `
-            <div class="total-line">
-              <span>VAT (20%):</span>
-              <span>£${vat.toFixed(2)}</span>
-            </div>
-          ` : ''}
-          <div class="total-line grand-total">
-            <span>TOTAL:</span>
-            <span>£${grandTotal.toFixed(2)}</span>
-          </div>
-        </div>
-        <div style="text-align: center; margin: 10px 0; font-weight: bold;">
-          PAID VIA ${(transaction.payment_method || 'CASH').toUpperCase()}
-        </div>
-        ${balanceDeducted > 0 && customer ? `
-          <div style="text-align: center; margin: 10px 0;">
-            Balance Used: £${balanceDeducted.toFixed(2)}<br>
-            Remaining Balance: £${(customer.balance - balanceDeducted).toFixed(2)}
-          </div>
-        ` : ''}
-        <div class="footer">
-          <strong>THANK YOU!</strong><br>
-          ${receiptFooter}
-        </div>
-        <script>
-          window.onload = () => {
-            window.print();
-            setTimeout(() => window.close(), 1000);
-          };
-        </script>
-      </body>
-      </html>
-    `;
-
-    receiptWindow.document.write(receiptHTML);
-    receiptWindow.document.close();
-  };
-
-  const printReceipt = () => {
-    if (cart.length === 0) {
-      alert("Cart is empty");
-      return;
-    }
-
-    const receiptWindow = window.open('', '_blank');
-    if (!receiptWindow) return;
-
-    const fontSize = Math.min(Math.max(receiptSettings?.receipt_font_size || 12, 8), 16);
-    const businessName = receiptSettings?.business_name || "Your Business";
-    const businessAddress = receiptSettings?.business_address || "";
-    const businessPhone = receiptSettings?.business_phone || "";
-    const logoUrl = receiptSettings?.receipt_logo_url || "";
-    
-    const receiptHTML = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Receipt Preview</title>
-        <style>
-          body { 
-            font-family: 'Courier New', monospace; 
-            padding: 20px; 
-            max-width: 80mm; 
-            margin: 0 auto; 
-            font-size: ${fontSize}px;
-            line-height: 1.2;
-          }
-          h1 { text-align: center; font-size: ${fontSize + 4}px; margin: 5px 0; font-weight: bold; }
-          .business-info { text-align: center; font-size: ${fontSize - 2}px; margin-bottom: 10px; }
-          .item { display: flex; justify-content: space-between; margin: 4px 0; }
-          .totals { margin-top: 10px; font-weight: bold; }
-          .total-line { display: flex; justify-content: space-between; margin: 4px 0; }
-          .grand-total { font-size: ${fontSize + 2}px; border-top: 2px solid #000; padding-top: 6px; }
-          .footer { text-align: center; margin-top: 15px; font-size: ${fontSize - 2}px; }
-        </style>
-      </head>
-      <body>
-        ${logoUrl ? `<div class="logo"><img src="${logoUrl}" alt="Logo" /></div>` : ''}
-        <h1>${businessName}</h1>
-        <div class="business-info">
-          ${businessAddress ? `<div>${businessAddress}</div>` : ''}
-          ${businessPhone ? `<div>Tel: ${businessPhone}</div>` : ''}
-        </div>
-        <div style="text-align: center; margin: 10px 0;">
-          <strong>Receipt Preview</strong><br>
-          ${new Date().toLocaleString('en-GB')}<br>
-          ${selectedCustomer ? `Customer: ${selectedCustomer.name}` : ''}
-        </div>
-        ${cart.map((item) => `
-          <div class="item">
-            <div>
-              <div>${item.name}</div>
-              <div style="font-size: ${fontSize - 3}px;">
-                ${item.quantity} x £${item.price.toFixed(2)}
-                ${item.discount ? ` (-£${item.discount.toFixed(2)})` : ''}
-              </div>
-            </div>
-            <div>£${((item.price * item.quantity) - (item.discount || 0)).toFixed(2)}</div>
-          </div>
-        `).join('')}
-        <div class="totals">
-          <div class="total-line">
-            <span>Subtotal:</span>
-            <span>£${subtotal.toFixed(2)}</span>
-          </div>
-          ${vat > 0 ? `
-            <div class="total-line">
-              <span>VAT (20%):</span>
-              <span>£${vat.toFixed(2)}</span>
-            </div>
-          ` : ''}
-          <div class="total-line grand-total">
-            <span>TOTAL:</span>
-            <span>£${grandTotal.toFixed(2)}</span>
-          </div>
-        </div>
-        <div style="text-align: center; margin: 10px 0; font-weight: bold;">
-          PREVIEW - NOT PAID
-        </div>
-        <div class="footer">
-          <strong>THANK YOU!</strong><br>
-          ${receiptSettings?.receipt_footer || ''}
-        </div>
-        <script>
-          window.onload = () => {
-            window.print();
-            setTimeout(() => window.close(), 1000);
-          };
-        </script>
-      </body>
-      </html>
-    `;
-
-    receiptWindow.document.write(receiptHTML);
-    receiptWindow.document.close();
   };
 
   const handleNumpadClick = (value: string) => {
@@ -1016,6 +858,58 @@ export default function POS() {
     setShowPaymentModal(true);
   };
 
+  // New function to handle receipt printing
+  const printReceipt = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
+
+    const receiptData: ReceiptData = {
+      id: "PREVIEW-" + Date.now(),
+      createdAt: new Date().toISOString(),
+      subtotal: subtotal,
+      vat: vat,
+      total: grandTotal,
+      paymentMethod: "preview",
+      products: cart.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        discount: item.discount || 0,
+        total: (item.price * item.quantity) - (item.discount || 0)
+      })),
+      customer: selectedCustomer ? {
+        id: selectedCustomer.id,
+        name: selectedCustomer.name,
+        phone: selectedCustomer.phone || undefined,
+        email: selectedCustomer.email || undefined,
+        balance: selectedCustomer.balance
+      } : undefined,
+      businessInfo: {
+        name: receiptSettings?.business_name || "Your Business",
+        address: receiptSettings?.business_address,
+        phone: receiptSettings?.business_phone,
+        email: receiptSettings?.business_email,
+        taxNumber: receiptSettings?.tax_number,
+        logoUrl: receiptSettings?.receipt_logo_url
+      },
+      receiptSettings: {
+        fontSize: receiptSettings?.receipt_font_size || 12,
+        footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+        showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+        barcodeType: receiptSettings?.barcode_type || 'CODE128',
+        showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+      },
+      staffName: currentStaff?.name,
+      notes: transactionNotes
+    };
+    
+    setReceiptData(receiptData);
+    setShowReceiptPrint(true);
+  };
+
   if (!userId || !currentStaff) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-black">
@@ -1042,6 +936,17 @@ export default function POS() {
 
   return (
     <div className={`h-screen flex ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-slate-950 via-slate-900 to-black'} overflow-hidden`}>
+      {/* Receipt Print Component */}
+      {showReceiptPrint && receiptData && (
+        <ReceiptPrint 
+          data={receiptData} 
+          onClose={() => {
+            setShowReceiptPrint(false);
+            setReceiptData(null);
+          }}
+        />
+      )}
+
       {/* Dark Mode Toggle - Fixed Position */}
       <button
         onClick={() => setDarkMode(!darkMode)}
@@ -1325,10 +1230,10 @@ export default function POS() {
             </select>
           </div>
 
-          {/* Customer Balance Display */}
+          {/* Customer Balance Display - FIXED */}
           {selectedCustomer && (
             <div className={`rounded-lg p-3 border ${
-              customerBalance >= grandTotal 
+              selectedCustomer.balance >= grandTotal 
                 ? "bg-emerald-500/10 border-emerald-500/30" 
                 : "bg-slate-800/40 border-slate-700/50"
             }`}>
@@ -1337,9 +1242,9 @@ export default function POS() {
                   <Wallet className="w-5 h-5 text-emerald-400" />
                   <span className="text-emerald-400 font-medium text-sm">{selectedCustomer.name}'s Balance:</span>
                 </div>
-                <span className="text-xl font-black text-emerald-400">£{customerBalance.toFixed(2)}</span>
+                <span className="text-xl font-black text-emerald-400">£{selectedCustomer.balance.toFixed(2)}</span>
               </div>
-              {customerBalance >= grandTotal && (
+              {selectedCustomer.balance >= grandTotal && (
                 <p className="text-xs text-emerald-300 mt-1">
                   ✓ Sufficient balance for full payment
                 </p>
@@ -1453,7 +1358,7 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Modals (Restored with proper split payment logic) */}
+      {/* Modals */}
       {showSplitPaymentModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
@@ -1506,7 +1411,7 @@ export default function POS() {
                       className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-lg focus:outline-none focus:border-emerald-500/50"
                     />
                     <p className="text-xs text-slate-400 mt-1">
-                      Available: £{customerBalance.toFixed(2)}
+                      Available: £{selectedCustomer.balance.toFixed(2)}
                     </p>
                   </div>
                 )}
@@ -1702,6 +1607,8 @@ export default function POS() {
           </div>
         </div>
       )}
+
+      {/* Other Modals (Discount, Misc, Transactions) remain the same as before */}
     </div>
   );
 }
