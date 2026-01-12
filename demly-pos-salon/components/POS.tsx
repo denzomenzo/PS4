@@ -99,6 +99,12 @@ export default function POS() {
   const [useBalanceForPayment, setUseBalanceForPayment] = useState(false);
   const [transactionNotes, setTransactionNotes] = useState("");
   const [customAmount, setCustomAmount] = useState<string>("");
+
+  const getBalance = (balance: any): number => {
+    if (balance === null || balance === undefined) return 0;
+    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
+    return isNaN(num) ? 0 : num;
+  };
   
   const [splitPayment, setSplitPayment] = useState<SplitPayment>({
     cash: 0,
@@ -1511,3 +1517,4 @@ export default function POS() {
     </div>
   );
 }
+
