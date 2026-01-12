@@ -100,11 +100,7 @@ export default function POS() {
   const [transactionNotes, setTransactionNotes] = useState("");
   const [customAmount, setCustomAmount] = useState<string>("");
 
-  const getBalance = (balance: any): number => {
-    if (balance === null || balance === undefined) return 0;
-    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
-    return isNaN(num) ? 0 : num;
-  };
+
   
   const [splitPayment, setSplitPayment] = useState<SplitPayment>({
     cash: 0,
@@ -114,6 +110,12 @@ export default function POS() {
   });
   
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+
+  const getBalance = (balance: any): number => {
+    if (balance === null || balance === undefined) return 0;
+    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
+    return isNaN(num) ? 0 : num;
+  };
 
   // Derived state
   const activeTransaction = transactions.find(t => t.id === activeTransactionId);
@@ -1517,4 +1519,5 @@ export default function POS() {
     </div>
   );
 }
+
 
