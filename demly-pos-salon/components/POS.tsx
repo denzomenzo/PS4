@@ -1,4 +1,4 @@
-// components/POS.tsx - OPTIMIZED VERSION
+// components/POS.tsx - FIXED VERSION
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -7,12 +7,12 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
-import ReceiptPrint from "@/components/receipts/ReceiptPrint";
+import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
   Wallet, RefreshCw, History, ZoomOut,
-  Calculator, Edit
+  Calculator, Edit, Pencil, AlertCircle
 } from "lucide-react";
 
 // Types
@@ -42,6 +42,7 @@ interface CartItem extends Product {
   quantity: number;
   discount?: number;
   isMisc?: boolean;
+  note?: string;
 }
 
 interface Transaction {
@@ -57,30 +58,6 @@ interface SplitPayment {
   card: number;
   balance: number;
   remaining: number;
-}
-
-
-interface ReceiptData {
-  id: string | number;
-  createdAt: string;
-  subtotal: number;
-  vat: number;
-  total: number;
-  paymentMethod: string;
-  products: any[];
-  customer?: {
-    id: number | string;
-    name: string;
-    phone?: string;
-    email?: string;
-    balance?: number;
-  };
-  businessInfo?: any;
-  receiptSettings?: any;
-  balanceDeducted?: number;
-  paymentDetails?: any;
-  staffName?: string;
-  notes?: string;
 }
 
 // Helper functions
@@ -147,228 +124,6 @@ const useLocalStorageTransactions = (currentStaff: any) => {
   return { transactions, setTransactions, activeTransactionId, setActiveTransactionId };
 };
 
-// Modal components
-const DiscountModal = ({ 
-  show, 
-  onClose, 
-  discountType, 
-  setDiscountType, 
-  discountValue, 
-  setDiscountValue, 
-  onApply,
-  cartTotal 
-}: any) => {
-  if (!show) return null;
-  
-  const discountAmount = discountType === "percentage" 
-    ? (cartTotal * parseFloat(discountValue || "0")) / 100
-    : parseFloat(discountValue || "0");
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-white">Apply Discount</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-base mb-2 font-medium text-white">Discount Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setDiscountType("percentage")}
-                className={`py-3 rounded-lg font-bold border-2 transition-all ${
-                  discountType === "percentage"
-                    ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                    : "bg-slate-800/50 border-slate-700/50 text-slate-400"
-                }`}
-              >
-                Percentage %
-              </button>
-              <button
-                onClick={() => setDiscountType("fixed")}
-                className={`py-3 rounded-lg font-bold border-2 transition-all ${
-                  discountType === "fixed"
-                    ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                    : "bg-slate-800/50 border-slate-700/50 text-slate-400"
-                }`}
-              >
-                Fixed £
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-base mb-2 font-medium text-white">
-              {discountType === "percentage" ? "Discount %" : "Discount Amount £"}
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={discountValue}
-              onChange={(e) => setDiscountValue(e.target.value)}
-              placeholder={discountType === "percentage" ? "10" : "5.00"}
-              className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
-              autoFocus
-            />
-          </div>
-
-          {discountValue && (
-            <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-              <div className="flex justify-between text-xs mb-1.5 text-slate-300">
-                <span>Current Total:</span>
-                <span className="font-bold">£{cartTotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-emerald-400">Discount:</span>
-                <span className="text-emerald-400 font-bold">
-                  -£{discountAmount.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold text-white"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onApply}
-            disabled={!discountValue || parseFloat(discountValue) <= 0}
-            className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold shadow-xl disabled:opacity-50 text-white"
-          >
-            Apply
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const MiscModal = ({ show, onClose, name, setName, price, setPrice, onAdd }: any) => {
-  if (!show) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-white">Add Misc Item</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-base mb-2 font-medium text-white">Product Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter product name"
-              className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-base focus:outline-none focus:border-emerald-500/50"
-              autoFocus
-            />
-          </div>
-
-          <div>
-            <label className="block text-base mb-2 font-medium text-white">Price £</label>
-            <input
-              type="number"
-              step="0.01"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="0.00"
-              className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold text-white"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onAdd}
-            disabled={!name.trim() || !price}
-            className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold shadow-xl disabled:opacity-50 text-white"
-          >
-            Add Item
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const NumpadModal = ({ show, onClose, amount, onNumpadClick }: any) => {
-  if (!show) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-      <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-sm w-full border border-slate-700/50 shadow-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-white">Enter Custom Amount</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 mb-4">
-          <p className="text-sm text-slate-400 mb-1">Custom Amount</p>
-          <p className="text-3xl font-bold text-white text-right">
-            £{amount || '0.00'}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'backspace'].map((value) => (
-            <button
-              key={value}
-              onClick={() => onNumpadClick(value)}
-              className={`h-14 rounded-lg font-bold text-xl transition-all ${
-                value === 'backspace'
-                  ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30'
-                  : 'bg-slate-800/50 hover:bg-slate-800 text-white border border-slate-700/50'
-              }`}
-            >
-              {value === 'backspace' ? '⌫' : value}
-            </button>
-          ))}
-          <button
-            onClick={() => onNumpadClick('clear')}
-            className="h-14 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded-lg font-bold text-xl transition-all"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => onNumpadClick('total')}
-            className="h-14 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold text-xl transition-all"
-          >
-            Total
-          </button>
-          <button
-            onClick={onClose}
-            className="h-14 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold text-xl transition-all"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // Main POS Component
 export default function POS() {
   const userId = useUserId();
@@ -398,12 +153,17 @@ export default function POS() {
   const [showNumpadModal, setShowNumpadModal] = useState(false);
   const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
+  const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<CartItem | null>(null);
   
   // Form states
   const [discountType, setDiscountType] = useState<"percentage" | "fixed">("percentage");
   const [discountValue, setDiscountValue] = useState("");
   const [miscProductName, setMiscProductName] = useState("");
   const [miscProductPrice, setMiscProductPrice] = useState("");
+  const [editItemPrice, setEditItemPrice] = useState("");
+  const [editItemDiscount, setEditItemDiscount] = useState("");
+  const [editItemNote, setEditItemNote] = useState("");
   
   // Payment states
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "balance" | "split">("cash");
@@ -422,7 +182,7 @@ export default function POS() {
   });
   
   // Receipt
-  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   
   // Transactions
@@ -611,8 +371,59 @@ export default function POS() {
         item.id === product.id && !item.isMisc ? { ...item, quantity: newQuantity } : item
       ));
     } else {
-      setCart([...cart, { ...product, cartId: `${product.id}-${Date.now()}`, quantity: 1 }]);
+      setCart([...cart, { 
+        ...product, 
+        cartId: `${product.id}-${Date.now()}`, 
+        quantity: 1,
+        discount: 0,
+        note: ""
+      }]);
     }
+  };
+
+  // Edit item functions
+  const editItem = (item: CartItem) => {
+    setEditingItem(item);
+    setEditItemPrice(item.price.toString());
+    setEditItemDiscount(item.discount?.toString() || "0");
+    setEditItemNote(item.note || "");
+    setShowEditItemModal(true);
+  };
+
+  const saveItemEdit = () => {
+    if (!editingItem) return;
+    
+    const newPrice = parseFloat(editItemPrice);
+    const newDiscount = parseFloat(editItemDiscount);
+    
+    if (isNaN(newPrice) || newPrice <= 0) {
+      alert("Please enter a valid price");
+      return;
+    }
+    
+    if (isNaN(newDiscount) || newDiscount < 0) {
+      alert("Please enter a valid discount");
+      return;
+    }
+    
+    if (newDiscount > newPrice * editingItem.quantity) {
+      alert("Discount cannot exceed item total");
+      return;
+    }
+    
+    setCart(cart.map(item => 
+      item.cartId === editingItem.cartId 
+        ? { 
+            ...item, 
+            price: newPrice,
+            discount: newDiscount,
+            note: editItemNote.trim()
+          }
+        : item
+    ));
+    
+    setShowEditItemModal(false);
+    setEditingItem(null);
   };
 
   const addMiscProduct = () => {
@@ -637,6 +448,8 @@ export default function POS() {
       track_inventory: false,
       stock_quantity: 0,
       isMisc: true,
+      discount: 0,
+      note: ""
     };
 
     setCart([...cart, miscProduct]);
@@ -772,7 +585,7 @@ export default function POS() {
     setShowPaymentModal(true);
   };
 
-  // Payment processing
+  // Payment processing - FIXED: Customer balance deduction
   const processPayment = async () => {
     if (cart.length === 0) return;
     
@@ -818,50 +631,19 @@ export default function POS() {
           return;
         }
         
-        if (useBalanceForPayment) {
-          if (selectedCustomer.balance < amountToPay && !allowNegativeBalance) {
-            alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
-            setProcessingPayment(false);
-            return;
-          }
-          
-          balanceDeducted = Math.min(amountToPay, selectedCustomer.balance);
-          remainingBalance = selectedCustomer.balance - amountToPay;
-          
-          if (balanceDeducted < amountToPay) {
-            const remaining = amountToPay - balanceDeducted;
-            const confirmMsg = `Customer balance: £${selectedCustomer.balance.toFixed(2)}\n` +
-                             `Using balance: £${balanceDeducted.toFixed(2)}\n` +
-                             `Remaining to pay: £${remaining.toFixed(2)}\n` +
-                             `New balance will be: £${remainingBalance.toFixed(2)}\n\n` +
-                             `Do you want to continue?`;
-            
-            if (!confirm(confirmMsg)) {
-              setProcessingPayment(false);
-              return;
-            }
-            
-            const remainingMethod = prompt(
-              `Remaining amount: £${remaining.toFixed(2)}\n` +
-              `How would you like to pay the remaining amount?\n` +
-              `Enter 'cash' or 'card':`
-            );
-            
-            if (remainingMethod === 'cash' || remainingMethod === 'card') {
-              finalPaymentMethod = "split";
-              paymentDetails.split_payment = {
-                balance_used: balanceDeducted,
-                remaining_amount: remaining,
-                remaining_method: remainingMethod
-              };
-            } else {
-              alert("Invalid payment method. Transaction cancelled.");
-              setProcessingPayment(false);
-              return;
-            }
-          }
+        // Always use balance for payment when this method is selected
+        setUseBalanceForPayment(true);
+        
+        if (selectedCustomer.balance < amountToPay && !allowNegativeBalance) {
+          alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
+          setProcessingPayment(false);
+          return;
         }
+        
+        balanceDeducted = amountToPay;
+        remainingBalance = selectedCustomer.balance - amountToPay;
         paymentSuccess = true;
+        
       } else if (paymentMethod === "split") {
         const totalSplit = splitPayment.cash + splitPayment.card + splitPayment.balance;
         
@@ -907,6 +689,7 @@ export default function POS() {
           icon: item.icon,
           quantity: item.quantity,
           discount: item.discount || 0,
+          note: item.note || null,
           total: (item.price * item.quantity) - (item.discount || 0),
         })),
         subtotal: subtotal,
@@ -927,12 +710,14 @@ export default function POS() {
 
       if (transactionError) throw transactionError;
 
-      // Update customer balance
+      // FIXED: Update customer balance properly
       if (balanceDeducted > 0 && selectedCustomer) {
-        await supabase
+        const { error: balanceError } = await supabase
           .from("customers")
           .update({ balance: remainingBalance })
           .eq("id", selectedCustomer.id);
+        
+        if (balanceError) throw balanceError;
         
         await supabase.from("customer_balance_history").insert({
           user_id: userId,
@@ -944,14 +729,15 @@ export default function POS() {
           transaction_id: transaction.id,
         });
 
-        setCustomers(customers.map(c => 
+        // Update local state immediately
+        setCustomers(prev => prev.map(c => 
           c.id === selectedCustomer.id 
             ? { ...c, balance: remainingBalance }
             : c
         ));
       }
 
-      // Update stock
+      // FIXED: Update stock immediately and refresh products
       const stockUpdates = cart
         .filter(item => item.track_inventory && !item.isMisc)
         .map(item => ({
@@ -960,10 +746,24 @@ export default function POS() {
         }));
 
       for (const update of stockUpdates) {
-        await supabase
+        const { error: stockError } = await supabase
           .from("products")
           .update({ stock_quantity: update.newStock })
           .eq("id", update.id);
+        
+        if (stockError) throw stockError;
+      }
+
+      // Refresh products to show updated stock
+      const { data: updatedProducts } = await supabase
+        .from("products")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name");
+      
+      if (updatedProducts) {
+        setProducts(updatedProducts);
+        setFilteredProducts(updatedProducts);
       }
 
       // Audit log
@@ -984,53 +784,52 @@ export default function POS() {
 
       // Print receipt if requested
       if (printReceiptOption) {
-  const receiptData: ReceiptData = {
-    id: transaction.id,
-    createdAt: new Date().toISOString(),
-    subtotal: subtotal,
-    vat: vat,
-    total: grandTotal,
-    paymentMethod: finalPaymentMethod,
-    products: cart.map(item => ({
-      id: item.id,
-      name: item.name,
-      price: item.price,
-      quantity: item.quantity,
-      discount: item.discount || 0,
-      total: (item.price * item.quantity) - (item.discount || 0)
-    })),
-    customer: selectedCustomer ? {
-      id: selectedCustomer.id,
-      name: selectedCustomer.name,
-      phone: selectedCustomer.phone || undefined, // Convert null to undefined
-      email: selectedCustomer.email || undefined, // Convert null to undefined
-      balance: selectedCustomer.balance
-    } : undefined,
-    businessInfo: {
-      name: receiptSettings?.business_name || "Your Business",
-      address: receiptSettings?.business_address,
-      phone: receiptSettings?.business_phone,
-      email: receiptSettings?.business_email,
-      taxNumber: receiptSettings?.tax_number,
-      logoUrl: receiptSettings?.receipt_logo_url
-    },
-    receiptSettings: {
-      fontSize: receiptSettings?.receipt_font_size || 12,
-      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-      barcodeType: receiptSettings?.barcode_type || 'CODE128',
-      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-    },
-    balanceDeducted: balanceDeducted,
-    paymentDetails: paymentDetails,
-    staffName: currentStaff?.name,
-    notes: transactionNotes
-  };
-  
-  setReceiptData(receiptData);
-  setShowReceiptPrint(true);
-}
-
+        const receiptData: ReceiptPrintData = {
+          id: transaction.id,
+          createdAt: new Date().toISOString(),
+          subtotal: subtotal,
+          vat: vat,
+          total: grandTotal,
+          paymentMethod: finalPaymentMethod,
+          products: cart.map(item => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            discount: item.discount || 0,
+            total: (item.price * item.quantity) - (item.discount || 0)
+          })),
+          customer: selectedCustomer ? {
+            id: selectedCustomer.id,
+            name: selectedCustomer.name,
+            phone: selectedCustomer.phone || undefined,
+            email: selectedCustomer.email || undefined,
+            balance: selectedCustomer.balance
+          } : undefined,
+          businessInfo: {
+            name: receiptSettings?.business_name || "Your Business",
+            address: receiptSettings?.business_address,
+            phone: receiptSettings?.business_phone,
+            email: receiptSettings?.business_email,
+            taxNumber: receiptSettings?.tax_number,
+            logoUrl: receiptSettings?.receipt_logo_url
+          },
+          receiptSettings: {
+            fontSize: receiptSettings?.receipt_font_size || 12,
+            footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+            showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+            barcodeType: receiptSettings?.barcode_type || 'CODE128',
+            showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+          },
+          balanceDeducted: balanceDeducted,
+          paymentDetails: paymentDetails,
+          staffName: currentStaff?.name,
+          notes: transactionNotes
+        };
+        
+        setReceiptData(receiptData);
+        setShowReceiptPrint(true);
+      }
 
       alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
       
@@ -1061,56 +860,56 @@ export default function POS() {
   };
 
   // Print receipt preview
- const printReceipt = () => {
-  if (cart.length === 0) {
-    alert("Cart is empty");
-    return;
-  }
+  const printReceipt = () => {
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
 
-  const receiptData: ReceiptData = {
-    id: "PREVIEW-" + Date.now(),
-    createdAt: new Date().toISOString(),
-    subtotal: subtotal,
-    vat: vat,
-    total: grandTotal,
-    paymentMethod: "preview",
-    products: cart.map(item => ({
-      id: item.id,
-      name: item.name,
-      price: item.price,
-      quantity: item.quantity,
-      discount: item.discount || 0,
-      total: (item.price * item.quantity) - (item.discount || 0)
-    })),
-    customer: selectedCustomer ? {
-      id: selectedCustomer.id,
-      name: selectedCustomer.name,
-      phone: selectedCustomer.phone || undefined, // Convert null to undefined
-      email: selectedCustomer.email || undefined, // Convert null to undefined
-      balance: selectedCustomer.balance
-    } : undefined,
-    businessInfo: {
-      name: receiptSettings?.business_name || "Your Business",
-      address: receiptSettings?.business_address,
-      phone: receiptSettings?.business_phone,
-      email: receiptSettings?.business_email,
-      taxNumber: receiptSettings?.tax_number,
-      logoUrl: receiptSettings?.receipt_logo_url
-    },
-    receiptSettings: {
-      fontSize: receiptSettings?.receipt_font_size || 12,
-      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-      barcodeType: receiptSettings?.barcode_type || 'CODE128',
-      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-    },
-    staffName: currentStaff?.name,
-    notes: transactionNotes
+    const receiptData: ReceiptPrintData = {
+      id: "PREVIEW-" + Date.now(),
+      createdAt: new Date().toISOString(),
+      subtotal: subtotal,
+      vat: vat,
+      total: grandTotal,
+      paymentMethod: "preview",
+      products: cart.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        discount: item.discount || 0,
+        total: (item.price * item.quantity) - (item.discount || 0)
+      })),
+      customer: selectedCustomer ? {
+        id: selectedCustomer.id,
+        name: selectedCustomer.name,
+        phone: selectedCustomer.phone || undefined,
+        email: selectedCustomer.email || undefined,
+        balance: selectedCustomer.balance
+      } : undefined,
+      businessInfo: {
+        name: receiptSettings?.business_name || "Your Business",
+        address: receiptSettings?.business_address,
+        phone: receiptSettings?.business_phone,
+        email: receiptSettings?.business_email,
+        taxNumber: receiptSettings?.tax_number,
+        logoUrl: receiptSettings?.receipt_logo_url
+      },
+      receiptSettings: {
+        fontSize: receiptSettings?.receipt_font_size || 12,
+        footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+        showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+        barcodeType: receiptSettings?.barcode_type || 'CODE128',
+        showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+      },
+      staffName: currentStaff?.name,
+      notes: transactionNotes
+    };
+    
+    setReceiptData(receiptData);
+    setShowReceiptPrint(true);
   };
-  
-  setReceiptData(receiptData);
-  setShowReceiptPrint(true);
-};
 
   // Split payment functions
   const handleSplitPaymentChange = (method: keyof SplitPayment, value: string) => {
@@ -1179,15 +978,17 @@ export default function POS() {
 
   return (
     <div className="h-screen flex bg-gradient-to-br from-slate-950 via-slate-900 to-black overflow-hidden">
-      {/* Receipt Print Component */}
+      {/* Receipt Print Component - Fixed to show only receipt, not entire POS */}
       {showReceiptPrint && receiptData && (
-        <ReceiptPrint 
-          data={receiptData} 
-          onClose={() => {
-            setShowReceiptPrint(false);
-            setReceiptData(null);
-          }}
-        />
+        <div className="fixed inset-0 z-[9999] bg-white">
+          <ReceiptPrint 
+            data={receiptData} 
+            onClose={() => {
+              setShowReceiptPrint(false);
+              setReceiptData(null);
+            }}
+          />
+        </div>
       )}
 
       {/* Zoom Warning */}
@@ -1381,7 +1182,7 @@ export default function POS() {
           )}
         </div>
 
-        {/* Cart Items */}
+        {/* Cart Items - UPDATED with Edit/Discount/Note buttons like ePosNow */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
           {cart.length === 0 ? (
             <div className="flex items-center justify-center h-full">
@@ -1405,8 +1206,34 @@ export default function POS() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-white text-sm truncate">{item.name}</h3>
                     <p className="text-sm text-slate-400 font-medium">£{item.price.toFixed(2)} each</p>
-                    {item.discount && item.discount > 0 && (
-                      <p className="text-xs text-emerald-400 font-semibold">-£{item.discount.toFixed(2)} discount</p>
+                    
+                    {/* Item Controls Row - Like ePosNow */}
+                    <div className="flex items-center gap-1 mt-2">
+                      <button 
+                        onClick={() => editItem(item)}
+                        className="px-2 py-1 bg-slate-700/50 hover:bg-slate-700 rounded text-xs text-slate-300 transition-all flex items-center gap-1"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                      
+                      {item.discount && item.discount > 0 && (
+                        <span className="px-2 py-1 bg-emerald-500/20 rounded text-xs text-emerald-400">
+                          -£{item.discount.toFixed(2)}
+                        </span>
+                      )}
+                      
+                      {item.note && (
+                        <span className="px-2 py-1 bg-blue-500/20 rounded text-xs text-blue-400 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Note
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Item Note Display */}
+                    {item.note && (
+                      <p className="text-xs text-slate-400 mt-1 italic">"{item.note}"</p>
                     )}
                   </div>
                   <button 
@@ -1581,34 +1408,303 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Modals */}
-      <DiscountModal
-        show={showDiscountModal}
-        onClose={() => setShowDiscountModal(false)}
-        discountType={discountType}
-        setDiscountType={setDiscountType}
-        discountValue={discountValue}
-        setDiscountValue={setDiscountValue}
-        onApply={applyDiscount}
-        cartTotal={cartTotal}
-      />
+      {/* All Modals */}
+      {/* Discount Modal */}
+      {showDiscountModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Apply Discount</h2>
+              <button onClick={() => setShowDiscountModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
 
-      <MiscModal
-        show={showMiscModal}
-        onClose={() => setShowMiscModal(false)}
-        name={miscProductName}
-        setName={setMiscProductName}
-        price={miscProductPrice}
-        setPrice={setMiscProductPrice}
-        onAdd={addMiscProduct}
-      />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Discount Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setDiscountType("percentage")}
+                    className={`py-3 rounded-lg font-bold border-2 transition-all ${
+                      discountType === "percentage"
+                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                        : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+                    }`}
+                  >
+                    Percentage %
+                  </button>
+                  <button
+                    onClick={() => setDiscountType("fixed")}
+                    className={`py-3 rounded-lg font-bold border-2 transition-all ${
+                      discountType === "fixed"
+                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                        : "bg-slate-800/50 border-slate-700/50 text-slate-400"
+                    }`}
+                  >
+                    Fixed £
+                  </button>
+                </div>
+              </div>
 
-      <NumpadModal
-        show={showNumpadModal}
-        onClose={() => setShowNumpadModal(false)}
-        amount={customAmount}
-        onNumpadClick={handleNumpadClick}
-      />
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">
+                  {discountType === "percentage" ? "Discount %" : "Discount Amount £"}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                  placeholder={discountType === "percentage" ? "10" : "5.00"}
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
+                  autoFocus
+                />
+              </div>
+
+              {discountValue && (
+                <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                  <div className="flex justify-between text-xs mb-1.5 text-slate-300">
+                    <span>Current Total:</span>
+                    <span className="font-bold">£{cartTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-emerald-400">Discount:</span>
+                    <span className="text-emerald-400 font-bold">
+                      -£{(discountType === "percentage" 
+                        ? (cartTotal * parseFloat(discountValue || "0")) / 100
+                        : parseFloat(discountValue || "0")
+                      ).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowDiscountModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyDiscount}
+                disabled={!discountValue || parseFloat(discountValue) <= 0}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold shadow-xl disabled:opacity-50 text-white"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Misc Product Modal */}
+      {showMiscModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Add Misc Item</h2>
+              <button onClick={() => setShowMiscModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Product Name</label>
+                <input
+                  type="text"
+                  value={miscProductName}
+                  onChange={(e) => setMiscProductName(e.target.value)}
+                  placeholder="Enter product name"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-base focus:outline-none focus:border-emerald-500/50"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Price £</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={miscProductPrice}
+                  onChange={(e) => setMiscProductPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowMiscModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addMiscProduct}
+                disabled={!miscProductName.trim() || !miscProductPrice}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold shadow-xl disabled:opacity-50 text-white"
+              >
+                Add Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal - Like ePosNow */}
+      {showEditItemModal && editingItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Edit Item: {editingItem.name}</h2>
+              <button onClick={() => setShowEditItemModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Price £</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editItemPrice}
+                  onChange={(e) => setEditItemPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Discount £</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editItemDiscount}
+                  onChange={(e) => setEditItemDiscount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-xl text-center font-bold focus:outline-none focus:border-emerald-500/50"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Max discount: £{(editingItem.price * editingItem.quantity).toFixed(2)}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-base mb-2 font-medium text-white">Note (Optional)</label>
+                <textarea
+                  value={editItemNote}
+                  onChange={(e) => setEditItemNote(e.target.value)}
+                  placeholder="Add a note for this item..."
+                  rows={2}
+                  className="w-full bg-slate-800/50 border border-slate-700/50 text-white p-3 rounded-lg text-sm focus:outline-none focus:border-emerald-500/50 resize-none"
+                />
+              </div>
+
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                <div className="flex justify-between text-sm mb-1 text-slate-300">
+                  <span>Quantity:</span>
+                  <span className="font-bold">{editingItem.quantity}</span>
+                </div>
+                <div className="flex justify-between text-sm mb-1 text-slate-300">
+                  <span>Original Total:</span>
+                  <span className="font-bold">£{(editingItem.price * editingItem.quantity).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-emerald-400">New Discount:</span>
+                  <span className="text-emerald-400 font-bold">-£{parseFloat(editItemDiscount || "0").toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-2 pt-2 border-t border-slate-700">
+                  <span className="text-white font-medium">New Total:</span>
+                  <span className="text-xl font-bold text-emerald-400">
+                    £{((parseFloat(editItemPrice || editingItem.price.toString()) * editingItem.quantity) - parseFloat(editItemDiscount || "0")).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowEditItemModal(false)}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-base font-bold text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveItemEdit}
+                disabled={parseFloat(editItemPrice) <= 0 || parseFloat(editItemDiscount) < 0}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg text-base font-bold shadow-xl disabled:opacity-50 text-white"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Numpad Modal */}
+      {showNumpadModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-sm w-full border border-slate-700/50 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Enter Custom Amount</h2>
+              <button onClick={() => setShowNumpadModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 mb-4">
+              <p className="text-sm text-slate-400 mb-1">Custom Amount</p>
+              <p className="text-3xl font-bold text-white text-right">
+                £{customAmount || '0.00'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'backspace'].map((value) => (
+                <button
+                  key={value}
+                  onClick={() => handleNumpadClick(value)}
+                  className={`h-14 rounded-lg font-bold text-xl transition-all ${
+                    value === 'backspace'
+                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30'
+                      : 'bg-slate-800/50 hover:bg-slate-800 text-white border border-slate-700/50'
+                  }`}
+                >
+                  {value === 'backspace' ? '⌫' : value}
+                </button>
+              ))}
+              <button
+                onClick={() => handleNumpadClick('clear')}
+                className="h-14 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 rounded-lg font-bold text-xl transition-all"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => {
+                  setCustomAmount(grandTotal.toFixed(2));
+                  setShowNumpadModal(false);
+                }}
+                className="h-14 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold text-xl transition-all"
+              >
+                Total
+              </button>
+              <button
+                onClick={() => setShowNumpadModal(false)}
+                className="h-14 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold text-xl transition-all"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Split Payment Modal */}
       {showSplitPaymentModal && (
@@ -1702,7 +1798,7 @@ export default function POS() {
         </div>
       )}
 
-      {/* Payment Modal */}
+      {/* Payment Modal - FIXED: Always use balance when balance payment method selected */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-2xl p-6 max-w-xl w-full border border-slate-700/50 shadow-2xl">
@@ -1747,28 +1843,28 @@ export default function POS() {
               />
             </div>
 
-            {/* Customer Balance Options */}
-            {selectedCustomer && customerBalance > 0 && (
-              <div className="mb-4 p-3 bg-slate-800/40 rounded-lg border border-slate-700/50">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useBalanceForPayment}
-                    onChange={(e) => setUseBalanceForPayment(e.target.checked)}
-                    className="w-5 h-5 accent-emerald-500"
-                  />
+            {/* Customer Balance - Auto-check when balance method selected */}
+            {selectedCustomer && customerBalance > 0 && paymentMethod === "balance" && (
+              <div className="mb-4 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+                <div className="flex items-center gap-3">
+                  <Wallet className="w-5 h-5 text-emerald-400" />
                   <div className="flex-1">
-                    <span className="text-white font-medium text-base">Use Customer Balance</span>
-                    <div className="flex justify-between text-sm text-slate-300 mt-1">
+                    <span className="text-white font-medium text-base">Using Customer Balance</span>
+                    <div className="flex justify-between text-sm text-emerald-300 mt-1">
                       <span>Available Balance: £{customerBalance.toFixed(2)}</span>
                       <span className={`font-bold ${
                         customerBalance >= grandTotal ? 'text-emerald-400' : 'text-amber-400'
                       }`}>
-                        {customerBalance >= grandTotal ? 'Full payment' : 'Partial payment'}
+                        {customerBalance >= (parseFloat(customAmount) || grandTotal) ? 'Full payment' : 'Partial payment'}
                       </span>
                     </div>
+                    {customerBalance < (parseFloat(customAmount) || grandTotal) && allowNegativeBalance && (
+                      <p className="text-xs text-amber-400 mt-1">
+                        ⚠️ Will go into negative balance: £{(customerBalance - (parseFloat(customAmount) || grandTotal)).toFixed(2)}
+                      </p>
+                    )}
                   </div>
-                </label>
+                </div>
               </div>
             )}
 
@@ -1913,45 +2009,44 @@ export default function POS() {
                       </div>
                       <button
                         onClick={() => {
-  const receiptData: ReceiptData = {
-    id: transaction.id,
-    createdAt: transaction.created_at,
-    subtotal: transaction.subtotal || 0,
-    vat: transaction.vat || 0,
-    total: transaction.total || 0,
-    paymentMethod: transaction.payment_method || 'cash',
-    products: transaction.products || [],
-    customer: customers.find(c => c.id === transaction.customer_id) ? {
-      id: customers.find(c => c.id === transaction.customer_id)!.id,
-      name: customers.find(c => c.id === transaction.customer_id)!.name,
-      phone: customers.find(c => c.id === transaction.customer_id)!.phone || undefined,
-      email: customers.find(c => c.id === transaction.customer_id)!.email || undefined,
-      balance: customers.find(c => c.id === transaction.customer_id)!.balance
-    } : undefined,
-    businessInfo: {
-      name: receiptSettings?.business_name || "Your Business",
-      address: receiptSettings?.business_address,
-      phone: receiptSettings?.business_phone,
-      email: receiptSettings?.business_email,
-      taxNumber: receiptSettings?.tax_number,
-      logoUrl: receiptSettings?.receipt_logo_url
-    },
-    receiptSettings: {
-      fontSize: receiptSettings?.receipt_font_size || 12,
-      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-      barcodeType: receiptSettings?.barcode_type || 'CODE128',
-      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-    },
-    balanceDeducted: transaction.balance_deducted,
-    paymentDetails: transaction.payment_details,
-    staffName: currentStaff?.name,
-    notes: transaction.notes
-  };
-  setReceiptData(receiptData);
-  setShowReceiptPrint(true);
-}}
-
+                          const receiptData: ReceiptPrintData = {
+                            id: transaction.id,
+                            createdAt: transaction.created_at,
+                            subtotal: transaction.subtotal || 0,
+                            vat: transaction.vat || 0,
+                            total: transaction.total || 0,
+                            paymentMethod: transaction.payment_method || 'cash',
+                            products: transaction.products || [],
+                            customer: customers.find(c => c.id === transaction.customer_id) ? {
+                              id: customers.find(c => c.id === transaction.customer_id)!.id,
+                              name: customers.find(c => c.id === transaction.customer_id)!.name,
+                              phone: customers.find(c => c.id === transaction.customer_id)!.phone || undefined,
+                              email: customers.find(c => c.id === transaction.customer_id)!.email || undefined,
+                              balance: customers.find(c => c.id === transaction.customer_id)!.balance
+                            } : undefined,
+                            businessInfo: {
+                              name: receiptSettings?.business_name || "Your Business",
+                              address: receiptSettings?.business_address,
+                              phone: receiptSettings?.business_phone,
+                              email: receiptSettings?.business_email,
+                              taxNumber: receiptSettings?.tax_number,
+                              logoUrl: receiptSettings?.receipt_logo_url
+                            },
+                            receiptSettings: {
+                              fontSize: receiptSettings?.receipt_font_size || 12,
+                              footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+                              showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+                              barcodeType: receiptSettings?.barcode_type || 'CODE128',
+                              showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+                            },
+                            balanceDeducted: transaction.balance_deducted,
+                            paymentDetails: transaction.payment_details,
+                            staffName: currentStaff?.name,
+                            notes: transaction.notes
+                          };
+                          setReceiptData(receiptData);
+                          setShowReceiptPrint(true);
+                        }}
                         className="bg-slate-700/50 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 text-sm"
                       >
                         <Printer className="w-3.5 h-3.5" />
@@ -1968,4 +2063,3 @@ export default function POS() {
     </div>
   );
 }
-
