@@ -59,6 +59,7 @@ interface SplitPayment {
   remaining: number;
 }
 
+
 interface ReceiptData {
   id: string | number;
   createdAt: string;
@@ -67,7 +68,13 @@ interface ReceiptData {
   total: number;
   paymentMethod: string;
   products: any[];
-  customer?: Customer;
+  customer?: {
+    id: number | string;
+    name: string;
+    phone?: string;
+    email?: string;
+    balance?: number;
+  };
   businessInfo?: any;
   receiptSettings?: any;
   balanceDeducted?: number;
@@ -977,46 +984,53 @@ export default function POS() {
 
       // Print receipt if requested
       if (printReceiptOption) {
-        const receiptData: ReceiptData = {
-          id: transaction.id,
-          createdAt: new Date().toISOString(),
-          subtotal: subtotal,
-          vat: vat,
-          total: grandTotal,
-          paymentMethod: finalPaymentMethod,
-          products: cart.map(item => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            discount: item.discount || 0,
-            total: (item.price * item.quantity) - (item.discount || 0)
-          })),
-          customer: selectedCustomer,
-          businessInfo: {
-            name: receiptSettings?.business_name || "Your Business",
-            address: receiptSettings?.business_address,
-            phone: receiptSettings?.business_phone,
-            email: receiptSettings?.business_email,
-            taxNumber: receiptSettings?.tax_number,
-            logoUrl: receiptSettings?.receipt_logo_url
-          },
-          receiptSettings: {
-            fontSize: receiptSettings?.receipt_font_size || 12,
-            footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-            showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-            barcodeType: receiptSettings?.barcode_type || 'CODE128',
-            showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-          },
-          balanceDeducted: balanceDeducted,
-          paymentDetails: paymentDetails,
-          staffName: currentStaff?.name,
-          notes: transactionNotes
-        };
-        
-        setReceiptData(receiptData);
-        setShowReceiptPrint(true);
-      }
+  const receiptData: ReceiptData = {
+    id: transaction.id,
+    createdAt: new Date().toISOString(),
+    subtotal: subtotal,
+    vat: vat,
+    total: grandTotal,
+    paymentMethod: finalPaymentMethod,
+    products: cart.map(item => ({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      discount: item.discount || 0,
+      total: (item.price * item.quantity) - (item.discount || 0)
+    })),
+    customer: selectedCustomer ? {
+      id: selectedCustomer.id,
+      name: selectedCustomer.name,
+      phone: selectedCustomer.phone || undefined, // Convert null to undefined
+      email: selectedCustomer.email || undefined, // Convert null to undefined
+      balance: selectedCustomer.balance
+    } : undefined,
+    businessInfo: {
+      name: receiptSettings?.business_name || "Your Business",
+      address: receiptSettings?.business_address,
+      phone: receiptSettings?.business_phone,
+      email: receiptSettings?.business_email,
+      taxNumber: receiptSettings?.tax_number,
+      logoUrl: receiptSettings?.receipt_logo_url
+    },
+    receiptSettings: {
+      fontSize: receiptSettings?.receipt_font_size || 12,
+      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+      barcodeType: receiptSettings?.barcode_type || 'CODE128',
+      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+    },
+    balanceDeducted: balanceDeducted,
+    paymentDetails: paymentDetails,
+    staffName: currentStaff?.name,
+    notes: transactionNotes
+  };
+  
+  setReceiptData(receiptData);
+  setShowReceiptPrint(true);
+}
+
 
       alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
       
@@ -1047,50 +1061,56 @@ export default function POS() {
   };
 
   // Print receipt preview
-  const printReceipt = () => {
-    if (cart.length === 0) {
-      alert("Cart is empty");
-      return;
-    }
+ const printReceipt = () => {
+  if (cart.length === 0) {
+    alert("Cart is empty");
+    return;
+  }
 
-    const receiptData: ReceiptData = {
-      id: "PREVIEW-" + Date.now(),
-      createdAt: new Date().toISOString(),
-      subtotal: subtotal,
-      vat: vat,
-      total: grandTotal,
-      paymentMethod: "preview",
-      products: cart.map(item => ({
-        id: item.id,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        discount: item.discount || 0,
-        total: (item.price * item.quantity) - (item.discount || 0)
-      })),
-      customer: selectedCustomer,
-      businessInfo: {
-        name: receiptSettings?.business_name || "Your Business",
-        address: receiptSettings?.business_address,
-        phone: receiptSettings?.business_phone,
-        email: receiptSettings?.business_email,
-        taxNumber: receiptSettings?.tax_number,
-        logoUrl: receiptSettings?.receipt_logo_url
-      },
-      receiptSettings: {
-        fontSize: receiptSettings?.receipt_font_size || 12,
-        footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-        showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-        barcodeType: receiptSettings?.barcode_type || 'CODE128',
-        showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-      },
-      staffName: currentStaff?.name,
-      notes: transactionNotes
-    };
-    
-    setReceiptData(receiptData);
-    setShowReceiptPrint(true);
+  const receiptData: ReceiptData = {
+    id: "PREVIEW-" + Date.now(),
+    createdAt: new Date().toISOString(),
+    subtotal: subtotal,
+    vat: vat,
+    total: grandTotal,
+    paymentMethod: "preview",
+    products: cart.map(item => ({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      discount: item.discount || 0,
+      total: (item.price * item.quantity) - (item.discount || 0)
+    })),
+    customer: selectedCustomer ? {
+      id: selectedCustomer.id,
+      name: selectedCustomer.name,
+      phone: selectedCustomer.phone || undefined, // Convert null to undefined
+      email: selectedCustomer.email || undefined, // Convert null to undefined
+      balance: selectedCustomer.balance
+    } : undefined,
+    businessInfo: {
+      name: receiptSettings?.business_name || "Your Business",
+      address: receiptSettings?.business_address,
+      phone: receiptSettings?.business_phone,
+      email: receiptSettings?.business_email,
+      taxNumber: receiptSettings?.tax_number,
+      logoUrl: receiptSettings?.receipt_logo_url
+    },
+    receiptSettings: {
+      fontSize: receiptSettings?.receipt_font_size || 12,
+      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+      barcodeType: receiptSettings?.barcode_type || 'CODE128',
+      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+    },
+    staffName: currentStaff?.name,
+    notes: transactionNotes
   };
+  
+  setReceiptData(receiptData);
+  setShowReceiptPrint(true);
+};
 
   // Split payment functions
   const handleSplitPaymentChange = (method: keyof SplitPayment, value: string) => {
@@ -1893,38 +1913,45 @@ export default function POS() {
                       </div>
                       <button
                         onClick={() => {
-                          const receiptData: ReceiptData = {
-                            id: transaction.id,
-                            createdAt: transaction.created_at,
-                            subtotal: transaction.subtotal || 0,
-                            vat: transaction.vat || 0,
-                            total: transaction.total || 0,
-                            paymentMethod: transaction.payment_method || 'cash',
-                            products: transaction.products || [],
-                            customer: customers.find(c => c.id === transaction.customer_id),
-                            businessInfo: {
-                              name: receiptSettings?.business_name || "Your Business",
-                              address: receiptSettings?.business_address,
-                              phone: receiptSettings?.business_phone,
-                              email: receiptSettings?.business_email,
-                              taxNumber: receiptSettings?.tax_number,
-                              logoUrl: receiptSettings?.receipt_logo_url
-                            },
-                            receiptSettings: {
-                              fontSize: receiptSettings?.receipt_font_size || 12,
-                              footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-                              showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-                              barcodeType: receiptSettings?.barcode_type || 'CODE128',
-                              showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-                            },
-                            balanceDeducted: transaction.balance_deducted,
-                            paymentDetails: transaction.payment_details,
-                            staffName: currentStaff?.name,
-                            notes: transaction.notes
-                          };
-                          setReceiptData(receiptData);
-                          setShowReceiptPrint(true);
-                        }}
+  const receiptData: ReceiptData = {
+    id: transaction.id,
+    createdAt: transaction.created_at,
+    subtotal: transaction.subtotal || 0,
+    vat: transaction.vat || 0,
+    total: transaction.total || 0,
+    paymentMethod: transaction.payment_method || 'cash',
+    products: transaction.products || [],
+    customer: customers.find(c => c.id === transaction.customer_id) ? {
+      id: customers.find(c => c.id === transaction.customer_id)!.id,
+      name: customers.find(c => c.id === transaction.customer_id)!.name,
+      phone: customers.find(c => c.id === transaction.customer_id)!.phone || undefined,
+      email: customers.find(c => c.id === transaction.customer_id)!.email || undefined,
+      balance: customers.find(c => c.id === transaction.customer_id)!.balance
+    } : undefined,
+    businessInfo: {
+      name: receiptSettings?.business_name || "Your Business",
+      address: receiptSettings?.business_address,
+      phone: receiptSettings?.business_phone,
+      email: receiptSettings?.business_email,
+      taxNumber: receiptSettings?.tax_number,
+      logoUrl: receiptSettings?.receipt_logo_url
+    },
+    receiptSettings: {
+      fontSize: receiptSettings?.receipt_font_size || 12,
+      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+      barcodeType: receiptSettings?.barcode_type || 'CODE128',
+      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+    },
+    balanceDeducted: transaction.balance_deducted,
+    paymentDetails: transaction.payment_details,
+    staffName: currentStaff?.name,
+    notes: transaction.notes
+  };
+  setReceiptData(receiptData);
+  setShowReceiptPrint(true);
+}}
+
                         className="bg-slate-700/50 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 text-sm"
                       >
                         <Printer className="w-3.5 h-3.5" />
@@ -1941,3 +1968,4 @@ export default function POS() {
     </div>
   );
 }
+
