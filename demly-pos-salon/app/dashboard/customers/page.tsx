@@ -1,4 +1,4 @@
-// app/dashboard/customers/page.tsx
+// app/dashboard/customers/page.tsx - FIXED VERSION
 "use client";
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -16,9 +16,13 @@ import {
   Calendar,
   DollarSign,
   TrendingUp,
-  ShoppingBag
+  ShoppingBag,
+  X,
+  Save,
+  ChevronLeft,
+  Plus,
+  Eye
 } from 'lucide-react';
-import Link from 'next/link';
 import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
@@ -34,7 +38,7 @@ interface Customer {
 }
 
 interface Transaction {
-  id: string | number; // Can be string OR number
+  id: string | number;
   customer_id: string;
   total: number;
   subtotal: number;
@@ -45,9 +49,11 @@ interface Transaction {
   balance_deducted: number;
   created_at: string;
   notes: string | null;
+  products?: any[];
+  staff_name?: string;
 }
 
-// Helper function to format dates
+// Helper functions
 const formatDate = (dateString: string, includeTime: boolean = true) => {
   try {
     const date = new Date(dateString);
@@ -76,22 +82,20 @@ const formatDate = (dateString: string, includeTime: boolean = true) => {
   }
 };
 
-// Helper function to safely get numbers
 const getSafeNumber = (value: any): number => {
   if (value === null || value === undefined) return 0;
   const num = Number(value);
   return isNaN(num) ? 0 : num;
 };
 
-// Helper function to safely get transaction ID string
 const getTransactionIdDisplay = (id: string | number | null | undefined): string => {
   if (!id) return 'Unknown';
-  
   const idStr = String(id);
   return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
 };
 
 function CustomersContent() {
+  // State
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -100,17 +104,40 @@ function CustomersContent() {
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
-  
-  // Fetch customers
+  const [showAddEditModal, setShowAddEditModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [newCustomer, setNewCustomer] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    notes: '',
+    balance: 0,
+    loyalty_points: 0
+  });
+  const [businessSettings, setBusinessSettings] = useState<any>(null);
+
+  // Load data
   useEffect(() => {
     fetchCustomers();
+    fetchBusinessSettings();
   }, []);
-  
-  // Fetch customers with search
+
+  const fetchBusinessSettings = async () => {
+    try {
+      const { data } = await supabase
+        .from('settings')
+        .select('*')
+        .single();
+      if (data) setBusinessSettings(data);
+    } catch (error) {
+      console.error('Error loading business settings:', error);
+    }
+  };
+
   const fetchCustomers = async () => {
     try {
       setLoading(true);
-      
       let query = supabase
         .from('customers')
         .select('*')
@@ -122,36 +149,34 @@ function CustomersContent() {
       
       const { data, error } = await query;
       
-      if (error) {
-        console.error('Error fetching customers:', error);
-        setCustomers([]);
-        return;
-      }
-      
+      if (error) throw error;
       setCustomers(data || []);
       
     } catch (error) {
-      console.error('Error:', error);
-      setCustomers([]);
+      console.error('Error fetching customers:', error);
     } finally {
       setLoading(false);
     }
   };
-  
-  // Fetch customer transactions
+
   const fetchCustomerTransactions = async (customerId: string) => {
     try {
       setLoadingTransactions(true);
-      
       const { data, error } = await supabase
         .from('transactions')
-        .select('*')
+        .select('*, staff:staff_id(name)')
         .eq('customer_id', customerId)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
       
-      setCustomerTransactions(data || []);
+      // Format transactions with staff name
+      const formattedTransactions = (data || []).map(transaction => ({
+        ...transaction,
+        staff_name: transaction.staff?.name || 'Staff'
+      }));
+      
+      setCustomerTransactions(formattedTransactions);
       
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -160,14 +185,12 @@ function CustomersContent() {
       setLoadingTransactions(false);
     }
   };
-  
-  // Handle customer selection
+
   const handleCustomerSelect = async (customer: Customer) => {
     setSelectedCustomer(customer);
     await fetchCustomerTransactions(customer.id);
   };
-  
-  // Calculate customer stats
+
   const calculateCustomerStats = () => {
     if (!selectedCustomer || customerTransactions.length === 0) {
       return {
@@ -191,27 +214,31 @@ function CustomersContent() {
       lastTransaction: customerTransactions[0] || null
     };
   };
-  
-  // Print transaction receipt
+
+  // Print receipt - FIXED to show properly
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
-      // Get customer data
       const customer = selectedCustomer || 
         customers.find(c => c.id === transaction.customer_id) || 
-        { id: '', name: 'Customer', email: '', phone: '', balance: 0 };
-      
-      // Prepare receipt data
+        { 
+          id: '', 
+          name: 'Customer', 
+          email: '', 
+          phone: '', 
+          balance: 0,
+          loyalty_points: 0 
+        };
+
       const receiptData = {
         id: transaction.id,
         createdAt: transaction.created_at,
         subtotal: getSafeNumber(transaction.subtotal),
         vat: getSafeNumber(transaction.vat),
         total: getSafeNumber(transaction.total),
-        discountAmount: 0,
         paymentMethod: transaction.payment_method || 'cash',
         paymentStatus: transaction.status || 'completed',
         notes: transaction.notes,
-        products: [],
+        products: transaction.products || [],
         customer: {
           id: customer.id,
           name: customer.name,
@@ -220,26 +247,25 @@ function CustomersContent() {
           balance: getSafeNumber(customer.balance)
         },
         businessInfo: {
-          name: 'Your Business',
-          address: '',
-          phone: '',
-          email: '',
-          taxNumber: '',
-          logoUrl: ''
+          name: businessSettings?.business_name || 'Your Business',
+          address: businessSettings?.business_address || '',
+          phone: businessSettings?.business_phone || '',
+          email: businessSettings?.business_email || '',
+          taxNumber: businessSettings?.tax_number || '',
+          logoUrl: businessSettings?.receipt_logo_url || ''
         },
         receiptSettings: {
-          fontSize: 12,
-          footer: 'Thank you for your business!',
-          showBarcode: true,
-          barcodeType: 'CODE128',
-          showTaxBreakdown: true
+          fontSize: businessSettings?.receipt_font_size || 12,
+          footer: businessSettings?.receipt_footer || 'Thank you for your business!',
+          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+          barcodeType: businessSettings?.barcode_type || 'CODE128',
+          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
         },
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
-        staffName: 'Staff'
+        staffName: transaction.staff_name || 'Staff'
       };
       
-      // Set receipt data and show modal
       setReceiptData(receiptData);
       setShowReceiptModal(true);
       
@@ -248,18 +274,141 @@ function CustomersContent() {
       alert('Failed to generate receipt. Please try again.');
     }
   };
-  
-  // Close receipt modal
+
   const closeReceiptModal = () => {
     setShowReceiptModal(false);
     setReceiptData(null);
   };
-  
-  // Delete customer
+
+  // Customer CRUD operations
+  const openAddCustomerModal = () => {
+    setNewCustomer({
+      name: '',
+      email: '',
+      phone: '',
+      address: '',
+      notes: '',
+      balance: 0,
+      loyalty_points: 0
+    });
+    setEditingCustomer(null);
+    setShowAddEditModal(true);
+  };
+
+  const openEditCustomerModal = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setNewCustomer({
+      name: customer.name || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      address: customer.address || '',
+      notes: customer.notes || '',
+      balance: getSafeNumber(customer.balance),
+      loyalty_points: getSafeNumber(customer.loyalty_points)
+    });
+    setShowAddEditModal(true);
+  };
+
+  const saveCustomer = async () => {
+    if (!newCustomer.name.trim()) {
+      alert('Customer name is required');
+      return;
+    }
+
+    try {
+      if (editingCustomer) {
+        // Update existing customer
+        const { error } = await supabase
+          .from('customers')
+          .update({
+            name: newCustomer.name,
+            email: newCustomer.email || null,
+            phone: newCustomer.phone || null,
+            address: newCustomer.address || null,
+            notes: newCustomer.notes || null,
+            balance: getSafeNumber(newCustomer.balance),
+            loyalty_points: getSafeNumber(newCustomer.loyalty_points),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingCustomer.id);
+
+        if (error) throw error;
+        
+        // Update local state
+        setCustomers(customers.map(c => 
+          c.id === editingCustomer.id 
+            ? { 
+                ...c, 
+                ...newCustomer,
+                balance: getSafeNumber(newCustomer.balance),
+                loyalty_points: getSafeNumber(newCustomer.loyalty_points)
+              }
+            : c
+        ));
+        
+        if (selectedCustomer?.id === editingCustomer.id) {
+          setSelectedCustomer({
+            ...selectedCustomer,
+            ...newCustomer,
+            balance: getSafeNumber(newCustomer.balance),
+            loyalty_points: getSafeNumber(newCustomer.loyalty_points)
+          });
+        }
+        
+      } else {
+        // Create new customer
+        const { data, error } = await supabase
+          .from('customers')
+          .insert([{
+            name: newCustomer.name,
+            email: newCustomer.email || null,
+            phone: newCustomer.phone || null,
+            address: newCustomer.address || null,
+            notes: newCustomer.notes || null,
+            balance: getSafeNumber(newCustomer.balance),
+            loyalty_points: getSafeNumber(newCustomer.loyalty_points),
+            created_at: new Date().toISOString()
+          }])
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Add to local state
+        setCustomers([data, ...customers]);
+        setSelectedCustomer(data);
+        await fetchCustomerTransactions(data.id);
+      }
+      
+      setShowAddEditModal(false);
+      setEditingCustomer(null);
+      setNewCustomer({
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        notes: '',
+        balance: 0,
+        loyalty_points: 0
+      });
+      
+    } catch (error: any) {
+      console.error('Error saving customer:', error);
+      alert(`Failed to save customer: ${error.message}`);
+    }
+  };
+
   const deleteCustomer = async (customerId: string) => {
-    if (!confirm('Are you sure you want to delete this customer?')) return;
+    if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
     
     try {
+      // First, delete related transactions
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('customer_id', customerId);
+      
+      // Then delete the customer
       const { error } = await supabase
         .from('customers')
         .delete()
@@ -267,30 +416,181 @@ function CustomersContent() {
       
       if (error) throw error;
       
-      // Refresh customers list
-      fetchCustomers();
+      // Update local state
+      setCustomers(customers.filter(c => c.id !== customerId));
       if (selectedCustomer?.id === customerId) {
         setSelectedCustomer(null);
         setCustomerTransactions([]);
       }
-    } catch (error) {
+      
+      alert('Customer deleted successfully');
+    } catch (error: any) {
       console.error('Error deleting customer:', error);
-      alert('Failed to delete customer');
+      alert(`Failed to delete customer: ${error.message}`);
     }
   };
-  
-  // Filtered customers based on search
-  const filteredCustomers = (customers || []).filter(customer =>
+
+  // Filter customers
+  const filteredCustomers = customers.filter(customer =>
     customer.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     customer.phone?.includes(searchQuery)
   );
-  
-  // Calculate stats
+
   const stats = calculateCustomerStats();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* Receipt Modal - FIXED: Full screen overlay */}
+      {showReceiptModal && receiptData && (
+        <div className="fixed inset-0 z-[9999] bg-white">
+          <div className="absolute top-4 right-4 z-50">
+            <button
+              onClick={closeReceiptModal}
+              className="p-2 bg-gray-800 text-white rounded-full hover:bg-gray-700"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <ReceiptPrint data={receiptData} onClose={closeReceiptModal} />
+        </div>
+      )}
+
+      {/* Add/Edit Customer Modal */}
+      {showAddEditModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-green-700">
+                  {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
+                </h2>
+                <button
+                  onClick={() => setShowAddEditModal(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Customer name"
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={newCustomer.email}
+                  onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="customer@example.com"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="+44 1234 567890"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Address
+                </label>
+                <textarea
+                  value={newCustomer.address}
+                  onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="123 Street, City, Postcode"
+                  rows={2}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Balance (£)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newCustomer.balance}
+                    onChange={(e) => setNewCustomer({...newCustomer, balance: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="0.00"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Loyalty Points
+                  </label>
+                  <input
+                    type="number"
+                    value={newCustomer.loyalty_points}
+                    onChange={(e) => setNewCustomer({...newCustomer, loyalty_points: parseInt(e.target.value) || 0})}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes
+                </label>
+                <textarea
+                  value={newCustomer.notes}
+                  onChange={(e) => setNewCustomer({...newCustomer, notes: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Additional notes about this customer..."
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 border-t flex gap-3">
+              <button
+                onClick={() => setShowAddEditModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCustomer}
+                disabled={!newCustomer.name.trim()}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+              >
+                <Save className="w-4 h-4" />
+                {editingCustomer ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-green-700">Customers</h1>
@@ -303,7 +603,7 @@ function CustomersContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-green-600">Total Customers</p>
-              <p className="text-2xl font-bold mt-1 text-gray-900">{(customers || []).length}</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">{customers.length}</p>
             </div>
             <div className="p-3 bg-green-50 rounded-lg">
               <UserPlus className="w-6 h-6 text-green-600" />
@@ -316,7 +616,7 @@ function CustomersContent() {
             <div>
               <p className="text-sm font-medium text-green-600">Total Balance Owed</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">
-                £{(customers || []).reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
+                £{customers.reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
               </p>
             </div>
             <div className="p-3 bg-blue-50 rounded-lg">
@@ -330,7 +630,7 @@ function CustomersContent() {
             <div>
               <p className="text-sm font-medium text-green-600">Active Customers</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">
-                {(customers || []).filter(c => getSafeNumber(c.balance) > 0).length}
+                {customers.filter(c => getSafeNumber(c.balance) > 0).length}
               </p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg">
@@ -344,8 +644,8 @@ function CustomersContent() {
             <div>
               <p className="text-sm font-medium text-green-600">Avg. Loyalty Points</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">
-                {(customers || []).length > 0 
-                  ? Math.round((customers || []).reduce((sum, c) => sum + getSafeNumber(c.loyalty_points), 0) / (customers || []).length)
+                {customers.length > 0 
+                  ? Math.round(customers.reduce((sum, c) => sum + getSafeNumber(c.loyalty_points), 0) / customers.length)
                   : 0}
               </p>
             </div>
@@ -381,13 +681,13 @@ function CustomersContent() {
               >
                 Search
               </button>
-              <Link
-                href="/dashboard/customers/new"
+              <button
+                onClick={openAddCustomerModal}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
               >
-                <UserPlus className="w-4 h-4" />
+                <Plus className="w-4 h-4" />
                 Add
-              </Link>
+              </button>
             </div>
           </div>
           
@@ -454,14 +754,16 @@ function CustomersContent() {
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
-                      <Link
-                        href={`/dashboard/customers/${customer.id}/edit`}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditCustomerModal(customer);
+                        }}
                         className="flex-1 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center gap-1 font-medium"
-                        onClick={(e) => e.stopPropagation()}
                       >
                         <Edit className="w-3 h-3" />
                         Edit
-                      </Link>
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -484,11 +786,20 @@ function CustomersContent() {
         <div className="lg:w-3/5">
           {selectedCustomer ? (
             <>
-              {/* Customer Details */}
+              {/* Customer Details Header */}
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        onClick={() => setSelectedCustomer(null)}
+                        className="p-1 hover:bg-gray-100 rounded-lg"
+                        title="Back to list"
+                      >
+                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                      </button>
+                      <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
+                    </div>
                     <div className="flex items-center gap-4 mt-2 text-gray-600">
                       {selectedCustomer.phone && (
                         <span className="flex items-center gap-2">
@@ -514,6 +825,13 @@ function CustomersContent() {
                     <div className="text-xs text-green-600 mt-1">
                       {getSafeNumber(selectedCustomer.loyalty_points)} loyalty points
                     </div>
+                    <button
+                      onClick={() => openEditCustomerModal(selectedCustomer)}
+                      className="mt-3 px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center gap-1 font-medium"
+                    >
+                      <Edit className="w-3 h-3" />
+                      Edit Customer
+                    </button>
                   </div>
                 </div>
                 
@@ -559,8 +877,18 @@ function CustomersContent() {
               {/* Transactions */}
               <div className="bg-white rounded-xl shadow-sm border">
                 <div className="p-6 border-b">
-                  <h2 className="text-xl font-bold text-gray-900">Transaction History ({customerTransactions.length})</h2>
-                  <p className="text-sm text-gray-500 mt-1">All transactions for this customer</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">Transaction History ({customerTransactions.length})</h2>
+                      <p className="text-sm text-gray-500 mt-1">All transactions for this customer</p>
+                    </div>
+                    <button
+                      onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
+                      className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                 </div>
                 
                 {loadingTransactions ? (
@@ -597,6 +925,11 @@ function CustomersContent() {
                               }`}>
                                 {transaction.status || 'unknown'}
                               </span>
+                              {transaction.staff_name && (
+                                <span className="text-gray-500">
+                                  by {transaction.staff_name}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="text-right">
@@ -643,6 +976,17 @@ function CustomersContent() {
                               £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
                             </div>
                           )}
+                          {transaction.products && transaction.products.length > 0 && (
+                            <button
+                              onClick={() => {
+                                alert(`${transaction.products?.length} items purchased`);
+                              }}
+                              className="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex items-center justify-center gap-1 font-medium"
+                            >
+                              <Eye className="w-3 h-3" />
+                              View Items
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -664,26 +1008,6 @@ function CustomersContent() {
           )}
         </div>
       </div>
-      
-      {/* Receipt Modal */}
-      {showReceiptModal && receiptData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            <div className="p-4 border-b flex justify-between items-center bg-green-50">
-              <h3 className="text-lg font-semibold text-green-700">Receipt Preview</h3>
-              <button
-                onClick={closeReceiptModal}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="overflow-auto max-h-[calc(90vh-80px)]">
-              <ReceiptPrint data={receiptData} onClose={closeReceiptModal} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -741,7 +1065,6 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
   );
 }
 
-// Main export wrapped with ErrorBoundary
 export default function CustomersPage() {
   return (
     <ErrorBoundary fallback={<CustomersErrorFallback />}>
