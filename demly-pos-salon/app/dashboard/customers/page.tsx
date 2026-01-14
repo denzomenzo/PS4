@@ -3,6 +3,7 @@
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useStaffAuth } from '@/hooks/useStaffAuth';
 import { 
   Search, 
   UserPlus, 
@@ -23,9 +24,11 @@ import {
   Clock,
   Hash,
   Receipt,
-  Package
+  Package,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
-import ReceiptPrint from '@/components/receipts/ReceiptPrint';
+import ReceiptPrint, { ReceiptData as ReceiptPrintData } from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
   id: string;
@@ -98,6 +101,8 @@ const getTransactionIdDisplay = (transaction: Transaction): string => {
 };
 
 function CustomersContent() {
+  const { staff: currentStaff } = useStaffAuth();
+  
   // State
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,9 +110,12 @@ function CustomersContent() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [receiptData, setReceiptData] = useState<any>(null);
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
+  const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   const [showAddEditModal, setShowAddEditModal] = useState(false);
+  const [showAdjustBalanceModal, setShowAdjustBalanceModal] = useState(false);
+  const [showViewItemsModal, setShowViewItemsModal] = useState(false);
+  const [selectedTransactionItems, setSelectedTransactionItems] = useState<any[]>([]);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [newCustomer, setNewCustomer] = useState({
     name: '',
@@ -118,9 +126,13 @@ function CustomersContent() {
     balance: 0
   });
   
+  const [balanceAdjustment, setBalanceAdjustment] = useState({
+    amount: '',
+    type: 'credit' as 'credit' | 'debit',
+    reason: ''
+  });
+  
   const [businessSettings, setBusinessSettings] = useState<any>(null);
-  const [showViewItemsModal, setShowViewItemsModal] = useState(false);
-  const [selectedTransactionItems, setSelectedTransactionItems] = useState<any[]>([]);
 
   // Load data
   useEffect(() => {
@@ -235,7 +247,7 @@ function CustomersContent() {
     };
   };
 
-  // Print receipt
+  // Print receipt - FIXED to match your POS.tsx
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       const customer = selectedCustomer || 
@@ -248,45 +260,77 @@ function CustomersContent() {
           balance: 0
         };
 
-      const receiptData = {
+      // Fetch transaction items if available
+      let transactionItems = [];
+      try {
+        const { data } = await supabase
+          .from('transaction_items')
+          .select('*, product:products(*)')
+          .eq('transaction_id', transaction.id);
+        
+        if (data) {
+          transactionItems = data.map(item => ({
+            id: item.product?.id || item.id,
+            name: item.product?.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching transaction items:', error);
+        // Fallback to transaction.products if available
+        if (transaction.products && Array.isArray(transaction.products)) {
+          transactionItems = transaction.products.map((item: any) => ({
+            id: item.id || item.product_id,
+            name: item.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+          }));
+        }
+      }
+
+      const receiptData: ReceiptPrintData = {
         id: transaction.id,
         createdAt: transaction.created_at,
         subtotal: getSafeNumber(transaction.subtotal),
         vat: getSafeNumber(transaction.vat),
         total: getSafeNumber(transaction.total),
         paymentMethod: transaction.payment_method || 'cash',
-        paymentStatus: transaction.status || 'completed',
-        notes: transaction.notes,
-        products: transaction.products || [],
+        products: transactionItems,
         customer: {
           id: customer.id,
           name: customer.name,
-          email: customer.email || '',
-          phone: customer.phone || '',
+          phone: customer.phone || undefined,
+          email: customer.email || undefined,
           balance: getSafeNumber(customer.balance)
         },
         businessInfo: {
-          name: businessSettings?.business_name || 'Your Business',
-          address: businessSettings?.business_address || '',
-          phone: businessSettings?.business_phone || '',
-          email: businessSettings?.business_email || '',
-          taxNumber: businessSettings?.tax_number || '',
-          logoUrl: businessSettings?.receipt_logo_url || ''
+          name: businessSettings?.business_name || "Your Business",
+          address: businessSettings?.business_address,
+          phone: businessSettings?.business_phone,
+          email: businessSettings?.business_email,
+          taxNumber: businessSettings?.tax_number,
+          logoUrl: businessSettings?.receipt_logo_url
         },
         receiptSettings: {
           fontSize: businessSettings?.receipt_font_size || 12,
-          footer: businessSettings?.receipt_footer || 'Thank you for your business!',
+          footer: businessSettings?.receipt_footer || "Thank you for your business!",
           showBarcode: businessSettings?.show_barcode_on_receipt !== false,
           barcodeType: businessSettings?.barcode_type || 'CODE128',
           showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
         },
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
-        staffName: transaction.staff_name || 'Staff'
+        staffName: transaction.staff_name || currentStaff?.name,
+        notes: transaction.notes || undefined
       };
       
       setReceiptData(receiptData);
-      setShowReceiptModal(true);
+      setShowReceiptPrint(true);
       
     } catch (error) {
       console.error('Error preparing receipt:', error);
@@ -294,8 +338,8 @@ function CustomersContent() {
     }
   };
 
-  const closeReceiptModal = () => {
-    setShowReceiptModal(false);
+  const closeReceiptPrint = () => {
+    setShowReceiptPrint(false);
     setReceiptData(null);
   };
 
@@ -427,6 +471,69 @@ function CustomersContent() {
     }
   };
 
+  // Balance adjustment functions
+  const openAdjustBalanceModal = () => {
+    if (!selectedCustomer) return;
+    setBalanceAdjustment({
+      amount: '',
+      type: 'credit',
+      reason: ''
+    });
+    setShowAdjustBalanceModal(true);
+  };
+
+  const adjustCustomerBalance = async () => {
+    if (!selectedCustomer) return;
+    
+    const amount = parseFloat(balanceAdjustment.amount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid positive amount');
+      return;
+    }
+
+    if (!balanceAdjustment.reason.trim()) {
+      alert('Please provide a reason for this adjustment');
+      return;
+    }
+
+    try {
+      const previousBalance = getSafeNumber(selectedCustomer.balance);
+      const adjustmentAmount = balanceAdjustment.type === 'credit' ? amount : -amount;
+      const newBalance = previousBalance + adjustmentAmount;
+
+      // Update customer balance
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedCustomer.id);
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      const updatedCustomer = { ...selectedCustomer, balance: newBalance };
+      setSelectedCustomer(updatedCustomer);
+      setCustomers(customers.map(c => 
+        c.id === selectedCustomer.id ? updatedCustomer : c
+      ));
+
+      setShowAdjustBalanceModal(false);
+      setBalanceAdjustment({
+        amount: '',
+        type: 'credit',
+        reason: ''
+      });
+
+      alert(`Balance ${balanceAdjustment.type === 'credit' ? 'credited' : 'debited'} successfully`);
+
+    } catch (error: any) {
+      console.error('Error adjusting balance:', error);
+      alert(`Failed to adjust balance: ${error.message}`);
+    }
+  };
+
   // View transaction items
   const viewTransactionItems = async (transaction: Transaction) => {
     try {
@@ -446,18 +553,13 @@ function CustomersContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Receipt Modal */}
-      {showReceiptModal && receiptData && (
-        <div className="fixed inset-0 z-[9999] bg-white">
-          <div className="absolute top-4 right-4 z-50">
-            <button
-              onClick={closeReceiptModal}
-              className="p-2 bg-gray-800 text-white rounded-full hover:bg-gray-700"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          <ReceiptPrint data={receiptData} onClose={closeReceiptModal} />
+      {/* Receipt Print Component - FIXED: No X button, won't close tab */}
+      {showReceiptPrint && receiptData && (
+        <div className="fixed inset-0 z-50 bg-white">
+          <ReceiptPrint 
+            data={receiptData} 
+            onClose={closeReceiptPrint}
+          />
         </div>
       )}
 
@@ -594,7 +696,7 @@ function CustomersContent() {
                   placeholder="0.00"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Positive balance = customer owes you, Negative balance = you owe customer
+                  Positive balance = customer has credit, Negative balance = customer owes money
                 </p>
               </div>
               
@@ -632,10 +734,122 @@ function CustomersContent() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Adjust Balance Modal */}
+      {showAdjustBalanceModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-green-700">Adjust Balance</h2>
+                <button
+                  onClick={() => setShowAdjustBalanceModal(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-600 mt-1">Current balance: £{getSafeNumber(selectedCustomer.balance).toFixed(2)}</p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setBalanceAdjustment({...balanceAdjustment, type: 'credit'})}
+                    className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                      balanceAdjustment.type === 'credit'
+                        ? 'bg-green-100 text-green-700 border-2 border-green-500'
+                        : 'bg-gray-100 text-gray-700 border border-gray-300'
+                    }`}
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                    Add Credit
+                  </button>
+                  <button
+                    onClick={() => setBalanceAdjustment({...balanceAdjustment, type: 'debit'})}
+                    className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                      balanceAdjustment.type === 'debit'
+                        ? 'bg-red-100 text-red-700 border-2 border-red-500'
+                        : 'bg-gray-100 text-gray-700 border border-gray-300'
+                    }`}
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                    Add Debit
+                  </button>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Amount (£)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={balanceAdjustment.amount}
+                  onChange={(e) => setBalanceAdjustment({...balanceAdjustment, amount: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  placeholder="0.00"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason *
+                </label>
+                <textarea
+                  value={balanceAdjustment.reason}
+                  onChange={(e) => setBalanceAdjustment({...balanceAdjustment, reason: e.target.value})}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  placeholder="Reason for balance adjustment..."
+                  rows={3}
+                />
+              </div>
+              
+              {balanceAdjustment.amount && !isNaN(parseFloat(balanceAdjustment.amount)) && (
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-600">New balance will be:</div>
+                  <div className="text-lg font-bold text-green-700">
+                    £{(getSafeNumber(selectedCustomer.balance) + 
+                      (balanceAdjustment.type === 'credit' ? parseFloat(balanceAdjustment.amount) : -parseFloat(balanceAdjustment.amount))
+                    ).toFixed(2)}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 border-t flex gap-3">
+              <button
+                onClick={() => setShowAdjustBalanceModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={adjustCustomerBalance}
+                disabled={!balanceAdjustment.amount || !balanceAdjustment.reason.trim() || isNaN(parseFloat(balanceAdjustment.amount))}
+                className={`flex-1 px-4 py-2 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
+                  balanceAdjustment.type === 'credit'
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <Save className="w-4 h-4" />
+                {balanceAdjustment.type === 'credit' ? 'Add Credit' : 'Add Debit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header - FIXED: Green title with matching font */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
-        <p className="text-gray-600 mt-2">Manage your customers and view their transactions</p>
+        <h1 className="text-3xl font-bold text-green-700">Customers</h1>
+        <p className="text-green-600 mt-2">Manage your customers and view their transactions</p>
       </div>
       
       {/* Stats Overview */}
@@ -643,7 +857,7 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
+              <p className="text-sm font-medium text-green-600">Total Customers</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">{customers.length}</p>
             </div>
             <div className="p-3 bg-blue-50 rounded-lg">
@@ -655,7 +869,7 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total Balance</p>
+              <p className="text-sm font-medium text-green-600">Total Balance</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">
                 £{customers.reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
               </p>
@@ -669,7 +883,7 @@ function CustomersContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Active Accounts</p>
+              <p className="text-sm font-medium text-green-600">Active Accounts</p>
               <p className="text-2xl font-bold mt-1 text-gray-900">
                 {customers.filter(c => getSafeNumber(c.balance) !== 0).length}
               </p>
@@ -684,7 +898,7 @@ function CustomersContent() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left Column - Customers List */}
         <div className="lg:w-2/5">
-          {/* Search and Add Customer - FIXED: Added text-gray-900 */}
+          {/* Search and Add Customer */}
           <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -754,12 +968,11 @@ function CustomersContent() {
                         </div>
                       </div>
                       <div className="text-right">
-                        {/* FIXED: Positive balance = GREEN, Negative balance = BLUE, Zero = Gray */}
                         <div className={`font-bold ${
                           getSafeNumber(customer.balance) > 0 
-                            ? 'text-green-600'  // Positive (customer has credit)
+                            ? 'text-green-600'  // Positive balance (customer has credit)
                             : getSafeNumber(customer.balance) < 0 
-                            ? 'text-blue-600'   // Negative (customer owes money)
+                            ? 'text-blue-600'   // Negative balance (customer owes)
                             : 'text-gray-600'   // Zero balance
                         }`}>
                           £{getSafeNumber(customer.balance).toFixed(2)}
@@ -787,12 +1000,15 @@ function CustomersContent() {
                     <div className="flex items-center gap-2 mb-2">
                       <button
                         onClick={() => setSelectedCustomer(null)}
-                        className="p-1 hover:bg-gray-100 rounded-lg"
+                        className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                         title="Back to list"
                       >
                         <ChevronLeft className="w-5 h-5 text-gray-600" />
                       </button>
                       <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
+                      <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
+                        ID: {selectedCustomer.id.slice(0, 8)}
+                      </span>
                     </div>
                     <div className="flex items-center gap-4 mt-2 text-gray-600">
                       {selectedCustomer.phone && (
@@ -814,24 +1030,32 @@ function CustomersContent() {
                     </div>
                   </div>
                   <div className="text-right">
-                    {/* FIXED: Same color logic for header balance */}
                     <div className={`text-2xl font-bold ${
                       getSafeNumber(selectedCustomer.balance) > 0 
-                        ? 'text-green-600' 
+                        ? 'text-green-600'  // Positive
                         : getSafeNumber(selectedCustomer.balance) < 0 
-                        ? 'text-blue-600' 
-                        : 'text-gray-600'
+                        ? 'text-blue-600'   // Negative
+                        : 'text-gray-600'   // Zero
                     }`}>
                       £{getSafeNumber(selectedCustomer.balance).toFixed(2)}
                     </div>
                     <div className="text-sm text-gray-500">Current Balance</div>
-                    <button
-                      onClick={() => openEditCustomerModal(selectedCustomer)}
-                      className="mt-3 px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center gap-1 font-medium"
-                    >
-                      <Edit className="w-3 h-3" />
-                      Edit Customer
-                    </button>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => openEditCustomerModal(selectedCustomer)}
+                        className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center gap-1 font-medium"
+                      >
+                        <Edit className="w-3 h-3" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={openAdjustBalanceModal}
+                        className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center gap-1 font-medium"
+                      >
+                        <DollarSign className="w-3 h-3" />
+                        Adjust Balance
+                      </button>
+                    </div>
                   </div>
                 </div>
                 
