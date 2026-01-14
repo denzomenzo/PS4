@@ -248,95 +248,104 @@ function CustomersContent() {
   };
 
   // Print receipt - FIXED to match your POS.tsx
-  const printTransactionReceipt = async (transaction: Transaction) => {
-    try {
-      const customer = selectedCustomer || 
-        customers.find(c => c.id === transaction.customer_id) || 
-        { 
-          id: '', 
-          name: 'Customer', 
-          email: '', 
-          phone: '', 
-          balance: 0
-        };
-
-      // Fetch transaction items if available
-      let transactionItems = [];
-      try {
-        const { data } = await supabase
-          .from('transaction_items')
-          .select('*, product:products(*)')
-          .eq('transaction_id', transaction.id);
-        
-        if (data) {
-          transactionItems = data.map(item => ({
-            id: item.product?.id || item.id,
-            name: item.product?.name || 'Product',
-            price: getSafeNumber(item.price),
-            quantity: getSafeNumber(item.quantity),
-            discount: 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
-          }));
-        }
-      } catch (error) {
-        console.error('Error fetching transaction items:', error);
-        // Fallback to transaction.products if available
-        if (transaction.products && Array.isArray(transaction.products)) {
-          transactionItems = transaction.products.map((item: any) => ({
-            id: item.id || item.product_id,
-            name: item.name || 'Product',
-            price: getSafeNumber(item.price),
-            quantity: getSafeNumber(item.quantity),
-            discount: 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
-          }));
-        }
-      }
-
-      const receiptData: ReceiptPrintData = {
-        id: transaction.id,
-        createdAt: transaction.created_at,
-        subtotal: getSafeNumber(transaction.subtotal),
-        vat: getSafeNumber(transaction.vat),
-        total: getSafeNumber(transaction.total),
-        paymentMethod: transaction.payment_method || 'cash',
-        products: transactionItems,
-        customer: {
-          id: customer.id,
-          name: customer.name,
-          phone: customer.phone || undefined,
-          email: customer.email || undefined,
-          balance: getSafeNumber(customer.balance)
-        },
-        businessInfo: {
-          name: businessSettings?.business_name || "Your Business",
-          address: businessSettings?.business_address,
-          phone: businessSettings?.business_phone,
-          email: businessSettings?.business_email,
-          taxNumber: businessSettings?.tax_number,
-          logoUrl: businessSettings?.receipt_logo_url
-        },
-        receiptSettings: {
-          fontSize: businessSettings?.receipt_font_size || 12,
-          footer: businessSettings?.receipt_footer || "Thank you for your business!",
-          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-          barcodeType: businessSettings?.barcode_type || 'CODE128',
-          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-        },
-        balanceDeducted: getSafeNumber(transaction.balance_deducted),
-        paymentDetails: transaction.payment_details || {},
-        staffName: transaction.staff_name || currentStaff?.name,
-        notes: transaction.notes || undefined
+  // Print receipt - FIXED to match your POS.tsx
+const printTransactionReceipt = async (transaction: Transaction) => {
+  try {
+    const customer = selectedCustomer || 
+      customers.find(c => c.id === transaction.customer_id) || 
+      { 
+        id: '', 
+        name: 'Customer', 
+        email: '', 
+        phone: '', 
+        balance: 0
       };
+
+    // Fetch transaction items if available - FIXED: Added proper typing
+    let transactionItems: Array<{
+      id: string | number;
+      name: string;
+      price: number;
+      quantity: number;
+      discount: number;
+      total: number;
+    }> = [];
+    
+    try {
+      const { data } = await supabase
+        .from('transaction_items')
+        .select('*, product:products(*)')
+        .eq('transaction_id', transaction.id);
       
-      setReceiptData(receiptData);
-      setShowReceiptPrint(true);
-      
+      if (data) {
+        transactionItems = data.map(item => ({
+          id: item.product?.id || item.id,
+          name: item.product?.name || 'Product',
+          price: getSafeNumber(item.price),
+          quantity: getSafeNumber(item.quantity),
+          discount: 0,
+          total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+        }));
+      }
     } catch (error) {
-      console.error('Error preparing receipt:', error);
-      alert('Failed to generate receipt. Please try again.');
+      console.error('Error fetching transaction items:', error);
+      // Fallback to transaction.products if available
+      if (transaction.products && Array.isArray(transaction.products)) {
+        transactionItems = transaction.products.map((item: any) => ({
+          id: item.id || item.product_id || Math.random().toString(),
+          name: item.name || 'Product',
+          price: getSafeNumber(item.price),
+          quantity: getSafeNumber(item.quantity),
+          discount: 0,
+          total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+        }));
+      }
     }
-  };
+
+    const receiptData: ReceiptPrintData = {
+      id: transaction.id,
+      createdAt: transaction.created_at,
+      subtotal: getSafeNumber(transaction.subtotal),
+      vat: getSafeNumber(transaction.vat),
+      total: getSafeNumber(transaction.total),
+      paymentMethod: transaction.payment_method || 'cash',
+      products: transactionItems,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone || undefined,
+        email: customer.email || undefined,
+        balance: getSafeNumber(customer.balance)
+      },
+      businessInfo: {
+        name: businessSettings?.business_name || "Your Business",
+        address: businessSettings?.business_address,
+        phone: businessSettings?.business_phone,
+        email: businessSettings?.business_email,
+        taxNumber: businessSettings?.tax_number,
+        logoUrl: businessSettings?.receipt_logo_url
+      },
+      receiptSettings: {
+        fontSize: businessSettings?.receipt_font_size || 12,
+        footer: businessSettings?.receipt_footer || "Thank you for your business!",
+        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+        barcodeType: businessSettings?.barcode_type || 'CODE128',
+        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+      },
+      balanceDeducted: getSafeNumber(transaction.balance_deducted),
+      paymentDetails: transaction.payment_details || {},
+      staffName: transaction.staff_name || currentStaff?.name,
+      notes: transaction.notes || undefined
+    };
+    
+    setReceiptData(receiptData);
+    setShowReceiptPrint(true);
+    
+  } catch (error) {
+    console.error('Error preparing receipt:', error);
+    alert('Failed to generate receipt. Please try again.');
+  }
+};
 
   const closeReceiptPrint = () => {
     setShowReceiptPrint(false);
@@ -1298,3 +1307,4 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
