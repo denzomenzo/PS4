@@ -92,12 +92,20 @@ const getSafeNumber = (value: any): number => {
   return isNaN(num) ? 0 : num;
 };
 
+// FIXED: Handle both string and number IDs
 const getTransactionIdDisplay = (transaction: Transaction): string => {
   if (transaction.id) {
-    const idStr = String(transaction.id);
+    const idStr = String(transaction.id); // Convert to string first
     return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
   }
   return '#Unknown';
+};
+
+// FIXED: Safely get customer ID display
+const getCustomerIdDisplay = (customer: Customer): string => {
+  if (!customer?.id) return 'Unknown';
+  const idStr = String(customer.id);
+  return idStr.length > 8 ? `${idStr.slice(0, 8)}` : idStr;
 };
 
 function CustomersContent() {
@@ -248,104 +256,104 @@ function CustomersContent() {
   };
 
   // Print receipt - FIXED to match your POS.tsx
-  // Print receipt - FIXED to match your POS.tsx
-const printTransactionReceipt = async (transaction: Transaction) => {
-  try {
-    const customer = selectedCustomer || 
-      customers.find(c => c.id === transaction.customer_id) || 
-      { 
-        id: '', 
-        name: 'Customer', 
-        email: '', 
-        phone: '', 
-        balance: 0
-      };
-
-    // Fetch transaction items if available - FIXED: Added proper typing
-    let transactionItems: Array<{
-      id: string | number;
-      name: string;
-      price: number;
-      quantity: number;
-      discount: number;
-      total: number;
-    }> = [];
-    
+  const printTransactionReceipt = async (transaction: Transaction) => {
     try {
-      const { data } = await supabase
-        .from('transaction_items')
-        .select('*, product:products(*)')
-        .eq('transaction_id', transaction.id);
-      
-      if (data) {
-        transactionItems = data.map(item => ({
-          id: item.product?.id || item.id,
-          name: item.product?.name || 'Product',
-          price: getSafeNumber(item.price),
-          quantity: getSafeNumber(item.quantity),
-          discount: 0,
-          total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
-        }));
-      }
-    } catch (error) {
-      console.error('Error fetching transaction items:', error);
-      // Fallback to transaction.products if available
-      if (transaction.products && Array.isArray(transaction.products)) {
-        transactionItems = transaction.products.map((item: any) => ({
-          id: item.id || item.product_id || Math.random().toString(),
-          name: item.name || 'Product',
-          price: getSafeNumber(item.price),
-          quantity: getSafeNumber(item.quantity),
-          discount: 0,
-          total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
-        }));
-      }
-    }
+      const customer = selectedCustomer || 
+        customers.find(c => c.id === transaction.customer_id) || 
+        { 
+          id: '', 
+          name: 'Customer', 
+          email: '', 
+          phone: '', 
+          balance: 0
+        };
 
-    const receiptData: ReceiptPrintData = {
-      id: transaction.id,
-      createdAt: transaction.created_at,
-      subtotal: getSafeNumber(transaction.subtotal),
-      vat: getSafeNumber(transaction.vat),
-      total: getSafeNumber(transaction.total),
-      paymentMethod: transaction.payment_method || 'cash',
-      products: transactionItems,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone || undefined,
-        email: customer.email || undefined,
-        balance: getSafeNumber(customer.balance)
-      },
-      businessInfo: {
-        name: businessSettings?.business_name || "Your Business",
-        address: businessSettings?.business_address,
-        phone: businessSettings?.business_phone,
-        email: businessSettings?.business_email,
-        taxNumber: businessSettings?.tax_number,
-        logoUrl: businessSettings?.receipt_logo_url
-      },
-      receiptSettings: {
-        fontSize: businessSettings?.receipt_font_size || 12,
-        footer: businessSettings?.receipt_footer || "Thank you for your business!",
-        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-        barcodeType: businessSettings?.barcode_type || 'CODE128',
-        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-      },
-      balanceDeducted: getSafeNumber(transaction.balance_deducted),
-      paymentDetails: transaction.payment_details || {},
-      staffName: transaction.staff_name || currentStaff?.name,
-      notes: transaction.notes || undefined
-    };
-    
-    setReceiptData(receiptData);
-    setShowReceiptPrint(true);
-    
-  } catch (error) {
-    console.error('Error preparing receipt:', error);
-    alert('Failed to generate receipt. Please try again.');
-  }
-};
+      // Fetch transaction items if available - FIXED: Added proper typing
+      let transactionItems: Array<{
+        id: string | number;
+        name: string;
+        price: number;
+        quantity: number;
+        discount: number;
+        total: number;
+      }> = [];
+      
+      try {
+        const { data } = await supabase
+          .from('transaction_items')
+          .select('*, product:products(*)')
+          .eq('transaction_id', transaction.id);
+        
+        if (data) {
+          transactionItems = data.map(item => ({
+            id: item.product?.id || item.id || Math.random().toString(),
+            name: item.product?.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching transaction items:', error);
+        // Fallback to transaction.products if available
+        if (transaction.products && Array.isArray(transaction.products)) {
+          transactionItems = transaction.products.map((item: any) => ({
+            id: item.id || item.product_id || Math.random().toString(),
+            name: item.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+          }));
+        }
+      }
+
+      // FIXED: Ensure ID is string or number properly handled
+      const receiptData: ReceiptPrintData = {
+        id: String(transaction.id), // Convert to string
+        createdAt: transaction.created_at,
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
+        paymentMethod: transaction.payment_method || 'cash',
+        products: transactionItems,
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone || undefined,
+          email: customer.email || undefined,
+          balance: getSafeNumber(customer.balance)
+        },
+        businessInfo: {
+          name: businessSettings?.business_name || "Your Business",
+          address: businessSettings?.business_address,
+          phone: businessSettings?.business_phone,
+          email: businessSettings?.business_email,
+          taxNumber: businessSettings?.tax_number,
+          logoUrl: businessSettings?.receipt_logo_url
+        },
+        receiptSettings: {
+          fontSize: businessSettings?.receipt_font_size || 12,
+          footer: businessSettings?.receipt_footer || "Thank you for your business!",
+          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+          barcodeType: businessSettings?.barcode_type || 'CODE128',
+          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+        },
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
+        paymentDetails: transaction.payment_details || {},
+        staffName: transaction.staff_name || currentStaff?.name,
+        notes: transaction.notes || undefined
+      };
+      
+      setReceiptData(receiptData);
+      setShowReceiptPrint(true);
+      
+    } catch (error) {
+      console.error('Error preparing receipt:', error);
+      alert('Failed to generate receipt. Please try again.');
+    }
+  };
 
   const closeReceiptPrint = () => {
     setShowReceiptPrint(false);
@@ -1015,8 +1023,9 @@ const printTransactionReceipt = async (transaction: Transaction) => {
                         <ChevronLeft className="w-5 h-5 text-gray-600" />
                       </button>
                       <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
+                      {/* FIXED: Safely get customer ID display */}
                       <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
-                        ID: {selectedCustomer.id.slice(0, 8)}
+                        ID: {getCustomerIdDisplay(selectedCustomer)}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 mt-2 text-gray-600">
@@ -1307,4 +1316,3 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
-
