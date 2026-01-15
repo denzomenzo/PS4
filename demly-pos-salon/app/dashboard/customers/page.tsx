@@ -26,7 +26,8 @@ import {
   Receipt,
   Package,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  MapPin
 } from 'lucide-react';
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from '@/components/receipts/ReceiptPrint';
 
@@ -108,6 +109,34 @@ const getCustomerIdDisplay = (customer: Customer): string => {
   return idStr.length > 8 ? `${idStr.slice(0, 8)}` : idStr;
 };
 
+// Create audit log
+const createAuditLog = async (
+  userId: string,
+  staffId: number | null,
+  action: string,
+  entityType: string,
+  entityId: string,
+  oldValues?: any,
+  newValues?: any
+) => {
+  try {
+    await supabase.from('audit_logs').insert({
+      user_id: userId,
+      staff_id: staffId,
+      action: action,
+      entity_type: entityType,
+      entity_id: entityId,
+      old_values: oldValues || null,
+      new_values: newValues || null,
+      ip_address: null,
+      user_agent: navigator.userAgent,
+      created_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error creating audit log:', error);
+  }
+};
+
 function CustomersContent() {
   const { staff: currentStaff } = useStaffAuth();
   
@@ -141,14 +170,24 @@ function CustomersContent() {
   });
   
   const [businessSettings, setBusinessSettings] = useState<any>(null);
+  const [receiptSettings, setReceiptSettings] = useState<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Load data
+  // Load user ID and data
   useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+      }
+    };
+    getUser();
+    
     fetchCustomers();
     fetchBusinessSettings();
   }, []);
 
-  // Search effect
+  // Search effect - UPDATED: Include address search
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchCustomers();
@@ -159,16 +198,38 @@ function CustomersContent() {
 
   const fetchBusinessSettings = async () => {
     try {
-      const { data } = await supabase
+      // Get business settings
+      const { data: settingsData } = await supabase
         .from('settings')
         .select('*')
         .single();
-      if (data) setBusinessSettings(data);
+      
+      if (settingsData) {
+        setBusinessSettings(settingsData);
+        
+        // Get receipt-specific settings
+        const receiptSettings = {
+          business_name: settingsData.business_name || "Your Business",
+          business_address: settingsData.business_address,
+          business_phone: settingsData.business_phone,
+          business_email: settingsData.business_email,
+          tax_number: settingsData.tax_number,
+          receipt_logo_url: settingsData.receipt_logo_url,
+          receipt_font_size: settingsData.receipt_font_size || 12,
+          receipt_footer: settingsData.receipt_footer || "Thank you for your business!",
+          show_barcode_on_receipt: settingsData.show_barcode_on_receipt !== false,
+          barcode_type: settingsData.barcode_type || 'CODE128',
+          show_tax_breakdown: settingsData.show_tax_breakdown !== false
+        };
+        
+        setReceiptSettings(receiptSettings);
+      }
     } catch (error) {
       console.error('Error loading business settings:', error);
     }
   };
 
+  // UPDATED: Search customers by name, email, phone, AND address/postcode
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -178,7 +239,13 @@ function CustomersContent() {
         .order('created_at', { ascending: false });
       
       if (searchQuery) {
-        query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`);
+        // Search in name, email, phone, AND address
+        query = query.or(`
+          name.ilike.%${searchQuery}%,
+          email.ilike.%${searchQuery}%,
+          phone.ilike.%${searchQuery}%,
+          address.ilike.%${searchQuery}%
+        `);
       }
       
       const { data, error } = await query;
@@ -255,7 +322,7 @@ function CustomersContent() {
     };
   };
 
-  // Print receipt - FIXED to match your POS.tsx
+  // Print receipt - IMPROVED with business logo and transaction items
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       const customer = selectedCustomer || 
@@ -268,7 +335,7 @@ function CustomersContent() {
           balance: 0
         };
 
-      // Fetch transaction items if available - FIXED: Added proper typing
+      // Fetch transaction items if available
       let transactionItems: Array<{
         id: string | number;
         name: string;
@@ -276,42 +343,59 @@ function CustomersContent() {
         quantity: number;
         discount: number;
         total: number;
+        sku?: string;
+        barcode?: string;
       }> = [];
       
       try {
         const { data } = await supabase
           .from('transaction_items')
-          .select('*, product:products(*)')
+          .select('*, product:products(name, sku, barcode)')
           .eq('transaction_id', transaction.id);
         
-        if (data) {
+        if (data && data.length > 0) {
           transactionItems = data.map(item => ({
             id: item.product?.id || item.id || Math.random().toString(),
             name: item.product?.name || 'Product',
             price: getSafeNumber(item.price),
             quantity: getSafeNumber(item.quantity),
             discount: 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+            sku: item.product?.sku,
+            barcode: item.product?.barcode
           }));
+        } else {
+          // Fallback to transaction.products if available
+          if (transaction.products && Array.isArray(transaction.products)) {
+            transactionItems = transaction.products.map((item: any) => ({
+              id: item.id || item.product_id || Math.random().toString(),
+              name: item.name || 'Product',
+              price: getSafeNumber(item.price),
+              quantity: getSafeNumber(item.quantity),
+              discount: 0,
+              total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+              sku: item.sku,
+              barcode: item.barcode
+            }));
+          }
         }
       } catch (error) {
         console.error('Error fetching transaction items:', error);
-        // Fallback to transaction.products if available
-        if (transaction.products && Array.isArray(transaction.products)) {
-          transactionItems = transaction.products.map((item: any) => ({
-            id: item.id || item.product_id || Math.random().toString(),
-            name: item.name || 'Product',
-            price: getSafeNumber(item.price),
-            quantity: getSafeNumber(item.quantity),
-            discount: 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
-          }));
-        }
       }
 
-      // FIXED: Ensure ID is string or number properly handled
+      // Get full business info with logo
+      const businessInfo = {
+        name: receiptSettings?.business_name || "Your Business",
+        address: receiptSettings?.business_address || "123 Business St, City",
+        phone: receiptSettings?.business_phone || "+44 1234 567890",
+        email: receiptSettings?.business_email || "info@business.com",
+        taxNumber: receiptSettings?.tax_number || "GB123456789",
+        logoUrl: receiptSettings?.receipt_logo_url || "/logo.png", // Default logo path
+        website: businessSettings?.website
+      };
+
       const receiptData: ReceiptPrintData = {
-        id: String(transaction.id), // Convert to string
+        id: String(transaction.id),
         createdAt: transaction.created_at,
         subtotal: getSafeNumber(transaction.subtotal),
         vat: getSafeNumber(transaction.vat),
@@ -323,26 +407,22 @@ function CustomersContent() {
           name: customer.name,
           phone: customer.phone || undefined,
           email: customer.email || undefined,
-          balance: getSafeNumber(customer.balance)
+          balance: getSafeNumber(customer.balance),
+          address: customer.address || undefined
         },
-        businessInfo: {
-          name: businessSettings?.business_name || "Your Business",
-          address: businessSettings?.business_address,
-          phone: businessSettings?.business_phone,
-          email: businessSettings?.business_email,
-          taxNumber: businessSettings?.tax_number,
-          logoUrl: businessSettings?.receipt_logo_url
-        },
+        businessInfo: businessInfo,
         receiptSettings: {
-          fontSize: businessSettings?.receipt_font_size || 12,
-          footer: businessSettings?.receipt_footer || "Thank you for your business!",
-          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-          barcodeType: businessSettings?.barcode_type || 'CODE128',
-          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+          fontSize: receiptSettings?.receipt_font_size || 12,
+          footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+          showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+          barcodeType: receiptSettings?.barcode_type || 'CODE128',
+          showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false,
+          showLogo: true,
+          logoUrl: receiptSettings?.receipt_logo_url
         },
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
-        staffName: transaction.staff_name || currentStaff?.name,
+        staffName: transaction.staff_name || currentStaff?.name || 'Staff',
         notes: transaction.notes || undefined
       };
       
@@ -360,7 +440,7 @@ function CustomersContent() {
     setReceiptData(null);
   };
 
-  // Customer CRUD operations
+  // Customer CRUD operations with audit logging
   const openAddCustomerModal = () => {
     setNewCustomer({
       name: '',
@@ -395,6 +475,15 @@ function CustomersContent() {
 
     try {
       if (editingCustomer) {
+        const oldValues = {
+          name: editingCustomer.name,
+          email: editingCustomer.email,
+          phone: editingCustomer.phone,
+          address: editingCustomer.address,
+          notes: editingCustomer.notes,
+          balance: editingCustomer.balance
+        };
+
         const { error } = await supabase
           .from('customers')
           .update({
@@ -409,6 +498,19 @@ function CustomersContent() {
           .eq('id', editingCustomer.id);
 
         if (error) throw error;
+        
+        // Create audit log
+        if (userId && currentStaff) {
+          await createAuditLog(
+            userId,
+            currentStaff.id,
+            'CUSTOMER_UPDATED',
+            'customer',
+            editingCustomer.id,
+            oldValues,
+            newCustomer
+          );
+        }
         
         setCustomers(customers.map(c => 
           c.id === editingCustomer.id 
@@ -437,6 +539,19 @@ function CustomersContent() {
 
         if (error) throw error;
         
+        // Create audit log
+        if (userId && currentStaff) {
+          await createAuditLog(
+            userId,
+            currentStaff.id,
+            'CUSTOMER_CREATED',
+            'customer',
+            data.id,
+            undefined,
+            data
+          );
+        }
+        
         setCustomers([data, ...customers]);
         setSelectedCustomer(data);
         await fetchCustomerTransactions(data.id);
@@ -463,6 +578,21 @@ function CustomersContent() {
     if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
     
     try {
+      const customer = customers.find(c => c.id === customerId);
+      
+      // Create audit log before deletion
+      if (userId && currentStaff && customer) {
+        await createAuditLog(
+          userId,
+          currentStaff.id,
+          'CUSTOMER_DELETED',
+          'customer',
+          customerId,
+          customer,
+          undefined
+        );
+      }
+      
       await supabase
         .from('transactions')
         .delete()
@@ -488,7 +618,7 @@ function CustomersContent() {
     }
   };
 
-  // Balance adjustment functions
+  // Balance adjustment functions with audit logging
   const openAdjustBalanceModal = () => {
     if (!selectedCustomer) return;
     setBalanceAdjustment({
@@ -500,7 +630,7 @@ function CustomersContent() {
   };
 
   const adjustCustomerBalance = async () => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !userId || !currentStaff) return;
     
     const amount = parseFloat(balanceAdjustment.amount);
     if (isNaN(amount) || amount <= 0) {
@@ -529,6 +659,26 @@ function CustomersContent() {
 
       if (updateError) throw updateError;
 
+      // Create audit log for balance adjustment
+      await createAuditLog(
+        userId,
+        currentStaff.id,
+        'CUSTOMER_BALANCE_ADJUSTED',
+        'customer',
+        selectedCustomer.id,
+        { balance: previousBalance },
+        { 
+          balance: newBalance,
+          adjustment: {
+            amount: adjustmentAmount,
+            type: balanceAdjustment.type,
+            reason: balanceAdjustment.reason,
+            previousBalance,
+            newBalance
+          }
+        }
+      );
+
       // Update local state
       const updatedCustomer = { ...selectedCustomer, balance: newBalance };
       setSelectedCustomer(updatedCustomer);
@@ -554,7 +704,24 @@ function CustomersContent() {
   // View transaction items
   const viewTransactionItems = async (transaction: Transaction) => {
     try {
-      if (transaction.products && transaction.products.length > 0) {
+      // Try to fetch detailed transaction items
+      const { data } = await supabase
+        .from('transaction_items')
+        .select('*, product:products(name, sku, category)')
+        .eq('transaction_id', transaction.id);
+      
+      if (data && data.length > 0) {
+        setSelectedTransactionItems(data.map(item => ({
+          name: item.product?.name || 'Product',
+          sku: item.product?.sku,
+          category: item.product?.category,
+          price: item.price,
+          quantity: item.quantity,
+          total: item.price * item.quantity
+        })));
+        setShowViewItemsModal(true);
+      } else if (transaction.products && transaction.products.length > 0) {
+        // Fallback to existing products data
         setSelectedTransactionItems(transaction.products);
         setShowViewItemsModal(true);
       } else {
@@ -570,7 +737,7 @@ function CustomersContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Receipt Print Component - FIXED: No X button, won't close tab */}
+      {/* Receipt Print Component */}
       {showReceiptPrint && receiptData && (
         <div className="fixed inset-0 z-50 bg-white">
           <ReceiptPrint 
@@ -689,15 +856,18 @@ function CustomersContent() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
+                  Address (including postcode/ZIP)
                 </label>
                 <textarea
                   value={newCustomer.address}
                   onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
                   placeholder="123 Street, City, Postcode"
-                  rows={2}
+                  rows={3}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Customers can be searched by postcode/ZIP code
+                </p>
               </div>
               
               <div>
@@ -816,7 +986,7 @@ function CustomersContent() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Reason *
+                  Reason * (Will be audit logged)
                 </label>
                 <textarea
                   value={balanceAdjustment.reason}
@@ -825,6 +995,9 @@ function CustomersContent() {
                   placeholder="Reason for balance adjustment..."
                   rows={3}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  This action will be recorded in the audit logs
+                </p>
               </div>
               
               {balanceAdjustment.amount && !isNaN(parseFloat(balanceAdjustment.amount)) && (
@@ -863,7 +1036,7 @@ function CustomersContent() {
         </div>
       )}
 
-      {/* Header - FIXED: Green title with matching font */}
+      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-green-700">Customers</h1>
         <p className="text-green-600 mt-2">Manage your customers and view their transactions</p>
@@ -915,18 +1088,21 @@ function CustomersContent() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left Column - Customers List */}
         <div className="lg:w-2/5">
-          {/* Search and Add Customer */}
+          {/* Search and Add Customer - UPDATED: Shows address search hint */}
           <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
             <div className="flex gap-3">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Search customers..."
+                  placeholder="Search by name, email, phone, or address..."
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                <p className="text-xs text-gray-500 mt-1 ml-1">
+                  Tip: Search by postcode/ZIP code to find customers by area
+                </p>
               </div>
               <button
                 onClick={openAddCustomerModal}
@@ -938,7 +1114,7 @@ function CustomersContent() {
             </div>
           </div>
           
-          {/* Customers List */}
+          {/* Customers List - UPDATED: Show address if available */}
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             {loading ? (
               <div className="p-8 text-center">
@@ -977,12 +1153,18 @@ function CustomersContent() {
                             </span>
                           )}
                           {customer.email && (
-                            <span className="flex items-center gap-1 truncate max-w-[200px]">
+                            <span className="flex items-center gap-1 truncate max-w-[180px]">
                               <Mail className="w-3 h-3 flex-shrink-0" />
                               <span className="truncate">{customer.email}</span>
                             </span>
                           )}
                         </div>
+                        {customer.address && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{customer.address}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className={`font-bold ${
@@ -1010,7 +1192,7 @@ function CustomersContent() {
         <div className="lg:w-3/5">
           {selectedCustomer ? (
             <>
-              {/* Customer Details Header */}
+              {/* Customer Details Header - UPDATED: Show address prominently */}
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
                   <div className="flex-1">
@@ -1023,7 +1205,6 @@ function CustomersContent() {
                         <ChevronLeft className="w-5 h-5 text-gray-600" />
                       </button>
                       <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
-                      {/* FIXED: Safely get customer ID display */}
                       <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
                         ID: {getCustomerIdDisplay(selectedCustomer)}
                       </span>
@@ -1046,6 +1227,18 @@ function CustomersContent() {
                         Since {formatDate(selectedCustomer.created_at, false)}
                       </span>
                     </div>
+                    {/* UPDATED: Show address prominently */}
+                    {selectedCustomer.address && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
+                        <div className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <h3 className="text-sm font-semibold text-gray-700 mb-1">Address</h3>
+                            <p className="text-gray-600">{selectedCustomer.address}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
@@ -1107,14 +1300,6 @@ function CustomersContent() {
                     <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100">
                       <p className="text-gray-700">{selectedCustomer.notes}</p>
                     </div>
-                  </div>
-                )}
-                
-                {/* Address */}
-                {selectedCustomer.address && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Address</h3>
-                    <p className="text-gray-600">{selectedCustomer.address}</p>
                   </div>
                 )}
               </div>
@@ -1222,15 +1407,13 @@ function CustomersContent() {
                               £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
                             </div>
                           )}
-                          {transaction.products && transaction.products.length > 0 && (
-                            <button
-                              onClick={() => viewTransactionItems(transaction)}
-                              className="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex items-center justify-center gap-1 font-medium"
-                            >
-                              <Package className="w-3 h-3" />
-                              View Items
-                            </button>
-                          )}
+                          <button
+                            onClick={() => viewTransactionItems(transaction)}
+                            className="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex items-center justify-center gap-1 font-medium"
+                          >
+                            <Package className="w-3 h-3" />
+                            View Items
+                          </button>
                         </div>
                       </div>
                     ))}
