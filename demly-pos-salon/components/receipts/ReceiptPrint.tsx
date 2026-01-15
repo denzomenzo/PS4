@@ -137,22 +137,7 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
     return [];
   }
 
-  useEffect(() => {
-    const printAndClose = () => {
-      // Generate barcode before printing
-      if (normalizedData.receiptSettings.showBarcode && barcodeRef.current) {
-        generateBarcode();
-      }
-      
-      // Delay to ensure barcode is rendered
-      setTimeout(() => {
-        window.print();
-        setTimeout(() => {
-          if (onClose) onClose();
-          window.close();
-        }, 1000);
-      }, 500);
-    };
+
 
     // Load barcode script dynamically
     const loadBarcodeScript = () => {
@@ -172,10 +157,7 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
 
     loadBarcodeScript();
 
-    return () => {
-      if (onClose) onClose();
-    };
-  }, []);
+
 
   const generateBarcode = () => {
     if (typeof window !== 'undefined' && (window as any).JsBarcode && barcodeRef.current) {
@@ -516,5 +498,6 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
     </div>
   );
 }
+
 
 
