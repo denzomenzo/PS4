@@ -1422,3 +1422,68 @@ function CustomersContent() {
     </div>
   );
 }
+
+// Rest of your code above remains the same...
+
+// Error fallback component
+function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="bg-white rounded-xl shadow-lg border p-8">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="p-3 bg-red-100 rounded-full">
+            <svg 
+              className="w-8 h-8 text-red-600" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.73-.833-2.464 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" 
+              />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Customer Dashboard Error</h1>
+            <p className="text-gray-600 mt-1">Something went wrong while loading the customer data</p>
+          </div>
+        </div>
+        
+        <div className="bg-gray-50 p-4 rounded-lg mb-6">
+          <p className="text-sm text-gray-700 mb-2">Error details:</p>
+          <code className="text-sm text-red-600 bg-red-50 p-3 rounded block overflow-auto">
+            {error?.message || 'Unknown error occurred'}
+          </code>
+        </div>
+        
+        <div className="space-y-3">
+          <button
+            onClick={resetErrorBoundary}
+            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+          >
+            Try Loading Again
+          </button>
+          <button
+            onClick={() => window.location.href = '/dashboard'}
+            className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition-colors"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// FIXED: Export CustomersPage as default
+export default function CustomersPage() {
+  return (
+    <ErrorBoundary fallback={<CustomersErrorFallback />}>
+      <CustomersContent />
+    </ErrorBoundary>
+  );
+}
+
