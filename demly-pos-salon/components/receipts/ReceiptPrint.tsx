@@ -67,37 +67,38 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
   const barcodeRef = useRef<HTMLCanvasElement>(null);
 
   // Normalize data from different sources
-  const normalizedData = {
-    id: data.id || 'N/A',
-    createdAt: data.created_at || data.createdAt || new Date().toISOString(),
-    subtotal: data.subtotal || 0,
-    vat: data.vat || 0,
-    total: data.total || 0,
-    discountAmount: data.discountAmount || 0,
-    paymentMethod: data.payment_method || data.paymentMethod || 'cash',
-    paymentStatus: data.payment_status || data.paymentStatus || 'completed',
-    notes: data.notes,
-    products: normalizeProducts(data),
-    customer: data.customer || null,
-    businessInfo: data.businessInfo || {
-      name: 'Your Business',
-      address: '',
-      phone: '',
-      email: '',
-      taxNumber: '',
-      logoUrl: ''
-    },
-    receiptSettings: {
-      fontSize: data.receiptSettings?.fontSize || 12,
-      footer: data.receiptSettings?.footer || 'Thank you for your business!',
-      showBarcode: data.receiptSettings?.showBarcode !== false,
-      barcodeType: data.receiptSettings?.barcodeType || 'CODE128',
-      showTaxBreakdown: data.receiptSettings?.showTaxBreakdown !== false
-    },
-    balanceDeducted: data.balance_deducted || data.balanceDeducted || 0,
-    paymentDetails: data.payment_details || data.paymentDetails || {},
-    staffName: data.staff_name || data.staffName
-  };
+const normalizedData = {
+  id: data.id || 'N/A',
+  createdAt: data.created_at || data.createdAt || new Date().toISOString(),
+  subtotal: data.subtotal || 0,
+  vat: data.vat || 0,
+  total: data.total || 0,
+  discountAmount: data.discountAmount || 0,
+  paymentMethod: data.payment_method || data.paymentMethod || 'cash',
+  paymentStatus: data.payment_status || data.paymentStatus || 'completed',
+  notes: data.notes,
+  products: normalizeProducts(data),
+  customer: data.customer || null,
+  
+  businessInfo: data.businessInfo || {
+    name: 'Your Business',
+    address: '',
+    phone: '',
+    email: '',
+    taxNumber: '',
+    logoUrl: ''
+  },
+  receiptSettings: {
+    fontSize: data.receiptSettings?.fontSize || 12,
+    footer: data.receiptSettings?.footer || 'Thank you for your business!',
+    showBarcode: data.receiptSettings?.showBarcode !== false,
+    barcodeType: data.receiptSettings?.barcodeType || 'CODE128',
+    showTaxBreakdown: data.receiptSettings?.showTaxBreakdown !== false
+  },
+  balanceDeducted: data.balance_deducted || data.balanceDeducted || 0,
+  paymentDetails: data.payment_details || data.paymentDetails || {},
+  staffName: data.staff_name || data.staffName
+};
 
   function normalizeProducts(receiptData: ReceiptData) {
     // Handle different product formats
@@ -498,6 +499,7 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
     </div>
   );
 }
+
 
 
 
