@@ -194,38 +194,69 @@ function CustomersContent() {
   }, [searchQuery]);
 
   // FIXED: Fetch business settings properly
-  const fetchBusinessSettings = async () => {
-    try {
-      console.log('Fetching business settings from database...');
-      const { data, error } = await supabase
-        .from('settings')
-        .select('*')
-        .single();
+const fetchBusinessSettings = async () => {
+  try {
+    console.log('🔍 Fetching business settings...');
+    
+    // First check if we can connect to Supabase
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log('👤 Current user:', user?.id);
+    
+    // Try to get settings
+    const { data, error } = await supabase
+      .from('settings')
+      .select('*')
+      .maybeSingle(); // Use maybeSingle instead of single
+    
+    if (error) {
+      console.error('❌ Error loading business settings:', error);
       
-      if (error) {
-        console.error('Error loading business settings:', error);
-        // Use default values
-        setBusinessSettings({
-          business_name: "Your Business",
-          business_address: "123 Business Street",
-          business_phone: "+44 1234 567890",
-          business_email: "info@business.com",
-          tax_number: "GB123456789",
-          receipt_logo_url: "/logo.png",
-          receipt_font_size: 12,
-          receipt_footer: "Thank you for your business!",
-          show_barcode_on_receipt: true,
-          barcode_type: 'CODE128',
-          show_tax_breakdown: true
-        });
-      } else if (data) {
-        console.log('Business settings loaded:', data);
-        setBusinessSettings(data);
+      // Check what data is in settings table
+      const { data: allSettings } = await supabase
+        .from('settings')
+        .select('*');
+      
+      console.log('📋 All settings in table:', allSettings);
+      
+      if (!allSettings || allSettings.length === 0) {
+        console.log('⚠️ No settings found in database');
+        // Create default settings if table is empty
+        const { data: newSettings } = await supabase
+          .from('settings')
+          .insert([{
+            business_name: 'Your Business',
+            business_address: '123 Business Street',
+            business_phone: '+44 1234 567890',
+            business_email: 'info@business.com',
+            tax_number: 'GB123456789',
+            receipt_logo_url: '/logo.png',
+            receipt_font_size: 12,
+            receipt_footer: 'Thank you for your business!',
+            show_barcode_on_receipt: true,
+            barcode_type: 'CODE128',
+            show_tax_breakdown: true
+          }])
+          .select()
+          .single();
+        
+        if (newSettings) {
+          console.log('✅ Created default settings:', newSettings);
+          setBusinessSettings(newSettings);
+        }
+      } else if (allSettings.length > 0) {
+        console.log('✅ Using first settings entry:', allSettings[0]);
+        setBusinessSettings(allSettings[0]);
       }
-    } catch (error) {
-      console.error('Error in fetchBusinessSettings:', error);
+    } else if (data) {
+      console.log('✅ Settings loaded successfully:', data);
+      setBusinessSettings(data);
+    } else {
+      console.log('⚠️ No settings data returned');
     }
-  };
+  } catch (error) {
+    console.error('💥 Error in fetchBusinessSettings:', error);
+  }
+};
 
   // Search customers by name, email, phone, AND address
   const fetchCustomers = async () => {
@@ -321,103 +352,121 @@ function CustomersContent() {
   };
 
   // FIXED: Print receipt with proper business info
-  const printTransactionReceipt = async (transaction: Transaction) => {
-    try {
-      const customer = selectedCustomer || 
-        customers.find(c => c.id === transaction.customer_id) || 
-        { 
-          id: '', 
-          name: 'Customer', 
-          email: '', 
-          phone: '', 
-          balance: 0
-        };
-
-      // Fetch transaction items
-      let transactionItems: Array<{
-        id: string | number;
-        name: string;
-        price: number;
-        quantity: number;
-        discount: number;
-        total: number;
-        sku?: string;
-        barcode?: string;
-      }> = [];
-      
-      try {
-        const { data } = await supabase
-          .from('transaction_items')
-          .select('*, product:products(name, sku, barcode)')
-          .eq('transaction_id', transaction.id);
-        
-        if (data && data.length > 0) {
-          transactionItems = data.map(item => ({
-            id: item.product?.id || item.id || Math.random().toString(),
-            name: item.product?.name || 'Product',
-            price: getSafeNumber(item.price),
-            quantity: getSafeNumber(item.quantity),
-            discount: 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
-            sku: item.product?.sku,
-            barcode: item.product?.barcode
-          }));
-        }
-      } catch (error) {
-        console.error('Error fetching transaction items:', error);
-      }
-
-      // DEBUG: Log business settings to see what we have
-      console.log('Current Business Settings for Receipt:', businessSettings);
-      
-      // Create receipt data with ACTUAL business settings
-      const receiptData: ReceiptPrintData = {
-        id: String(transaction.id),
-        createdAt: transaction.created_at,
-        subtotal: getSafeNumber(transaction.subtotal),
-        vat: getSafeNumber(transaction.vat),
-        total: getSafeNumber(transaction.total),
-        paymentMethod: transaction.payment_method || 'cash',
-        products: transactionItems,
-        customer: {
-          id: customer.id,
-          name: customer.name,
-          phone: customer.phone || undefined,
-          email: customer.email || undefined,
-          balance: getSafeNumber(customer.balance)
-        },
-        // FIXED: Use actual business settings from database
-        businessInfo: {
-          name: businessSettings?.business_name || "Your Business",
-          address: businessSettings?.business_address || "123 Business Street",
-          phone: businessSettings?.business_phone || "+44 1234 567890",
-          email: businessSettings?.business_email || "info@business.com",
-          taxNumber: businessSettings?.tax_number || "GB123456789",
-          logoUrl: businessSettings?.receipt_logo_url || "/logo.png"
-        },
-        receiptSettings: {
-          fontSize: businessSettings?.receipt_font_size || 12,
-          footer: businessSettings?.receipt_footer || "Thank you for your business!",
-          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-          barcodeType: businessSettings?.barcode_type || 'CODE128',
-          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-        },
-        balanceDeducted: getSafeNumber(transaction.balance_deducted),
-        paymentDetails: transaction.payment_details || {},
-        staffName: transaction.staff_name || currentStaff?.name || 'Staff',
-        notes: transaction.notes || undefined
+const printTransactionReceipt = async (transaction: Transaction) => {
+  try {
+    console.log('🖨️ Starting receipt generation...');
+    
+    const customer = selectedCustomer || 
+      customers.find(c => c.id === transaction.customer_id) || 
+      { 
+        id: '', 
+        name: 'Customer', 
+        email: '', 
+        phone: '', 
+        balance: 0
       };
+
+    console.log('👤 Customer for receipt:', customer.name);
+    console.log('🏢 Current businessSettings:', businessSettings);
+
+    // Fetch transaction items
+    let transactionItems: Array<{
+      id: string | number;
+      name: string;
+      price: number;
+      quantity: number;
+      discount: number;
+      total: number;
+      sku?: string;
+      barcode?: string;
+    }> = [];
+    
+    try {
+      const { data } = await supabase
+        .from('transaction_items')
+        .select('*, product:products(name, sku, barcode)')
+        .eq('transaction_id', transaction.id);
       
-      console.log('Receipt Data Being Sent:', receiptData);
-      
-      setReceiptData(receiptData);
-      setShowReceiptPrint(true);
-      
+      if (data && data.length > 0) {
+        transactionItems = data.map(item => ({
+          id: item.product?.id || item.id || Math.random().toString(),
+          name: item.product?.name || 'Product',
+          price: getSafeNumber(item.price),
+          quantity: getSafeNumber(item.quantity),
+          discount: 0,
+          total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+          sku: item.product?.sku,
+          barcode: item.product?.barcode
+        }));
+      }
     } catch (error) {
-      console.error('Error preparing receipt:', error);
-      alert('Failed to generate receipt. Please try again.');
+      console.error('Error fetching transaction items:', error);
     }
-  };
+
+    // IMPORTANT: Check if businessSettings is loaded
+    if (!businessSettings) {
+      console.warn('⚠️ businessSettings is null/undefined, fetching again...');
+      await fetchBusinessSettings();
+    }
+
+    // Log what we're sending to receipt
+    console.log('📋 Creating receipt data with:', {
+      business_name: businessSettings?.business_name,
+      business_address: businessSettings?.business_address,
+      logo_url: businessSettings?.receipt_logo_url
+    });
+
+    const receiptData: ReceiptPrintData = {
+      id: String(transaction.id),
+      createdAt: transaction.created_at,
+      subtotal: getSafeNumber(transaction.subtotal),
+      vat: getSafeNumber(transaction.vat),
+      total: getSafeNumber(transaction.total),
+      paymentMethod: transaction.payment_method || 'cash',
+      products: transactionItems,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone || undefined,
+        email: customer.email || undefined,
+        balance: getSafeNumber(customer.balance)
+      },
+      // FIXED: Ensure we use actual business settings
+      businessInfo: {
+        name: businessSettings?.business_name || "Your Business",
+        address: businessSettings?.business_address || "123 Business Street",
+        phone: businessSettings?.business_phone || "+44 1234 567890",
+        email: businessSettings?.business_email || "info@business.com",
+        taxNumber: businessSettings?.tax_number || "GB123456789",
+        logoUrl: businessSettings?.receipt_logo_url || "/logo.png"
+      },
+      receiptSettings: {
+        fontSize: businessSettings?.receipt_font_size || 12,
+        footer: businessSettings?.receipt_footer || "Thank you for your business!",
+        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+        barcodeType: businessSettings?.barcode_type || 'CODE128',
+        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+      },
+      balanceDeducted: getSafeNumber(transaction.balance_deducted),
+      paymentDetails: transaction.payment_details || {},
+      staffName: transaction.staff_name || currentStaff?.name || 'Staff',
+      notes: transaction.notes || undefined
+    };
+    
+    console.log('✅ Receipt data ready:', {
+      businessName: receiptData.businessInfo.name,
+      businessAddress: receiptData.businessInfo.address,
+      logoUrl: receiptData.businessInfo.logoUrl
+    });
+    
+    setReceiptData(receiptData);
+    setShowReceiptPrint(true);
+    
+  } catch (error) {
+    console.error('❌ Error preparing receipt:', error);
+    alert('Failed to generate receipt. Please try again.');
+  }
+};
 
   const closeReceiptPrint = () => {
     setShowReceiptPrint(false);
@@ -1486,4 +1535,5 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
