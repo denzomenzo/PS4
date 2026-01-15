@@ -93,16 +93,14 @@ const getSafeNumber = (value: any): number => {
   return isNaN(num) ? 0 : num;
 };
 
-// FIXED: Handle both string and number IDs
 const getTransactionIdDisplay = (transaction: Transaction): string => {
   if (transaction.id) {
-    const idStr = String(transaction.id); // Convert to string first
+    const idStr = String(transaction.id);
     return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
   }
   return '#Unknown';
 };
 
-// FIXED: Safely get customer ID display
 const getCustomerIdDisplay = (customer: Customer): string => {
   if (!customer?.id) return 'Unknown';
   const idStr = String(customer.id);
@@ -170,7 +168,6 @@ function CustomersContent() {
   });
   
   const [businessSettings, setBusinessSettings] = useState<any>(null);
-  const [receiptSettings, setReceiptSettings] = useState<any>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   // Load user ID and data
@@ -187,7 +184,7 @@ function CustomersContent() {
     fetchBusinessSettings();
   }, []);
 
-  // Search effect - UPDATED: Include address search
+  // Search effect - Include address search
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchCustomers();
@@ -196,40 +193,41 @@ function CustomersContent() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // FIXED: Fetch business settings properly
   const fetchBusinessSettings = async () => {
     try {
-      // Get business settings
-      const { data: settingsData } = await supabase
+      console.log('Fetching business settings from database...');
+      const { data, error } = await supabase
         .from('settings')
         .select('*')
         .single();
       
-      if (settingsData) {
-        setBusinessSettings(settingsData);
-        
-        // Get receipt-specific settings
-        const receiptSettings = {
-          business_name: settingsData.business_name || "Your Business",
-          business_address: settingsData.business_address,
-          business_phone: settingsData.business_phone,
-          business_email: settingsData.business_email,
-          tax_number: settingsData.tax_number,
-          receipt_logo_url: settingsData.receipt_logo_url,
-          receipt_font_size: settingsData.receipt_font_size || 12,
-          receipt_footer: settingsData.receipt_footer || "Thank you for your business!",
-          show_barcode_on_receipt: settingsData.show_barcode_on_receipt !== false,
-          barcode_type: settingsData.barcode_type || 'CODE128',
-          show_tax_breakdown: settingsData.show_tax_breakdown !== false
-        };
-        
-        setReceiptSettings(receiptSettings);
+      if (error) {
+        console.error('Error loading business settings:', error);
+        // Use default values
+        setBusinessSettings({
+          business_name: "Your Business",
+          business_address: "123 Business Street",
+          business_phone: "+44 1234 567890",
+          business_email: "info@business.com",
+          tax_number: "GB123456789",
+          receipt_logo_url: "/logo.png",
+          receipt_font_size: 12,
+          receipt_footer: "Thank you for your business!",
+          show_barcode_on_receipt: true,
+          barcode_type: 'CODE128',
+          show_tax_breakdown: true
+        });
+      } else if (data) {
+        console.log('Business settings loaded:', data);
+        setBusinessSettings(data);
       }
     } catch (error) {
-      console.error('Error loading business settings:', error);
+      console.error('Error in fetchBusinessSettings:', error);
     }
   };
 
-  // UPDATED: Search customers by name, email, phone, AND address/postcode
+  // Search customers by name, email, phone, AND address
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -322,120 +320,109 @@ function CustomersContent() {
     };
   };
 
-  // Print receipt - IMPROVED with business logo and transaction items
-const printTransactionReceipt = async (transaction: Transaction) => {
-  try {
-    const customer = selectedCustomer || 
-      customers.find(c => c.id === transaction.customer_id) || 
-      { 
-        id: '', 
-        name: 'Customer', 
-        email: '', 
-        phone: '', 
-        balance: 0
-      };
-
-    // Fetch transaction items if available
-    let transactionItems: Array<{
-      id: string | number;
-      name: string;
-      price: number;
-      quantity: number;
-      discount: number;
-      total: number;
-      sku?: string;
-      barcode?: string;
-    }> = [];
-    
+  // FIXED: Print receipt with proper business info
+  const printTransactionReceipt = async (transaction: Transaction) => {
     try {
-      const { data } = await supabase
-        .from('transaction_items')
-        .select('*, product:products(name, sku, barcode)')
-        .eq('transaction_id', transaction.id);
+      const customer = selectedCustomer || 
+        customers.find(c => c.id === transaction.customer_id) || 
+        { 
+          id: '', 
+          name: 'Customer', 
+          email: '', 
+          phone: '', 
+          balance: 0
+        };
+
+      // Fetch transaction items
+      let transactionItems: Array<{
+        id: string | number;
+        name: string;
+        price: number;
+        quantity: number;
+        discount: number;
+        total: number;
+        sku?: string;
+        barcode?: string;
+      }> = [];
       
-      if (data && data.length > 0) {
-        transactionItems = data.map(item => ({
-          id: item.product?.id || item.id || Math.random().toString(),
-          name: item.product?.name || 'Product',
-          price: getSafeNumber(item.price),
-          quantity: getSafeNumber(item.quantity),
-          discount: 0,
-          total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
-          sku: item.product?.sku,
-          barcode: item.product?.barcode
-        }));
-      } else {
-        // Fallback to transaction.products if available
-        if (transaction.products && Array.isArray(transaction.products)) {
-          transactionItems = transaction.products.map((item: any) => ({
-            id: item.id || item.product_id || Math.random().toString(),
-            name: item.name || 'Product',
+      try {
+        const { data } = await supabase
+          .from('transaction_items')
+          .select('*, product:products(name, sku, barcode)')
+          .eq('transaction_id', transaction.id);
+        
+        if (data && data.length > 0) {
+          transactionItems = data.map(item => ({
+            id: item.product?.id || item.id || Math.random().toString(),
+            name: item.product?.name || 'Product',
             price: getSafeNumber(item.price),
             quantity: getSafeNumber(item.quantity),
             discount: 0,
             total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
-            sku: item.sku,
-            barcode: item.barcode
+            sku: item.product?.sku,
+            barcode: item.product?.barcode
           }));
         }
+      } catch (error) {
+        console.error('Error fetching transaction items:', error);
       }
+
+      // DEBUG: Log business settings to see what we have
+      console.log('Current Business Settings for Receipt:', businessSettings);
+      
+      // Create receipt data with ACTUAL business settings
+      const receiptData: ReceiptPrintData = {
+        id: String(transaction.id),
+        createdAt: transaction.created_at,
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
+        paymentMethod: transaction.payment_method || 'cash',
+        products: transactionItems,
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone || undefined,
+          email: customer.email || undefined,
+          balance: getSafeNumber(customer.balance)
+        },
+        // FIXED: Use actual business settings from database
+        businessInfo: {
+          name: businessSettings?.business_name || "Your Business",
+          address: businessSettings?.business_address || "123 Business Street",
+          phone: businessSettings?.business_phone || "+44 1234 567890",
+          email: businessSettings?.business_email || "info@business.com",
+          taxNumber: businessSettings?.tax_number || "GB123456789",
+          logoUrl: businessSettings?.receipt_logo_url || "/logo.png"
+        },
+        receiptSettings: {
+          fontSize: businessSettings?.receipt_font_size || 12,
+          footer: businessSettings?.receipt_footer || "Thank you for your business!",
+          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+          barcodeType: businessSettings?.barcode_type || 'CODE128',
+          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+        },
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
+        paymentDetails: transaction.payment_details || {},
+        staffName: transaction.staff_name || currentStaff?.name || 'Staff',
+        notes: transaction.notes || undefined
+      };
+      
+      console.log('Receipt Data Being Sent:', receiptData);
+      
+      setReceiptData(receiptData);
+      setShowReceiptPrint(true);
+      
     } catch (error) {
-      console.error('Error fetching transaction items:', error);
+      console.error('Error preparing receipt:', error);
+      alert('Failed to generate receipt. Please try again.');
     }
+  };
 
-    // Get full business info from settings
-    const businessInfo = {
-      name: businessSettings?.business_name || "Your Business",
-      address: businessSettings?.business_address || "123 Business Street",
-      phone: businessSettings?.business_phone || "+44 1234 567890",
-      email: businessSettings?.business_email || "info@business.com",
-      taxNumber: businessSettings?.tax_number || "GB123456789",
-      logoUrl: businessSettings?.receipt_logo_url || "/logo.png",
-      website: businessSettings?.website
-    };
-
-    const receiptData: ReceiptPrintData = {
-      id: String(transaction.id),
-      createdAt: transaction.created_at,
-      subtotal: getSafeNumber(transaction.subtotal),
-      vat: getSafeNumber(transaction.vat),
-      total: getSafeNumber(transaction.total),
-      paymentMethod: transaction.payment_method || 'cash',
-      products: transactionItems,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone || undefined,
-        email: customer.email || undefined,
-        balance: getSafeNumber(customer.balance)
-      },
-      businessInfo: businessInfo,
-      receiptSettings: {
-        fontSize: businessSettings?.receipt_font_size || 12,
-        footer: businessSettings?.receipt_footer || "Thank you for your business!",
-        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-        barcodeType: businessSettings?.barcode_type || 'CODE128',
-        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-      },
-      balanceDeducted: getSafeNumber(transaction.balance_deducted),
-      paymentDetails: transaction.payment_details || {},
-      staffName: transaction.staff_name || currentStaff?.name || 'Staff',
-      notes: transaction.notes || undefined
-    };
-    
-    setReceiptData(receiptData);
-    setShowReceiptPrint(true);
-    
-  } catch (error) {
-    console.error('Error preparing receipt:', error);
-    alert('Failed to generate receipt. Please try again.');
-  }
-};
-
-const closeReceiptPrint = () => {
-  setShowReceiptPrint(false);
-  setReceiptData(null);
-};
+  const closeReceiptPrint = () => {
+    setShowReceiptPrint(false);
+    setReceiptData(null);
+  };
 
   // Customer CRUD operations with audit logging
   const openAddCustomerModal = () => {
@@ -734,69 +721,16 @@ const closeReceiptPrint = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Receipt Print Component */}
-{/* Receipt Print Component - FIXED: Uses hidden iframe to prevent tab closure */}
-{showReceiptPrint && receiptData && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-    <div className="relative w-full max-w-4xl h-[90vh] bg-white rounded-lg shadow-2xl overflow-hidden">
-      <div className="absolute top-4 right-4 z-50">
-        <button
-          onClick={closeReceiptPrint}
-          className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-lg"
-          aria-label="Close receipt preview"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-      <div className="h-full overflow-auto">
-        <ReceiptPrint 
-          data={receiptData} 
-          onClose={closeReceiptPrint}
-        />
-      </div>
-      <div className="absolute bottom-4 right-4 z-50">
-        <button
-          onClick={() => {
-            // Trigger print in a separate iframe to prevent tab closure
-            const printWindow = window.open('', '_blank');
-            if (printWindow) {
-              const receiptContent = document.getElementById('receipt-content');
-              if (receiptContent) {
-                printWindow.document.write(`
-                  <!DOCTYPE html>
-                  <html>
-                    <head>
-                      <title>Print Receipt</title>
-                      <style>
-                        body { margin: 0; padding: 20px; }
-                        @media print {
-                          body { margin: 0; }
-                        }
-                      </style>
-                    </head>
-                    <body>
-                      ${receiptContent.innerHTML}
-                    </body>
-                  </html>
-                `);
-                printWindow.document.close();
-                printWindow.focus();
-                setTimeout(() => {
-                  printWindow.print();
-                  printWindow.close();
-                }, 250);
-              }
-            }
-          }}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-lg font-medium"
-        >
-          <Printer className="w-4 h-4 inline mr-2" />
-          Print Receipt
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      {/* Receipt Print Component - SIMPLE: No preview */}
+      {showReceiptPrint && receiptData && (
+        <div className="fixed inset-0 z-[9999] bg-white">
+          <ReceiptPrint 
+            data={receiptData} 
+            onClose={closeReceiptPrint}
+          />
+        </div>
+      )}
+
       {/* View Items Modal */}
       {showViewItemsModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1138,7 +1072,7 @@ const closeReceiptPrint = () => {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left Column - Customers List */}
         <div className="lg:w-2/5">
-          {/* Search and Add Customer - UPDATED: Shows address search hint */}
+          {/* Search and Add Customer - Shows address search hint */}
           <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -1164,7 +1098,7 @@ const closeReceiptPrint = () => {
             </div>
           </div>
           
-          {/* Customers List - UPDATED: Show address if available */}
+          {/* Customers List - Show address if available */}
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             {loading ? (
               <div className="p-8 text-center">
@@ -1242,7 +1176,7 @@ const closeReceiptPrint = () => {
         <div className="lg:w-3/5">
           {selectedCustomer ? (
             <>
-              {/* Customer Details Header - UPDATED: Show address prominently */}
+              {/* Customer Details Header - Show address prominently */}
               <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
                   <div className="flex-1">
@@ -1277,7 +1211,7 @@ const closeReceiptPrint = () => {
                         Since {formatDate(selectedCustomer.created_at, false)}
                       </span>
                     </div>
-                    {/* UPDATED: Show address prominently */}
+                    {/* Show address prominently */}
                     {selectedCustomer.address && (
                       <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
                         <div className="flex items-start gap-2">
@@ -1487,66 +1421,4 @@ const closeReceiptPrint = () => {
       </div>
     </div>
   );
-} // <-- ADDED THIS CLOSING BRACE
-
-// Error fallback component
-function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
-  return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-white rounded-xl shadow-lg border p-8">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="p-3 bg-red-100 rounded-full">
-            <svg 
-              className="w-8 h-8 text-red-600" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.73-.833-2.464 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" 
-              />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Customer Dashboard Error</h1>
-            <p className="text-gray-600 mt-1">Something went wrong while loading the customer data</p>
-          </div>
-        </div>
-        
-        <div className="bg-gray-50 p-4 rounded-lg mb-6">
-          <p className="text-sm text-gray-700 mb-2">Error details:</p>
-          <code className="text-sm text-red-600 bg-red-50 p-3 rounded block overflow-auto">
-            {error?.message || 'Unknown error occurred'}
-          </code>
-        </div>
-        
-        <div className="space-y-3">
-          <button
-            onClick={resetErrorBoundary}
-            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
-          >
-            Try Loading Again
-          </button>
-          <button
-            onClick={() => window.location.href = '/dashboard'}
-            className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition-colors"
-          >
-            Return to Dashboard
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
-
-export default function CustomersPage() {
-  return (
-    <ErrorBoundary fallback={<CustomersErrorFallback />}>
-      <CustomersContent />
-    </ErrorBoundary>
-  );
-}
-
