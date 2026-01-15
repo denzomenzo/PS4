@@ -403,18 +403,11 @@ const printTransactionReceipt = async (transaction: Transaction) => {
       console.error('Error fetching transaction items:', error);
     }
 
-    // IMPORTANT: Check if businessSettings is loaded
+    // Check if businessSettings is loaded
     if (!businessSettings) {
       console.warn('⚠️ businessSettings is null/undefined, fetching again...');
       await fetchBusinessSettings();
     }
-
-    // Log what we're sending to receipt
-    console.log('📋 Creating receipt data with:', {
-      business_name: businessSettings?.business_name,
-      business_address: businessSettings?.business_address,
-      logo_url: businessSettings?.receipt_logo_url
-    });
 
     const receiptData: ReceiptPrintData = {
       id: String(transaction.id),
@@ -431,7 +424,7 @@ const printTransactionReceipt = async (transaction: Transaction) => {
         email: customer.email || undefined,
         balance: getSafeNumber(customer.balance)
       },
-      // FIXED: Ensure we use actual business settings
+      // FIXED: Add default businessInfo if none exists
       businessInfo: {
         name: businessSettings?.business_name || "Your Business",
         address: businessSettings?.business_address || "123 Business Street",
@@ -453,10 +446,11 @@ const printTransactionReceipt = async (transaction: Transaction) => {
       notes: transaction.notes || undefined
     };
     
+    // FIXED: Safely access businessInfo
     console.log('✅ Receipt data ready:', {
-      businessName: receiptData.businessInfo.name,
-      businessAddress: receiptData.businessInfo.address,
-      logoUrl: receiptData.businessInfo.logoUrl
+      businessName: receiptData.businessInfo?.name || 'No business name',
+      businessAddress: receiptData.businessInfo?.address || 'No address',
+      logoUrl: receiptData.businessInfo?.logoUrl || 'No logo'
     });
     
     setReceiptData(receiptData);
@@ -500,112 +494,121 @@ const printTransactionReceipt = async (transaction: Transaction) => {
     setShowAddEditModal(true);
   };
 
-  const saveCustomer = async () => {
-    if (!newCustomer.name.trim()) {
-      alert('Customer name is required');
+const saveCustomer = async () => {
+  if (!newCustomer.name.trim()) {
+    alert('Customer name is required');
+    return;
+  }
+
+  try {
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert('You must be logged in to save customers');
       return;
     }
 
-    try {
-      if (editingCustomer) {
-        const oldValues = {
-          name: editingCustomer.name,
-          email: editingCustomer.email,
-          phone: editingCustomer.phone,
-          address: editingCustomer.address,
-          notes: editingCustomer.notes,
-          balance: editingCustomer.balance
-        };
+    if (editingCustomer) {
+      const oldValues = {
+        name: editingCustomer.name,
+        email: editingCustomer.email,
+        phone: editingCustomer.phone,
+        address: editingCustomer.address,
+        notes: editingCustomer.notes,
+        balance: editingCustomer.balance
+      };
 
-        const { error } = await supabase
-          .from('customers')
-          .update({
-            name: newCustomer.name,
-            email: newCustomer.email || null,
-            phone: newCustomer.phone || null,
-            address: newCustomer.address || null,
-            notes: newCustomer.notes || null,
-            balance: getSafeNumber(newCustomer.balance),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingCustomer.id);
+      const { error } = await supabase
+        .from('customers')
+        .update({
+          name: newCustomer.name,
+          email: newCustomer.email || null,
+          phone: newCustomer.phone || null,
+          address: newCustomer.address || null,
+          notes: newCustomer.notes || null,
+          balance: getSafeNumber(newCustomer.balance),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingCustomer.id);
 
-        if (error) throw error;
-        
-        // Create audit log
-        if (userId && currentStaff) {
-          await createAuditLog(
-            userId,
-            currentStaff.id,
-            'CUSTOMER_UPDATED',
-            'customer',
-            editingCustomer.id,
-            oldValues,
-            newCustomer
-          );
-        }
-        
-        setCustomers(customers.map(c => 
-          c.id === editingCustomer.id 
-            ? { ...c, ...newCustomer }
-            : c
-        ));
-        
-        if (selectedCustomer?.id === editingCustomer.id) {
-          setSelectedCustomer({ ...selectedCustomer, ...newCustomer });
-        }
-        
-      } else {
-        const { data, error } = await supabase
-          .from('customers')
-          .insert([{
-            name: newCustomer.name,
-            email: newCustomer.email || null,
-            phone: newCustomer.phone || null,
-            address: newCustomer.address || null,
-            notes: newCustomer.notes || null,
-            balance: getSafeNumber(newCustomer.balance),
-            created_at: new Date().toISOString()
-          }])
-          .select()
-          .single();
-
-        if (error) throw error;
-        
-        // Create audit log
-        if (userId && currentStaff) {
-          await createAuditLog(
-            userId,
-            currentStaff.id,
-            'CUSTOMER_CREATED',
-            'customer',
-            data.id,
-            undefined,
-            data
-          );
-        }
-        
-        setCustomers([data, ...customers]);
-        setSelectedCustomer(data);
-        await fetchCustomerTransactions(data.id);
+      if (error) throw error;
+      
+      // Create audit log
+      if (userId && currentStaff) {
+        await createAuditLog(
+          userId,
+          currentStaff.id,
+          'CUSTOMER_UPDATED',
+          'customer',
+          editingCustomer.id,
+          oldValues,
+          newCustomer
+        );
       }
       
-      setShowAddEditModal(false);
-      setEditingCustomer(null);
-      setNewCustomer({
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        notes: '',
-        balance: 0
-      });
+      setCustomers(customers.map(c => 
+        c.id === editingCustomer.id 
+          ? { ...c, ...newCustomer }
+          : c
+      ));
       
-    } catch (error: any) {
-      console.error('Error saving customer:', error);
-      alert(`Failed to save customer: ${error.message}`);
+      if (selectedCustomer?.id === editingCustomer.id) {
+        setSelectedCustomer({ ...selectedCustomer, ...newCustomer });
+      }
+      
+    } else {
+      // NEW: Include user_id when creating customer
+      const { data, error } = await supabase
+        .from('customers')
+        .insert([{
+          name: newCustomer.name,
+          email: newCustomer.email || null,
+          phone: newCustomer.phone || null,
+          address: newCustomer.address || null,
+          notes: newCustomer.notes || null,
+          balance: getSafeNumber(newCustomer.balance),
+          user_id: user.id, // IMPORTANT: Add user_id
+          created_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Create audit log
+      if (userId && currentStaff) {
+        await createAuditLog(
+          userId,
+          currentStaff.id,
+          'CUSTOMER_CREATED',
+          'customer',
+          data.id,
+          undefined,
+          data
+        );
+      }
+      
+      setCustomers([data, ...customers]);
+      setSelectedCustomer(data);
+      await fetchCustomerTransactions(data.id);
     }
-  };
+    
+    setShowAddEditModal(false);
+    setEditingCustomer(null);
+    setNewCustomer({
+      name: '',
+      email: '',
+      phone: '',
+      address: '',
+      notes: '',
+      balance: 0
+    });
+    
+  } catch (error: any) {
+    console.error('Error saving customer:', error);
+    alert(`Failed to save customer: ${error.message}`);
+  }
+};
 
   const deleteCustomer = async (customerId: string) => {
     if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
@@ -1535,6 +1538,7 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
 
 
