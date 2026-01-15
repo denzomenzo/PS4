@@ -145,7 +145,7 @@ const normalizedData = {
       if (normalizedData.receiptSettings.showBarcode && !(window as any).JsBarcode) {
         const script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
-        script.onload = printAndClose;
+        // script.onload = printAndClose;
         script.onerror = () => {
           console.error('Failed to load barcode script');
           printAndClose();
@@ -499,6 +499,7 @@ const normalizedData = {
     </div>
   );
 }
+
 
 
 
