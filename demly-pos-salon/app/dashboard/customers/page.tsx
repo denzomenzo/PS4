@@ -396,6 +396,77 @@ const printTransactionReceipt = async (transaction: Transaction) => {
 
     // Based on your POS.tsx, the customer object should match that structure
     // Check if address is included in ReceiptPrintData type
+const printTransactionReceipt = async (transaction: Transaction) => {
+  try {
+    const customer = selectedCustomer || 
+      customers.find(c => c.id === transaction.customer_id) || 
+      { 
+        id: '', 
+        name: 'Customer', 
+        email: '', 
+        phone: '', 
+        balance: 0
+      };
+
+    // Fetch transaction items if available
+    let transactionItems: Array<{
+      id: string | number;
+      name: string;
+      price: number;
+      quantity: number;
+      discount: number;
+      total: number;
+      sku?: string;
+      barcode?: string;
+    }> = [];
+    
+    try {
+      const { data } = await supabase
+        .from('transaction_items')
+        .select('*, product:products(name, sku, barcode)')
+        .eq('transaction_id', transaction.id);
+      
+      if (data && data.length > 0) {
+        transactionItems = data.map(item => ({
+          id: item.product?.id || item.id || Math.random().toString(),
+          name: item.product?.name || 'Product',
+          price: getSafeNumber(item.price),
+          quantity: getSafeNumber(item.quantity),
+          discount: 0,
+          total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+          sku: item.product?.sku,
+          barcode: item.product?.barcode
+        }));
+      } else {
+        // Fallback to transaction.products if available
+        if (transaction.products && Array.isArray(transaction.products)) {
+          transactionItems = transaction.products.map((item: any) => ({
+            id: item.id || item.product_id || Math.random().toString(),
+            name: item.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+            sku: item.sku,
+            barcode: item.barcode
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching transaction items:', error);
+    }
+
+    // Get full business info with logo
+    const businessInfo = {
+      name: receiptSettings?.business_name || "Your Business",
+      address: receiptSettings?.business_address,
+      phone: receiptSettings?.business_phone,
+      email: receiptSettings?.business_email,
+      taxNumber: receiptSettings?.tax_number,
+      logoUrl: receiptSettings?.receipt_logo_url // This should be included here
+    };
+
+    // Based on your POS.tsx, the receiptSettings should match that structure
     const receiptData: ReceiptPrintData = {
       id: String(transaction.id),
       createdAt: transaction.created_at,
@@ -410,8 +481,6 @@ const printTransactionReceipt = async (transaction: Transaction) => {
         phone: customer.phone || undefined,
         email: customer.email || undefined,
         balance: getSafeNumber(customer.balance)
-        // Note: If your ReceiptPrintData type supports address, add it here:
-        // address: customer.address || undefined
       },
       businessInfo: businessInfo,
       receiptSettings: {
@@ -419,9 +488,8 @@ const printTransactionReceipt = async (transaction: Transaction) => {
         footer: receiptSettings?.receipt_footer || "Thank you for your business!",
         showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
         barcodeType: receiptSettings?.barcode_type || 'CODE128',
-        showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false,
-        showLogo: true,
-        logoUrl: receiptSettings?.receipt_logo_url
+        showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+        // Note: showLogo and logoUrl should be in businessInfo, not receiptSettings
       },
       balanceDeducted: getSafeNumber(transaction.balance_deducted),
       paymentDetails: transaction.payment_details || {},
@@ -437,11 +505,6 @@ const printTransactionReceipt = async (transaction: Transaction) => {
     alert('Failed to generate receipt. Please try again.');
   }
 };
-
-  const closeReceiptPrint = () => {
-    setShowReceiptPrint(false);
-    setReceiptData(null);
-  };
 
   // Customer CRUD operations with audit logging
   const openAddCustomerModal = () => {
@@ -1502,4 +1565,5 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
