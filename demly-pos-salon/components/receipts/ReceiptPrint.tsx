@@ -148,11 +148,11 @@ const normalizedData = {
         // script.onload = printAndClose;
         script.onerror = () => {
           console.error('Failed to load barcode script');
-          printAndClose();
+         // printAndClose();
         };
         document.head.appendChild(script);
       } else {
-        printAndClose();
+     //   printAndClose();
       }
     };
 
@@ -499,6 +499,7 @@ const normalizedData = {
     </div>
   );
 }
+
 
 
 
