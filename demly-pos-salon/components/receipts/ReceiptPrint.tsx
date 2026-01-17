@@ -1,32 +1,31 @@
-// /components/receipts/ReceiptPrint.tsx
+// /components/receipts/ReceiptPrint.tsx - FIXED VERSION
 import React, { useEffect, useRef } from 'react';
 
 export interface ReceiptData {
   id: number | string;
-  created_at?: string;
   createdAt: string;
   subtotal: number;
-  vat?: number;
+  vat: number;
   total: number;
-  discountAmount?: number;
-  finalAmount?: number;
-  payment_method?: string;
   paymentMethod: string;
-  payment_status?: string;
-  paymentStatus?: string;
-  notes?: string;
-  products?: any[];
-  items?: any[];
-  cart?: any[];
-  customer_id?: number;
+  products: Array<{
+    id: string | number;
+    name: string;
+    price: number;
+    quantity: number;
+    discount: number;
+    total: number;
+    sku?: string;
+    barcode?: string;
+  }>;
   customer?: {
-  id: number | string; // Accept both
-  name: string;
-  phone?: string;
-  email?: string;
-  balance?: number;
-};
-  businessInfo?: {
+    id: string | number;
+    name: string;
+    phone?: string;
+    email?: string;
+    balance?: number;
+  };
+  businessInfo: {
     name: string;
     address?: string;
     phone?: string;
@@ -41,21 +40,10 @@ export interface ReceiptData {
     barcodeType?: string;
     showTaxBreakdown?: boolean;
   };
-  balance_deducted?: number;
   balanceDeducted?: number;
-  payment_details?: any;
   paymentDetails?: any;
-  staff_name?: string;
   staffName?: string;
-}
-
-export interface ReceiptProduct {
-  id: number;
-  name: string;
-  price: number;
-  quantity: number;
-  discount: number;
-  total: number;
+  notes?: string;
 }
 
 interface ReceiptPrintProps {
@@ -64,112 +52,246 @@ interface ReceiptPrintProps {
 }
 
 export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
+  const receiptRef = useRef<HTMLDivElement>(null);
   const barcodeRef = useRef<HTMLCanvasElement>(null);
 
-  // Normalize data from different sources
-const normalizedData = {
-  id: data.id || 'N/A',
-  createdAt: data.created_at || data.createdAt || new Date().toISOString(),
-  subtotal: data.subtotal || 0,
-  vat: data.vat || 0,
-  total: data.total || 0,
-  discountAmount: data.discountAmount || 0,
-  paymentMethod: data.payment_method || data.paymentMethod || 'cash',
-  paymentStatus: data.payment_status || data.paymentStatus || 'completed',
-  notes: data.notes,
-  products: normalizeProducts(data),
-  customer: data.customer || null,
-  
-  businessInfo: data.businessInfo || {
-    name: 'Your Business',
-    address: '',
-    phone: '',
-    email: '',
-    taxNumber: '',
-    logoUrl: ''
-  },
-  receiptSettings: {
-    fontSize: data.receiptSettings?.fontSize || 12,
-    footer: data.receiptSettings?.footer || 'Thank you for your business!',
-    showBarcode: data.receiptSettings?.showBarcode !== false,
-    barcodeType: data.receiptSettings?.barcodeType || 'CODE128',
-    showTaxBreakdown: data.receiptSettings?.showTaxBreakdown !== false
-  },
-  balanceDeducted: data.balance_deducted || data.balanceDeducted || 0,
-  paymentDetails: data.payment_details || data.paymentDetails || {},
-  staffName: data.staff_name || data.staffName
-};
-
-  function normalizeProducts(receiptData: ReceiptData) {
-    // Handle different product formats
-    if (receiptData.products && Array.isArray(receiptData.products)) {
-      return receiptData.products.map((item: any) => ({
-        id: item.id || Math.random(),
-        name: item.name || item.product_name || 'Product',
-        price: item.price || item.unit_price || 0,
-        quantity: item.quantity || 1,
-        discount: item.discount || item.item_discount || 0,
-        total: item.total || (item.price || 0) * (item.quantity || 1) - (item.discount || 0)
-      }));
-    }
-    
-    if (receiptData.items && Array.isArray(receiptData.items)) {
-      return receiptData.items.map((item: any) => ({
-        id: item.id || Math.random(),
-        name: item.name || 'Product',
-        price: item.price || 0,
-        quantity: item.quantity || 1,
-        discount: item.discount || 0,
-        total: item.total || (item.price || 0) * (item.quantity || 1) - (item.discount || 0)
-      }));
-    }
-    
-    if (receiptData.cart && Array.isArray(receiptData.cart)) {
-      return receiptData.cart.map((item: any) => ({
-        id: item.id || Math.random(),
-        name: item.name || 'Product',
-        price: item.price || 0,
-        quantity: item.quantity || 1,
-        discount: item.discount || 0,
-        total: (item.price || 0) * (item.quantity || 1) - (item.discount || 0)
-      }));
-    }
-    
-    return [];
-  }
-
-
-
-    // Load barcode script dynamically
-    const loadBarcodeScript = () => {
-      if (normalizedData.receiptSettings.showBarcode && !(window as any).JsBarcode) {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
-        // script.onload = printAndClose;
-        script.onerror = () => {
-          console.error('Failed to load barcode script');
-         // printAndClose();
-        };
-        document.head.appendChild(script);
-      } else {
-     //   printAndClose();
+  // Thermal receipt style
+  const receiptStyle = `
+    @media print {
+      @page {
+        margin: 0;
+        size: 80mm auto;
       }
-    };
+      
+      body, html {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 80mm !important;
+      }
+      
+      .no-print {
+        display: none !important;
+      }
+      
+      button {
+        display: none !important;
+      }
+      
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+    
+    @media screen {
+      body {
+        background: #f5f5f5;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+      }
+      
+      .receipt-actions {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      
+      .print-button {
+        background: #10b981;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .close-button {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+    }
+    
+    /* Receipt Container */
+    .receipt-container {
+      font-family: 'Courier New', Courier, monospace !important;
+      width: 80mm !important;
+      max-width: 80mm !important;
+      margin: 0 auto !important;
+      font-size: ${data.receiptSettings?.fontSize || 13}px !important;
+      line-height: 1.2 !important;
+      color: #000 !important;
+      background: white !important;
+      padding: 10px !important;
+    }
+    
+    /* Logo */
+    .logo-container {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    
+    .logo-container img {
+      max-height: 40px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+    
+    /* Business Info */
+    .business-name {
+      text-align: center;
+      font-weight: bold;
+      font-size: ${(data.receiptSettings?.fontSize || 13) + 2}px;
+      margin: 5px 0;
+      text-transform: uppercase;
+    }
+    
+    .business-details {
+      text-align: center;
+      font-size: ${(data.receiptSettings?.fontSize || 13) - 2}px;
+      margin-bottom: 10px;
+      line-height: 1.3;
+    }
+    
+    /* Divider */
+    .divider {
+      border-bottom: 1px dashed #000;
+      margin: 10px 0;
+    }
+    
+    /* Receipt Header */
+    .receipt-header {
+      margin-bottom: 10px;
+    }
+    
+    .receipt-header div {
+      margin: 2px 0;
+    }
+    
+    /* Items */
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 4px 0;
+      font-size: ${data.receiptSettings?.fontSize || 13}px;
+    }
+    
+    .item-name {
+      flex: 1;
+      padding-right: 10px;
+      word-break: break-word;
+    }
+    
+    .item-quantity {
+      min-width: 20px;
+      text-align: center;
+    }
+    
+    .item-price {
+      min-width: 60px;
+      text-align: right;
+      font-weight: bold;
+    }
+    
+    /* Totals */
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 4px 0;
+      font-size: ${data.receiptSettings?.fontSize || 13}px;
+    }
+    
+    .grand-total {
+      font-weight: bold;
+      font-size: ${(data.receiptSettings?.fontSize || 13) + 2}px;
+      border-top: 2px solid #000;
+      padding-top: 8px;
+      margin-top: 8px;
+    }
+    
+    /* Payment Info */
+    .payment-info {
+      text-align: center;
+      margin: 10px 0;
+      padding: 8px;
+      background: #f5f5f5;
+      border: 1px dashed #ccc;
+      font-weight: bold;
+    }
+    
+    /* Footer */
+    .receipt-footer {
+      text-align: center;
+      margin-top: 15px;
+      font-size: ${(data.receiptSettings?.fontSize || 13) - 2}px;
+      font-style: italic;
+    }
+    
+    /* Barcode */
+    .barcode-container {
+      text-align: center;
+      margin: 15px 0;
+    }
+    
+    .barcode-container canvas {
+      max-width: 100%;
+      height: 40px;
+    }
+    
+    /* Notes */
+    .notes {
+      margin: 10px 0;
+      padding: 5px;
+      font-style: italic;
+      color: #666;
+      border-top: 1px dashed #ccc;
+      border-bottom: 1px dashed #ccc;
+    }
+  `;
 
-    loadBarcodeScript();
-
-
+  useEffect(() => {
+    // Generate barcode if needed
+    if (data.receiptSettings?.showBarcode && barcodeRef.current) {
+      generateBarcode();
+    }
+    
+    // Auto-print after a short delay
+    const timer = setTimeout(() => {
+      if (receiptRef.current) {
+        window.print();
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const generateBarcode = () => {
     if (typeof window !== 'undefined' && (window as any).JsBarcode && barcodeRef.current) {
       try {
-        (window as any).JsBarcode(barcodeRef.current, `TXN${normalizedData.id}`, {
-          format: normalizedData.receiptSettings.barcodeType,
+        (window as any).JsBarcode(barcodeRef.current, `TXN${data.id}`, {
+          format: data.receiptSettings?.barcodeType || 'CODE128',
           width: 2,
-          height: 50,
+          height: 40,
           displayValue: true,
-          fontSize: 12,
-          textMargin: 5
+          fontSize: 10,
+          textMargin: 5,
+          margin: 0
         });
       } catch (error) {
         console.error('Barcode error:', error);
@@ -177,331 +299,170 @@ const normalizedData = {
     }
   };
 
-  // Calculate derived values
-  const calculatedSubtotal = normalizedData.products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const calculatedDiscount = normalizedData.products.reduce((sum, item) => sum + (item.discount || 0), 0);
-  const calculatedTotal = calculatedSubtotal - calculatedDiscount + (normalizedData.vat || 0);
-  const displaySubtotal = normalizedData.subtotal > 0 ? normalizedData.subtotal : calculatedSubtotal;
-  const displayTotal = normalizedData.total > 0 ? normalizedData.total : calculatedTotal;
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleClose = () => {
+    if (onClose) onClose();
+  };
+
+  // Calculate totals
+  const calculatedSubtotal = data.products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const calculatedDiscount = data.products.reduce((sum, item) => sum + (item.discount || 0), 0);
+  const calculatedTotal = calculatedSubtotal - calculatedDiscount + (data.vat || 0);
+  
+  const displaySubtotal = data.subtotal > 0 ? data.subtotal : calculatedSubtotal;
+  const displayVat = data.vat || 0;
+  const displayTotal = data.total > 0 ? data.total : calculatedTotal;
 
   return (
-    <div className="receipt-container">
-      <style>{`
-        @media print {
-          @page { 
-            margin: 0 !important; 
-            size: auto;
-          }
-          body { 
-            margin: 0.5cm !important; 
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-        }
+    <>
+      <style>{receiptStyle}</style>
+      
+      <div ref={receiptRef} className="receipt-container">
+        {/* Logo */}
+        {data.businessInfo.logoUrl && (
+          <div className="logo-container">
+            <img 
+              src={data.businessInfo.logoUrl} 
+              alt={data.businessInfo.name}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          </div>
+        )}
         
-        @media screen {
-          body { 
-            background: #f5f5f5;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-          }
-          .receipt-container {
-            background: white;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            border-radius: 4px;
-          }
-        }
+        {/* Business Name */}
+        <div className="business-name">{data.businessInfo.name}</div>
         
-        .receipt-container { 
-          font-family: 'Courier New', Courier, monospace !important; 
-          padding: 20px; 
-          width: 80mm; 
-          max-width: 80mm;
-          margin: 0 auto; 
-          font-size: ${normalizedData.receiptSettings.fontSize}px !important;
-          line-height: 1.2 !important;
-          color: #000 !important;
-          background: white !important;
-        }
-        
-        * {
-          box-sizing: border-box;
-        }
-        
-        .logo { 
-          text-align: center; 
-          margin-bottom: 10px; 
-        }
-        .logo img { 
-          max-width: 100px; 
-          max-height: 60px;
-          height: auto;
-        }
-        
-        h1 { 
-          text-align: center; 
-          font-size: ${normalizedData.receiptSettings.fontSize + 4}px !important; 
-          margin: 5px 0 !important; 
-          font-weight: bold !important; 
-          text-transform: uppercase;
-        }
-        
-        .business-info { 
-          text-align: center; 
-          font-size: ${normalizedData.receiptSettings.fontSize - 2}px !important; 
-          margin-bottom: 10px !important; 
-          line-height: 1.3 !important;
-        }
-        
-        .line { 
-          border-bottom: 1px dashed #000 !important; 
-          margin: 8px 0 !important; 
-        }
-        
-        .receipt-header {
-          font-size: ${normalizedData.receiptSettings.fontSize - 2}px !important;
-          margin-bottom: 8px !important;
-        }
-        
-        .item { 
-          display: flex !important; 
-          justify-content: space-between !important; 
-          margin: 4px 0 !important;
-          font-size: ${normalizedData.receiptSettings.fontSize}px !important;
-          width: 100% !important;
-        }
-        
-        .item-name {
-          flex: 1 !important;
-          padding-right: 10px !important;
-          word-break: break-word !important;
-        }
-        
-        .item-price {
-          white-space: nowrap !important;
-          font-weight: bold !important;
-          text-align: right !important;
-          min-width: 60px !important;
-        }
-        
-        .totals { 
-          margin-top: 10px !important; 
-          font-weight: bold !important; 
-        }
-        
-        .total-line { 
-          display: flex !important; 
-          justify-content: space-between !important; 
-          margin: 4px 0 !important;
-          font-size: ${normalizedData.receiptSettings.fontSize}px !important;
-        }
-        
-        .grand-total {
-          font-size: ${normalizedData.receiptSettings.fontSize + 2}px !important;
-          border-top: 2px solid #000 !important;
-          padding-top: 6px !important;
-          margin-top: 6px !important;
-        }
-        
-        .payment-info {
-          margin: 10px 0 !important;
-          padding: 8px !important;
-          background: #f5f5f5 !important;
-          border: 1px solid #ddd !important;
-          text-align: center !important;
-          font-weight: bold !important;
-          font-size: ${normalizedData.receiptSettings.fontSize}px !important;
-        }
-        
-        .footer { 
-          text-align: center !important; 
-          margin-top: 15px !important; 
-          font-size: ${normalizedData.receiptSettings.fontSize - 2}px !important;
-          font-style: italic !important;
-        }
-        
-        .barcode-container {
-          text-align: center !important;
-          margin: 15px 0 !important;
-        }
-        
-        .balance-info {
-          text-align: center !important;
-          font-size: ${normalizedData.receiptSettings.fontSize - 2}px !important;
-          margin: 8px 0 !important;
-          padding: 5px !important;
-          border: 1px dashed #ccc !important;
-        }
-        
-        .notes {
-          margin: 8px 0 !important;
-          padding: 5px !important;
-          font-style: italic !important;
-          font-size: ${normalizedData.receiptSettings.fontSize - 2}px !important;
-          color: #666 !important;
-          word-break: break-word !important;
-        }
-        
-        canvas {
-          max-width: 100% !important;
-          height: auto !important;
-          display: block !important;
-          margin: 0 auto !important;
-        }
-      `}</style>
-
-      {normalizedData.businessInfo.logoUrl && (
-        <div className="logo">
-          <img 
-            src={normalizedData.businessInfo.logoUrl} 
-            alt="Logo" 
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }} 
-          />
+        {/* Business Details */}
+        <div className="business-details">
+          {data.businessInfo.address && <div>{data.businessInfo.address}</div>}
+          {data.businessInfo.phone && <div>Tel: {data.businessInfo.phone}</div>}
+          {data.businessInfo.email && <div>{data.businessInfo.email}</div>}
+          {data.businessInfo.taxNumber && <div>Tax No: {data.businessInfo.taxNumber}</div>}
         </div>
-      )}
-      
-      <h1>{normalizedData.businessInfo.name}</h1>
-      
-      <div className="business-info">
-        {normalizedData.businessInfo.address && <div>{normalizedData.businessInfo.address}</div>}
-        {normalizedData.businessInfo.phone && <div>Tel: {normalizedData.businessInfo.phone}</div>}
-        {normalizedData.businessInfo.email && <div>{normalizedData.businessInfo.email}</div>}
-        {normalizedData.businessInfo.taxNumber && <div>Tax No: {normalizedData.businessInfo.taxNumber}</div>}
-      </div>
-      
-      <div className="line"></div>
-      
-      <div className="receipt-header">
-        <div><strong>Receipt #{normalizedData.id}</strong></div>
-        <div>{new Date(normalizedData.createdAt).toLocaleString('en-GB', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        })}</div>
-        {normalizedData.customer && <div>Customer: {normalizedData.customer.name}</div>}
-        {normalizedData.staffName && <div>Served by: {normalizedData.staffName}</div>}
-        {normalizedData.notes && <div className="notes">Note: {normalizedData.notes}</div>}
-      </div>
-      
-      <div className="line"></div>
-      
-      {normalizedData.products.length === 0 ? (
-        <div className="item">
-          <div className="item-name">No items</div>
+        
+        <div className="divider"></div>
+        
+        {/* Receipt Header */}
+        <div className="receipt-header">
+          <div><strong>RECEIPT #{data.id}</strong></div>
+          <div>Date: {new Date(data.createdAt).toLocaleDateString('en-GB')}</div>
+          <div>Time: {new Date(data.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
+          {data.customer && <div>Customer: {data.customer.name}</div>}
+          {data.staffName && <div>Staff: {data.staffName}</div>}
         </div>
-      ) : (
-        normalizedData.products.map((item, index) => (
-          <div key={item.id || index} className="item">
+        
+        <div className="divider"></div>
+        
+        {/* Items */}
+        {data.products.map((item, index) => (
+          <div key={item.id || index} className="item-row">
             <div className="item-name">
-              <div>{item.name}</div>
-              <div style={{ 
-                fontSize: `${normalizedData.receiptSettings.fontSize - 3}px`, 
-                color: '#666' 
-              }}>
-                {item.quantity} x £{item.price.toFixed(2)}
-                {item.discount > 0 ? ` (-£${item.discount.toFixed(2)})` : ''}
-              </div>
+              {item.name}
+              {item.discount > 0 && (
+                <div style={{ fontSize: '10px', color: '#666' }}>
+                  Discount: £{item.discount.toFixed(2)}
+                </div>
+              )}
             </div>
+            <div className="item-quantity">{item.quantity}x</div>
             <div className="item-price">£{item.total.toFixed(2)}</div>
           </div>
-        ))
-      )}
-      
-      <div className="line"></div>
-      
-      <div className="totals">
-        <div className="total-line">
+        ))}
+        
+        <div className="divider"></div>
+        
+        {/* Totals */}
+        <div className="total-row">
           <span>Subtotal:</span>
           <span>£{displaySubtotal.toFixed(2)}</span>
         </div>
         
         {calculatedDiscount > 0 && (
-          <div className="total-line" style={{ color: '#ff0000' }}>
+          <div className="total-row" style={{ color: '#dc2626' }}>
             <span>Discount:</span>
             <span>-£{calculatedDiscount.toFixed(2)}</span>
           </div>
         )}
         
-        {normalizedData.vat > 0 && (
+        {displayVat > 0 && (
           <>
-            <div className="total-line">
-              <span>VAT (20%):</span>
-              <span>£{normalizedData.vat.toFixed(2)}</span>
+            <div className="total-row">
+              <span>VAT:</span>
+              <span>£{displayVat.toFixed(2)}</span>
             </div>
-            {normalizedData.receiptSettings.showTaxBreakdown && (
-              <div className="total-line" style={{ 
-                fontSize: `${normalizedData.receiptSettings.fontSize - 3}px`, 
-                color: '#666' 
-              }}>
+            {data.receiptSettings?.showTaxBreakdown && (
+              <div className="total-row" style={{ fontSize: '11px', color: '#666' }}>
                 <span>Net: £{(displaySubtotal - calculatedDiscount).toFixed(2)}</span>
-                <span>Tax: £{normalizedData.vat.toFixed(2)}</span>
+                <span>Tax: £{displayVat.toFixed(2)}</span>
               </div>
             )}
           </>
         )}
         
-        <div className="total-line grand-total">
+        <div className="total-row grand-total">
           <span>TOTAL:</span>
           <span>£{displayTotal.toFixed(2)}</span>
         </div>
-      </div>
-
-      <div className="payment-info">
-        PAID VIA {normalizedData.paymentMethod.toUpperCase()}
-        {normalizedData.paymentStatus && normalizedData.paymentStatus !== 'completed' && 
-         ` (${normalizedData.paymentStatus.toUpperCase()})`}
         
-        {normalizedData.paymentDetails?.split_payment && (
-          <div style={{ 
-            fontSize: `${normalizedData.receiptSettings.fontSize - 2}px`, 
-            marginTop: '5px' 
-          }}>
-            Split: 
-            {normalizedData.paymentDetails.split_payment.cash ? 
-              ` Cash: £${normalizedData.paymentDetails.split_payment.cash.toFixed(2)} ` : ''}
-            {normalizedData.paymentDetails.split_payment.card ? 
-              ` Card: £${normalizedData.paymentDetails.split_payment.card.toFixed(2)} ` : ''}
-            {normalizedData.paymentDetails.split_payment.balance ? 
-              ` Balance: £${normalizedData.paymentDetails.split_payment.balance.toFixed(2)}` : ''}
+        <div className="divider"></div>
+        
+        {/* Payment Info */}
+        <div className="payment-info">
+          <div>PAID: {data.paymentMethod.toUpperCase()}</div>
+          {data.balanceDeducted && data.balanceDeducted > 0 && (
+            <div style={{ fontSize: '11px', marginTop: '5px' }}>
+              Balance Used: £{data.balanceDeducted.toFixed(2)}
+            </div>
+          )}
+        </div>
+        
+        {/* Notes */}
+        {data.notes && (
+          <div className="notes">
+            Note: {data.notes}
           </div>
         )}
+        
+        {/* Barcode */}
+        {data.receiptSettings?.showBarcode && (
+          <div className="barcode-container">
+            <canvas ref={barcodeRef}></canvas>
+          </div>
+        )}
+        
+        {/* Footer */}
+        <div className="receipt-footer">
+          <div style={{ margin: '10px 0', fontWeight: 'bold' }}>THANK YOU!</div>
+          {data.receiptSettings?.footer || 'Thank you for your business!'}
+          <div style={{ marginTop: '10px', fontSize: '10px' }}>
+            {new Date().toLocaleDateString('en-GB')}
+          </div>
+        </div>
       </div>
       
-      {normalizedData.balanceDeducted > 0 && normalizedData.customer && (
-        <div className="balance-info">
-          <div>Balance Used: £{normalizedData.balanceDeducted.toFixed(2)}</div>
-          <div>Remaining Balance: £{(normalizedData.customer.balance || 0).toFixed(2)}</div>
-        </div>
-      )}
-      
-      {normalizedData.receiptSettings.showBarcode && (
-        <div className="barcode-container">
-          <canvas 
-            id="barcodeCanvas" 
-            ref={barcodeRef}
-            style={{ display: 'block' }}
-          ></canvas>
-        </div>
-      )}
-      
-      <div className="footer">
-        <div style={{ fontWeight: 'bold', margin: '10px 0' }}>THANK YOU!</div>
-        {normalizedData.receiptSettings.footer}
+      {/* Print/Close Buttons (visible only on screen) */}
+      <div className="receipt-actions no-print">
+        <button onClick={handlePrint} className="print-button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          Print Receipt
+        </button>
+        <button onClick={handleClose} className="close-button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          Close
+        </button>
       </div>
-    </div>
+    </>
   );
 }
-
-
-
-
-
-
