@@ -354,7 +354,7 @@ const fetchBusinessSettings = async () => {
   // FIXED: Print receipt with proper business info
 const printTransactionReceipt = async (transaction: Transaction) => {
   try {
-    console.log('🖨️ Starting receipt generation...');
+    console.log('🖨️ Generating receipt...');
     
     const customer = selectedCustomer || 
       customers.find(c => c.id === transaction.customer_id) || 
@@ -365,9 +365,6 @@ const printTransactionReceipt = async (transaction: Transaction) => {
         phone: '', 
         balance: 0
       };
-
-    console.log('👤 Customer for receipt:', customer.name);
-    console.log('🏢 Current businessSettings:', businessSettings);
 
     // Fetch transaction items
     let transactionItems: Array<{
@@ -403,13 +400,8 @@ const printTransactionReceipt = async (transaction: Transaction) => {
       console.error('Error fetching transaction items:', error);
     }
 
-    // Check if businessSettings is loaded
-    if (!businessSettings) {
-      console.warn('⚠️ businessSettings is null/undefined, fetching again...');
-      await fetchBusinessSettings();
-    }
-
-    const receiptData: ReceiptPrintData = {
+    // Create receipt data
+    const receiptData: ReceiptData = {
       id: String(transaction.id),
       createdAt: transaction.created_at,
       subtotal: getSafeNumber(transaction.subtotal),
@@ -424,17 +416,16 @@ const printTransactionReceipt = async (transaction: Transaction) => {
         email: customer.email || undefined,
         balance: getSafeNumber(customer.balance)
       },
-      // FIXED: Add default businessInfo if none exists
       businessInfo: {
         name: businessSettings?.business_name || "Your Business",
-        address: businessSettings?.business_address || "123 Business Street",
-        phone: businessSettings?.business_phone || "+44 1234 567890",
-        email: businessSettings?.business_email || "info@business.com",
-        taxNumber: businessSettings?.tax_number || "GB123456789",
-        logoUrl: businessSettings?.receipt_logo_url || "/logo.png"
+        address: businessSettings?.business_address,
+        phone: businessSettings?.business_phone,
+        email: businessSettings?.business_email,
+        taxNumber: businessSettings?.tax_number,
+        logoUrl: businessSettings?.receipt_logo_url
       },
       receiptSettings: {
-        fontSize: businessSettings?.receipt_font_size || 12,
+        fontSize: 13, // Fixed font size for thermal printers
         footer: businessSettings?.receipt_footer || "Thank you for your business!",
         showBarcode: businessSettings?.show_barcode_on_receipt !== false,
         barcodeType: businessSettings?.barcode_type || 'CODE128',
@@ -446,13 +437,7 @@ const printTransactionReceipt = async (transaction: Transaction) => {
       notes: transaction.notes || undefined
     };
     
-    // FIXED: Safely access businessInfo
-    console.log('✅ Receipt data ready:', {
-      businessName: receiptData.businessInfo?.name || 'No business name',
-      businessAddress: receiptData.businessInfo?.address || 'No address',
-      logoUrl: receiptData.businessInfo?.logoUrl || 'No logo'
-    });
-    
+    console.log('✅ Receipt data created');
     setReceiptData(receiptData);
     setShowReceiptPrint(true);
     
@@ -774,14 +759,16 @@ const saveCustomer = async () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Receipt Print Component - SIMPLE: No preview */}
-      {showReceiptPrint && receiptData && (
-        <div className="fixed inset-0 z-[9999] bg-white">
-          <ReceiptPrint 
-            data={receiptData} 
-            onClose={closeReceiptPrint}
-          />
-        </div>
-      )}
+{showReceiptPrint && receiptData && (
+  <div className="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center p-4">
+    <div className="w-full max-w-md">
+      <ReceiptPrint 
+        data={receiptData} 
+        onClose={closeReceiptPrint}
+      />
+    </div>
+  </div>
+)}
 
       {/* View Items Modal */}
       {showViewItemsModal && (
@@ -1538,6 +1525,7 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
 
 
