@@ -564,3 +564,23 @@ export default function DashboardLayout({
   );
 }
 
+
+
+import Script from 'next/script';
+
+
+return (
+  <html lang="en">
+    <head>
+      <Script 
+        src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"
+        strategy="lazyOnload"
+      />
+    </head>
+    <body>
+      {children}
+    </body>
+  </html>
+);
+
+
