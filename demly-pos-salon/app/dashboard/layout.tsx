@@ -21,6 +21,7 @@ const navigation = [
   { name: "Returns", href: "/dashboard/returns", icon: RotateCcw, permission: "pos" as const },
   { name: "Reports", href: "/dashboard/reports", icon: TrendingUp, permission: "reports" as const },
   { name: "Display", href: "/dashboard/display", icon: Monitor, permission: "pos" as const },
+  { name: "Apps", href: "/dashboard/apps", icon: Zap, permission: "reports" as const },
   { name: "Settings", href: "/dashboard/settings", icon: Settings, ownerOnly: true },
   { name: "Hardware", href: "/dashboard/hardware", icon: Printer, permission: "reports" as const },
   { name: "Card Terminal", href: "/dashboard/card-terminal", icon: CreditCard, permission: "reports" as const },
@@ -583,6 +584,7 @@ return (
     </body>
   </html>
 );
+
 
 
 
