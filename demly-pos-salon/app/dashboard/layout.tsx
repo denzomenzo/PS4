@@ -9,7 +9,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key, Mail, Shield
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key, Mail, Shield, Zap, Sun, Moon
 } from "lucide-react";
 
 const navigation = [
@@ -582,5 +582,6 @@ return (
     </body>
   </html>
 );
+
 
 
