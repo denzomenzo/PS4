@@ -7,6 +7,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key, Mail, Shield, Zap, Sun, Moon
@@ -582,6 +583,7 @@ return (
     </body>
   </html>
 );
+
 
 
 
