@@ -513,18 +513,18 @@ export default function DashboardLayout({
               </p>
 
 
-          <div className="mt-3 pt-3 border-t border-slate-700/50">
-           <div className="flex items-center justify-between">
-           <span className="text-xs text-slate-500">Theme</span>
-            <ThemeToggle />
-              </div>
-             </div>
-            </div>
-           )}
-            </div>
-          </div>
-           )}
-        </div>
+<div className="mt-3 pt-3 border-t border-slate-700/50">
+  <div className="flex items-center justify-between">
+    <span className="text-xs text-slate-500">Theme</span>
+    <ThemeToggle />
+  </div>
+</div>
+</div>
+)}
+</div>
+</div>
+)}
+</div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navigation.map((item) => {
@@ -595,6 +595,7 @@ return (
     </body>
   </html>
 );
+
 
 
 
