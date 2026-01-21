@@ -11,11 +11,11 @@ export default function ThemeToggle() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    // Load theme from localStorage first for instant feedback
-    const savedTheme = localStorage.getItem("theme") as "dark" | "light";
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
+    // Check localStorage first
+    const saved = localStorage.getItem("theme") as "dark" | "light" | null;
+    if (saved) {
+      setTheme(saved);
+      applyTheme(saved);
     }
     
     // Then load from database
@@ -37,15 +37,11 @@ export default function ThemeToggle() {
 
   const applyTheme = (mode: "dark" | "light") => {
     const html = document.documentElement;
-    
     if (mode === "light") {
       html.classList.remove("dark");
-      html.classList.add("light");
     } else {
-      html.classList.remove("light");
       html.classList.add("dark");
     }
-    
     localStorage.setItem("theme", mode);
   };
 
@@ -54,7 +50,7 @@ export default function ThemeToggle() {
     setTheme(newTheme);
     applyTheme(newTheme);
     
-    // Save to database if user is logged in
+    // Save to database
     if (userId) {
       await supabase
         .from("settings")
@@ -69,7 +65,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="p-2 hover:bg-slate-800/50 dark:hover:bg-slate-800/50 rounded-lg transition-colors"
+      className="p-2 rounded-lg hover:bg-accent transition-colors"
       title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
     >
