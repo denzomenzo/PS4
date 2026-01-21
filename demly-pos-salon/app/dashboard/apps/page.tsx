@@ -1,7 +1,6 @@
-// app/dashboard/apps/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react"; // Make sure useEffect is imported
 import Link from "next/link";
 import { 
   ShoppingBag, Truck, Coffee, CreditCard, 
@@ -11,6 +10,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+
 
 const availableApps = [
   {
@@ -102,7 +102,7 @@ export default function AppsPage() {
     }
   };
 
-  useState(() => {
+  useEffect(() => {
     if (userId) loadInstalledApps();
   }, [userId]);
 
@@ -392,4 +392,5 @@ export default function AppsPage() {
       </div>
     </div>
   );
+
 }
