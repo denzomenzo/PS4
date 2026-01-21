@@ -511,6 +511,16 @@ export default function DashboardLayout({
                   </span>
                 )}
               </p>
+
+
+                  <div className="mt-3 pt-3 border-t border-slate-700/50">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500">Theme</span>
+        <ThemeToggle />
+      </div>
+    </div>
+  </div>
+)}
             </div>
           )}
         </div>
@@ -584,6 +594,7 @@ return (
     </body>
   </html>
 );
+
 
 
 
