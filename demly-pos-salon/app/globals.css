@@ -4,147 +4,86 @@
 
 @layer base {
   :root {
+    /* Base colors - Light theme */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --sidebar: 210 40% 98%;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+  }
+
+  .dark {
+    /* Base colors - Dark theme */
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --sidebar: 217.2 32.6% 17.5%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-border: 217.2 32.6% 17.5%;
   }
 
-  * {
-    @apply border-border;
+  /* Theme color variations */
+  [data-theme-color="emerald"] {
+    --primary: 142.1 76.2% 36.3%;
+    --primary-foreground: 355.7 100% 97.3%;
   }
 
+  [data-theme-color="blue"] {
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+  }
+
+  [data-theme-color="purple"] {
+    --primary: 262.1 83.3% 57.8%;
+    --primary-foreground: 210 40% 98%;
+  }
+
+  [data-theme-color="rose"] {
+    --primary: 346.8 77.2% 49.8%;
+    --primary-foreground: 355.7 100% 97.3%;
+  }
+
+  [data-theme-color="amber"] {
+    --primary: 24.6 95% 53.1%;
+    --primary-foreground: 60 9.1% 97.8%;
+  }
+
+  [data-theme-color="slate"] {
+    --primary: 215.4 16.3% 46.9%;
+    --primary-foreground: 210 40% 98%;
+  }
+}
+
+@layer base {
   body {
     @apply bg-background text-foreground;
-    overflow-x: hidden;
-  }
-}
-
-@layer utilities {
-  .animate-in {
-    animation: animateIn 0.5s ease-out forwards;
   }
 
-  .animate-fade-in {
-    animation: fadeIn 0.8s ease-out forwards;
-  }
-
-  .animate-slide-up {
-    animation: slideUp 0.8s ease-out forwards;
-  }
-
-  .animate-scale-in {
-    animation: scaleIn 0.6s ease-out forwards;
-  }
-
-  .animate-gradient {
-    background-size: 200% 200%;
-    animation: gradient 8s ease infinite;
-  }
-
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-emerald-500 to-green-600;
-  }
-
-  .glass-effect {
-    @apply backdrop-blur-xl bg-white/5 border border-white/10;
-  }
-
-  .hover-lift {
-    @apply transition-transform duration-300 hover:-translate-y-1 hover:shadow-2xl;
-  }
-
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  /* Apply theme colors */
+  .bg-primary {
+    background-color: hsl(var(--primary));
   }
   
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+  .text-primary {
+    color: hsl(var(--primary));
   }
-}
-
-@keyframes animateIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
+  
+  .border-primary {
+    border-color: hsl(var(--primary));
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  .bg-sidebar {
+    background-color: hsl(var(--sidebar));
   }
-}
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
+  .text-sidebar-foreground {
+    color: hsl(var(--sidebar-foreground));
   }
-  to {
-    opacity: 1;
+
+  .border-sidebar {
+    border-color: hsl(var(--sidebar-border));
   }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(40px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-/* Smooth scrolling */
-html {
-  scroll-behavior: smooth;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-slate-900;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-emerald-500/30 rounded-full hover:bg-emerald-500/50 transition-colors;
-}
-
-/* Selection color */
-::selection {
-  @apply bg-emerald-500/30 text-white;
-}
-
-/* Image optimization */
-img {
-  @apply select-none;
-}
-
-/* Focus styles */
-:focus-visible {
-  @apply outline-none ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-slate-900;
 }
