@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - 
+// app/dashboard/layout.tsx - FIXED VERSION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,7 +10,8 @@ import { useStaffAuth } from "@/hooks/useStaffAuth";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
-  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, Lock, Check, Key, Mail, Shield, Zap, Sun, Moon
+  Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, 
+  Lock, Check, Key, Mail, Shield, Zap
 } from "lucide-react";
 
 const navigation = [
@@ -511,18 +512,21 @@ export default function DashboardLayout({
                   </span>
                 )}
               </p>
+              
+              {/* Theme Toggle */}
+              <div className="mt-3 pt-3 border-t border-slate-700/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">Theme</span>
+                  <ThemeToggle />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
-
-<div className="mt-3 pt-3 border-t border-slate-700/50">
-  <div className="flex items-center justify-between">
-    <span className="text-xs text-slate-500">Theme</span>
-    <ThemeToggle />
-  </div>
-</div>
-
-<nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-  {navigation.map((item) => {
-    const isActive = pathname === item.href;
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href;
             
             // Check permissions
             let hasAccess = true;
@@ -570,32 +574,3 @@ export default function DashboardLayout({
     </div>
   );
 }
-
-
-
-import Script from 'next/script';
-
-
-return (
-  <html lang="en">
-    <head>
-      <Script 
-        src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"
-        strategy="lazyOnload"
-      />
-    </head>
-    <body>
-      {children}
-    </body>
-  </html>
-);
-
-
-
-
-
-
-
-
-
-
