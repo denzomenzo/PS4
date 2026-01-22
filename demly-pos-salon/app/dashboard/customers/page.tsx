@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
+import type { ReceiptData } from "@/components/receipts/ReceiptPrint";
 import { 
   Search, 
   UserPlus, 
@@ -1525,6 +1526,7 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
 
 
 
