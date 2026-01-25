@@ -467,110 +467,109 @@ export default function DashboardLayout({
     );
   }
 
-  return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black overflow-hidden">
+return (
+  <div className="flex h-screen bg-gradient-to-br from-background via-muted to-card overflow-hidden">
+    
+    <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-border/50 flex flex-col shadow-2xl">
       
-      <aside className="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-slate-800/50 flex flex-col shadow-2xl">
-        
-        <div className="p-6 border-b border-slate-800/50">
-          {/* Business Logo */}
-          {businessLogoUrl && (
-            <div className="mb-4 flex items-center justify-center">
-              <img
-                src={businessLogoUrl}
-                alt={businessName}
-                className="max-w-full max-h-20 object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-          )}
-          
-          {/* Business Name */}
-          <div className="bg-gradient-to-r from-emerald-500 to-green-600 bg-clip-text text-transparent">
-            <h1 className="text-4xl font-black tracking-tight text-center">
-              {businessName}
-            </h1>
+      <div className="p-6 border-b border-border/50">
+        {/* Business Logo */}
+        {businessLogoUrl && (
+          <div className="mb-4 flex items-center justify-center">
+            <img
+              src={businessLogoUrl}
+              alt={businessName}
+              className="max-w-full max-h-20 object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </div>
-          <p className="text-slate-400 text-sm mt-2 font-medium text-center">Point of Sale System</p>
-          
-          {/* Staff Info */}
-          {staff && (
-            <div className="mt-4 bg-slate-800/50 rounded-xl p-3">
-              <p className="text-xs text-slate-500">Logged in as</p>
-              <p className="text-sm font-bold text-white flex items-center gap-2">
-                {staff.name}
-                {staff.role === "owner" && (
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full border border-emerald-500/30">
-                    OWNER
-                  </span>
-                )}
-                {staff.role === "manager" && (
-                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full border border-blue-500/30">
-                    MANAGER
-                  </span>
-                )}
-              </p>
-              
-              {/* Theme Toggle */}
-              <div className="mt-3 pt-3 border-t border-slate-700/50">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">Theme</span>
-                  <ThemeToggle />
-                </div>
+        )}
+        
+        {/* Business Name */}
+        <div className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+          <h1 className="text-4xl font-black tracking-tight text-center">
+            {businessName}
+          </h1>
+        </div>
+        <p className="text-muted-foreground text-sm mt-2 font-medium text-center">Point of Sale System</p>
+        
+        {/* Staff Info */}
+        {staff && (
+          <div className="mt-4 bg-muted/50 rounded-xl p-3">
+            <p className="text-xs text-muted-foreground">Logged in as</p>
+            <p className="text-sm font-bold text-foreground flex items-center gap-2">
+              {staff.name}
+              {staff.role === "owner" && (
+                <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
+                  OWNER
+                </span>
+              )}
+              {staff.role === "manager" && (
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full border border-blue-500/30">
+                  MANAGER
+                </span>
+              )}
+            </p>
+            
+            {/* Theme Toggle */}
+            <div className="mt-3 pt-3 border-t border-border/50">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Theme</span>
+                <ThemeToggle />
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href;
-            
-            // Check permissions
-            let hasAccess = true;
-            if (staff) {
-              if (item.ownerOnly) {
-                hasAccess = staff.role === "owner";
-              } else if (item.permission) {
-                hasAccess = hasPermission(item.permission);
-              }
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {navigation.map((item) => {
+          const isActive = pathname === item.href;
+          
+          // Check permissions
+          let hasAccess = true;
+          if (staff) {
+            if (item.ownerOnly) {
+              hasAccess = staff.role === "owner";
+            } else if (item.permission) {
+              hasAccess = hasPermission(item.permission);
             }
+          }
 
-            if (!hasAccess) return null;
+          if (!hasAccess) return null;
 
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-semibold group ${
-                  isActive
-                    ? "bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-white border border-emerald-500/30 shadow-lg shadow-emerald-500/10"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800/50 hover:border hover:border-slate-700/50"
-                }`}
-              >
-                <item.icon className={`w-5 h-5 ${isActive ? "text-emerald-400" : "text-slate-500 group-hover:text-emerald-400"} transition-colors`} />
-                <span className="text-base">{item.name}</span>
-              </Link>
-            );
-          })}
-        </nav>
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-semibold group ${
+                isActive
+                  ? "bg-primary/10 text-primary border border-primary/30 shadow-lg shadow-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50 hover:border hover:border-border/50"
+              }`}
+            >
+              <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
+              <span className="text-base">{item.name}</span>
+            </Link>
+          );
+        })}
+      </nav>
 
-        <div className="p-4 border-t border-slate-800/50">
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-4 px-5 py-4 w-full rounded-2xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 hover:border hover:border-red-500/30 transition-all duration-200 font-semibold group"
-          >
-            <LogOut className="w-5 h-5 group-hover:text-red-400 transition-colors" />
-            <span>Logout</span>
-          </button>
-        </div>
-      </aside>
+      <div className="p-4 border-t border-border/50">
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-4 px-5 py-4 w-full rounded-2xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border hover:border-destructive/30 transition-all duration-200 font-semibold group"
+        >
+          <LogOut className="w-5 h-5 group-hover:text-destructive transition-colors" />
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
 
-      <main className="flex-1 overflow-auto bg-slate-950/50">
-        {children}
-      </main>
-    </div>
-  );
-}
+    <main className="flex-1 overflow-auto bg-background/50">
+      {children}
+    </main>
+  </div>
+);
