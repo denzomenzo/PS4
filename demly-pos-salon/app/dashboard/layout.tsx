@@ -568,8 +568,9 @@ return (
       </div>
     </aside>
 
-    <main className="flex-1 overflow-auto bg-background/50">
-      {children}
-    </main>
-  </div>
-);
+          <main className="flex-1 overflow-auto bg-background/50">
+        {children}
+      </main>
+    </div>
+  );
+} 
