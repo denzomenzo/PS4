@@ -1,7 +1,7 @@
-// app/dashboard/layout.tsx - FIXED SIDEBAR TOGGLE
+// app/dashboard/layout.tsx - FIXED COMPREHENSIVE VERSION
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -13,7 +13,7 @@ import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, 
   Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight,
-  Menu, X
+  Menu, X, ChevronDown, ChevronUp, User
 } from "lucide-react";
 
 const navigation = [
@@ -54,39 +54,34 @@ export default function DashboardLayout({
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
   
-  // Start with sidebar collapsed on mobile, expanded on desktop
+  // New state for staff dropdown in PIN modal
+  const [showStaffDropdown, setShowStaffDropdown] = useState(false);
+  
+  // Initialize sidebar state - desktop: expanded, mobile: collapsed
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Initialize sidebar state based on screen size
+  // Properly initialize sidebar state based on screen size
   useEffect(() => {
-    if (isMobile) {
-      setSidebarCollapsed(true); // Collapsed on mobile
-    } else {
-      setSidebarCollapsed(false); // Expanded on desktop
-    }
-  }, [isMobile]);
+    const handleResize = () => {
+      if (window.innerWidth < 768) { // Mobile
+        setSidebarCollapsed(true);
+      } else {
+        setSidebarCollapsed(false);
+      }
+    };
 
-  useEffect(() => {
-    if (userId && !authLoading) {
-      loadData();
-    }
-  }, [userId, authLoading]);
+    // Initial check
+    handleResize();
+    
+    // Listen for resize events
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
-  useEffect(() => {
-    // Check if PIN modal should be shown
-    if (pathname === "/dashboard/first-time-setup" || pathname === "/dashboard/display") {
-      setShowPinModal(false);
-      return;
-    }
-
-    if (!authLoading && !staff) {
-      setShowPinModal(true);
-    } else {
-      setShowPinModal(false);
-    }
-  }, [pathname, authLoading, staff]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       // Load business settings
       const { data } = await supabase
@@ -114,6 +109,10 @@ export default function DashboardLayout({
       
       if (staffData) {
         setStaffList(staffData);
+        // Auto-select first staff member if available
+        if (staffData.length > 0 && !selectedStaffId) {
+          setSelectedStaffId(staffData[0].id);
+        }
       }
       
       setLoading(false);
@@ -121,7 +120,29 @@ export default function DashboardLayout({
       console.error("Error loading dashboard data:", error);
       setLoading(false);
     }
-  };
+  }, [userId, selectedStaffId]);
+
+  useEffect(() => {
+    if (userId && !authLoading) {
+      loadData();
+    }
+  }, [userId, authLoading, loadData]);
+
+  useEffect(() => {
+    // Check if PIN modal should be shown
+    const exemptPaths = ["/dashboard/first-time-setup", "/dashboard/display"];
+    
+    if (exemptPaths.includes(pathname)) {
+      setShowPinModal(false);
+      return;
+    }
+
+    if (!authLoading && !staff) {
+      setShowPinModal(true);
+    } else {
+      setShowPinModal(false);
+    }
+  }, [pathname, authLoading, staff]);
 
   const handlePinSubmit = async () => {
     if (!selectedStaffId) {
@@ -153,7 +174,7 @@ export default function DashboardLayout({
     setShowPinModal(false);
     setPinError("");
     setPinInput("");
-    setSelectedStaffId(null);
+    setShowStaffDropdown(false);
     setShowResetOption(false);
     setResetSuccess("");
   };
@@ -185,10 +206,7 @@ export default function DashboardLayout({
         throw new Error(updateError.message);
       }
 
-      // SIMPLIFIED: Just show success message without email
       setResetSuccess(`✅ PIN reset for ${selectedStaff?.name}. New PIN: ${newPin}`);
-      
-      // Clear any errors
       setResetError("");
     } catch (error: any) {
       console.error("Error resetting PIN:", error);
@@ -209,6 +227,11 @@ export default function DashboardLayout({
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
+  const getSelectedStaffName = () => {
+    const staff = staffList.find(s => s.id === selectedStaffId);
+    return staff ? staff.name : "Select Staff";
+  };
+
   if (authLoading || loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted to-card">
@@ -223,9 +246,8 @@ export default function DashboardLayout({
   // Show PIN modal if not authenticated (except for special pages)
   if (showPinModal && staffList.length > 0) {
     return (
-      <div className="h-screen w-screen bg-gradient-to-br from-background via-muted to-card flex items-center justify-center p-4">
-        <div className="bg-card/90 backdrop-blur-xl rounded-2xl md:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-10 w-full max-w-[95vw] sm:max-w-md md:max-w-lg border border-border shadow-2xl mx-4">
-          {/* ... [Keep the PIN modal content exactly as before] ... */}
+      <div className="h-screen w-screen bg-gradient-to-br from-background via-muted to-card flex items-center justify-center p-4 fixed inset-0 z-50">
+        <div className="bg-card/90 backdrop-blur-xl rounded-2xl md:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-10 w-full max-w-[95vw] sm:max-w-md md:max-w-lg border border-border shadow-2xl mx-4 max-h-[90vh] overflow-y-auto">
           <div className="text-center mb-6 sm:mb-8">
             <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-r from-primary to-primary/80 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-primary/20">
               <Lock className="w-8 h-8 sm:w-10 sm:h-10 text-primary-foreground" />
@@ -233,11 +255,177 @@ export default function DashboardLayout({
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent mb-2">
               Staff Login
             </h1>
-            <p className="text-muted-foreground text-sm sm:text-base md:text-lg">Select your name and enter your PIN</p>
+            <p className="text-muted-foreground text-sm sm:text-base md:text-lg">
+              Select your name and enter your PIN
+            </p>
           </div>
 
-          {/* ... [Rest of PIN modal - unchanged] ... */}
-          
+          {/* Staff Selection Dropdown - FIXED */}
+          <div className="mb-6 relative">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Staff Member
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowStaffDropdown(!showStaffDropdown)}
+              className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3.5 text-left flex items-center justify-between hover:bg-muted transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <User className="w-5 h-5 text-muted-foreground" />
+                <span className="font-medium text-foreground">
+                  {getSelectedStaffName()}
+                </span>
+              </div>
+              {showStaffDropdown ? (
+                <ChevronUp className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              )}
+            </button>
+
+            {/* Dropdown Menu */}
+            {showStaffDropdown && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto">
+                {staffList.map((staffMember) => (
+                  <button
+                    key={staffMember.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedStaffId(staffMember.id);
+                      setShowStaffDropdown(false);
+                      setPinError("");
+                      setResetError("");
+                      setResetSuccess("");
+                    }}
+                    className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors ${
+                      selectedStaffId === staffMember.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary/20 to-primary/10 flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary">
+                          {staffMember.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-left">
+                        <div className="font-medium">{staffMember.name}</div>
+                        <div className="text-xs text-muted-foreground capitalize">
+                          {staffMember.role}
+                        </div>
+                      </div>
+                    </div>
+                    {selectedStaffId === staffMember.id && (
+                      <Check className="w-5 h-5 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* PIN Input */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-foreground mb-2">
+              PIN Code
+            </label>
+            <div className="relative">
+              <Key className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={pinInput}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '');
+                  setPinInput(value);
+                  setPinError("");
+                }}
+                placeholder="Enter 4-6 digit PIN"
+                className="w-full bg-muted/50 border border-border rounded-xl pl-12 pr-4 py-3.5 text-lg font-mono tracking-wider placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handlePinSubmit();
+                  }
+                }}
+              />
+            </div>
+            {pinError && (
+              <p className="mt-2 text-sm text-destructive">{pinError}</p>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="space-y-4">
+            <button
+              onClick={handlePinSubmit}
+              disabled={!selectedStaffId || pinInput.length < 4}
+              className="w-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground font-bold py-3.5 px-4 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Lock className="w-5 h-5" />
+              Login to Dashboard
+            </button>
+
+            {/* Reset PIN Section */}
+            <div className="border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setShowResetOption(!showResetOption)}
+                className="w-full text-sm text-muted-foreground hover:text-foreground flex items-center justify-center gap-2 mb-2"
+              >
+                {showResetOption ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    Hide Reset Options
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    Forgot PIN? Reset Options
+                  </>
+                )}
+              </button>
+
+              {showResetOption && (
+                <div className="bg-muted/30 rounded-xl p-4 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Reset PIN for selected staff member. A new PIN will be generated.
+                  </p>
+                  
+                  {resetSuccess && (
+                    <div className="bg-success/20 border border-success/30 rounded-lg p-3">
+                      <p className="text-sm text-success font-medium">{resetSuccess}</p>
+                    </div>
+                  )}
+                  
+                  {resetError && (
+                    <div className="bg-destructive/20 border border-destructive/30 rounded-lg p-3">
+                      <p className="text-sm text-destructive font-medium">{resetError}</p>
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={handleResetPin}
+                    disabled={resettingPin || !selectedStaffId}
+                    className="w-full bg-gradient-to-r from-destructive/80 to-destructive/60 text-destructive-foreground font-medium py-3 px-4 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {resettingPin ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Resetting PIN...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="w-5 h-5" />
+                        Reset PIN for {getSelectedStaffName()}
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -254,155 +442,154 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar - FIXED: Only show when NOT collapsed */}
-      {!sidebarCollapsed && (
-        <aside className={`
-          fixed md:static inset-y-0 left-0 z-50 w-72 bg-card/95 backdrop-blur-xl border-r border-border
-          transition-transform duration-300 ease-in-out
-          ${!sidebarCollapsed ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0
-          flex flex-col shadow-2xl
-        `}>
-          
-          {/* Sidebar Header */}
-          <div className="p-6 border-b border-border">
-            <div className="flex items-center justify-between mb-4">
-              {/* Business Logo */}
-              {businessLogoUrl ? (
-                <div className="flex items-center gap-3">
-                  <img
-                    src={businessLogoUrl}
-                    alt={businessName}
-                    className="w-10 h-10 rounded-lg object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                  <div>
-                    <h1 className="text-xl font-bold text-foreground truncate">{businessName}</h1>
-                    <p className="text-xs text-muted-foreground">POS System</p>
-                  </div>
-                </div>
-              ) : (
+      {/* Sidebar */}
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50 w-72 bg-card/95 backdrop-blur-xl border-r border-border
+        transform transition-transform duration-300 ease-in-out h-full
+        ${!sidebarCollapsed ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0 md:flex
+        flex-col shadow-2xl
+        ${sidebarCollapsed ? 'md:w-0' : 'md:w-72'}
+      `}>
+        
+        {/* Sidebar Header */}
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center justify-between mb-4">
+            {/* Business Logo */}
+            {businessLogoUrl ? (
+              <div className="flex items-center gap-3">
+                <img
+                  src={businessLogoUrl}
+                  alt={businessName}
+                  className="w-10 h-10 rounded-lg object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-                    {businessName}
-                  </h1>
-                  <p className="text-sm text-muted-foreground">Point of Sale</p>
+                  <h1 className="text-xl font-bold text-foreground truncate">{businessName}</h1>
+                  <p className="text-xs text-muted-foreground">POS System</p>
                 </div>
-              )}
-              
-              {/* Close Button for mobile */}
-              {isMobile && (
-                <button
-                  onClick={() => setSidebarCollapsed(true)}
-                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
-                  aria-label="Close sidebar"
-                >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-            
-            {/* Staff Info */}
-            {staff && (
-              <div className="bg-muted/50 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Logged in as</p>
-                    <p className="text-sm font-bold text-foreground flex items-center gap-2">
-                      {staff.name}
-                      {staff.role === "owner" && (
-                        <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
-                          OWNER
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  
-                  {/* Theme Toggle */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground hidden md:inline">Theme</span>
-                    <ThemeToggle />
-                  </div>
-                </div>
+              </div>
+            ) : (
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                  {businessName}
+                </h1>
+                <p className="text-sm text-muted-foreground">Point of Sale</p>
               </div>
             )}
+            
+            {/* Close Button for mobile */}
+            {isMobile && (
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
+                aria-label="Close sidebar"
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            )}
           </div>
-
-          {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navigation.map((item) => {
-              const isActive = pathname === item.href;
-              
-              // Check permissions
-              let hasAccess = true;
-              if (staff) {
-                if (item.ownerOnly) {
-                  hasAccess = staff.role === "owner";
-                } else if (item.permission) {
-                  hasAccess = hasPermission(item.permission);
-                }
-              }
-
-              if (!hasAccess) return null;
-
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => isMobile && setSidebarCollapsed(true)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group ${
-                    isActive
-                      ? "bg-primary/10 text-primary border-l-4 border-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
-                  <span className="text-sm">{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Footer - SIMPLIFIED: Only Logout button */}
-          <div className="p-4 border-t border-border/50">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 p-3 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 font-medium group"
-            >
-              <div className="p-2 bg-muted rounded-lg">
-                <LogOut className="w-4 h-4 group-hover:text-destructive transition-colors" />
+          
+          {/* Staff Info */}
+          {staff && (
+            <div className="bg-muted/50 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Logged in as</p>
+                  <p className="text-sm font-bold text-foreground flex items-center gap-2">
+                    {staff.name}
+                    {staff.role === "owner" && (
+                      <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
+                        OWNER
+                      </span>
+                    )}
+                  </p>
+                </div>
+                
+                {/* Theme Toggle */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground hidden md:inline">Theme</span>
+                  <ThemeToggle />
+                </div>
               </div>
-              <span className="text-sm">Logout</span>
-            </button>
-          </div>
-        </aside>
-      )}
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href;
+            
+            // Check permissions
+            let hasAccess = true;
+            if (staff) {
+              if (item.ownerOnly) {
+                hasAccess = staff.role === "owner";
+              } else if (item.permission) {
+                hasAccess = hasPermission(item.permission);
+              }
+            }
+
+            if (!hasAccess) return null;
+
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                onClick={() => isMobile && setSidebarCollapsed(true)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group ${
+                  isActive
+                    ? "bg-primary/10 text-primary border-l-4 border-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
+                <span className="text-sm">{item.name}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-border/50">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 p-3 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 font-medium group"
+          >
+            <div className="p-2 bg-muted rounded-lg">
+              <LogOut className="w-4 h-4 group-hover:text-destructive transition-colors" />
+            </div>
+            <span className="text-sm">Logout</span>
+          </button>
+        </div>
+      </aside>
 
       {/* Main Content */}
       <main className={`
         flex-1 overflow-auto bg-background/50
         transition-all duration-300
-        ${!sidebarCollapsed && !isMobile ? 'md:pl-72' : 'md:pl-0'}
+        ${!sidebarCollapsed ? 'md:ml-72' : 'md:ml-0'}
       `}>
         {/* Top Header with Menu Button */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
           <div className="flex items-center justify-between px-4 sm:px-6 py-3">
             <div className="flex items-center gap-3">
-              {/* Menu Button for mobile - Shows when sidebar is collapsed */}
-              {sidebarCollapsed && (
+              {/* Menu Button - Shows when sidebar is collapsed on mobile */}
+              {sidebarCollapsed && isMobile ? (
                 <button
                   onClick={() => setSidebarCollapsed(false)}
-                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border md:hidden"
+                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
                   aria-label="Open menu"
                 >
                   <Menu className="w-5 h-5 text-muted-foreground" />
                 </button>
-              )}
+              ) : null}
               
-              {/* Collapse/Expand Button for desktop - ALWAYS VISIBLE */}
+              {/* Collapse/Expand Button for desktop */}
               {!isMobile && (
                 <button
                   onClick={toggleSidebar}
