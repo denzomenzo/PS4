@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - COMPLETE FIXED VERSION
+// app/dashboard/layout.tsx - COMPREHENSIVE FIX
 "use client";
 
 import { useEffect, useState } from "react";
@@ -12,7 +12,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, 
-  Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight
+  Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight,
+  Menu, X
 } from "lucide-react";
 
 const navigation = [
@@ -52,7 +53,13 @@ export default function DashboardLayout({
   const [resettingPin, setResettingPin] = useState(false);
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const [isCollapsing, setIsCollapsing] = useState(false);
+
+  // Initialize sidebar state based on screen size
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -73,15 +80,6 @@ export default function DashboardLayout({
       setShowPinModal(false);
     }
   }, [pathname, authLoading, staff]);
-
-  // Auto-collapse sidebar on mobile
-  useEffect(() => {
-    if (isMobile) {
-      setSidebarCollapsed(true);
-    } else {
-      setSidebarCollapsed(false);
-    }
-  }, [isMobile]);
 
   const loadData = async () => {
     try {
@@ -153,6 +151,8 @@ export default function DashboardLayout({
     setSelectedStaffId(null);
     setShowResetOption(false);
     setResetSuccess("");
+    // Auto-open sidebar on successful login
+    if (!isMobile) setSidebarOpen(true);
   };
 
   const handleResetPin = async () => {
@@ -182,39 +182,9 @@ export default function DashboardLayout({
         throw new Error(updateError.message);
       }
 
-      // Try to send email if staff has email address
-      if (selectedStaff?.email) {
-        try {
-          const { error: emailError } = await supabase.functions.invoke(
-            'send-verification-email',
-            {
-              body: {
-                email: selectedStaff.email,
-                staffName: selectedStaff.name,
-                type: "pin_reset",
-                pin: newPin,
-                businessName: businessName
-              }
-            }
-          );
-
-          if (!emailError) {
-            // Success - PIN sent via email
-            setResetSuccess(`✅ New PIN sent to ${selectedStaff.email}`);
-          } else {
-            console.warn("Email sending failed, but PIN was reset:", emailError);
-            // Still success, but email failed
-            setResetSuccess("✅ PIN reset. Please check your email for the new PIN.");
-          }
-        } catch (emailErr) {
-          console.warn("Email sending failed:", emailErr);
-          setResetSuccess("✅ PIN reset. Please check your email for the new PIN.");
-        }
-      } else {
-        // No email on file - show admin contact message
-        setResetSuccess("✅ PIN reset. Contact your system administrator for the new PIN.");
-      }
-
+      // SIMPLIFIED: Just show success message without email
+      setResetSuccess(`✅ PIN reset for ${selectedStaff?.name}. New PIN: ${newPin}`);
+      
       // Clear any errors
       setResetError("");
     } catch (error: any) {
@@ -229,7 +199,14 @@ export default function DashboardLayout({
   const handleLogout = async () => {
     if (confirm("Are you sure you want to logout?")) {
       await logout();
+      setSidebarOpen(!isMobile); // Reset sidebar state on logout
     }
+  };
+
+  const toggleSidebar = () => {
+    setIsCollapsing(true);
+    setSidebarOpen(!sidebarOpen);
+    setTimeout(() => setIsCollapsing(false), 300);
   };
 
   if (authLoading || loading) {
@@ -277,8 +254,7 @@ export default function DashboardLayout({
                 <div>
                   <p className="text-primary font-medium text-sm sm:text-base">{resetSuccess}</p>
                   <p className="text-xs sm:text-sm text-primary/70 mt-1">
-                    Need more help? Email support@demly.co.uk
-                    {resetSuccess.includes("sent to") ? " Check your email." : " Contact your administrator."}
+                    Share the new PIN with the staff member securely.
                   </p>
                 </div>
               </div>
@@ -312,12 +288,6 @@ export default function DashboardLayout({
                       <div>
                         <p className="font-bold text-foreground text-base sm:text-lg">{staffMember.name}</p>
                         <p className="text-xs text-muted-foreground capitalize">{staffMember.role}</p>
-                        {staffMember.email && (
-                          <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-1">
-                            <Mail className="w-3 h-3" />
-                            {staffMember.email}
-                          </p>
-                        )}
                       </div>
                       {selectedStaffId === staffMember.id && (
                         <div className="w-5 h-5 sm:w-6 sm:h-6 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
@@ -374,18 +344,8 @@ export default function DashboardLayout({
                     <div>
                       <p className="text-foreground font-medium">Reset PIN for {staffList.find(s => s.id === selectedStaffId)?.name}</p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        A new PIN will be generated and sent to the staff member's email address.
+                        A new PIN will be generated. Share it securely with the staff member.
                       </p>
-                      {staffList.find(s => s.id === selectedStaffId)?.email ? (
-                        <p className="text-sm text-primary mt-2 flex items-center gap-1">
-                          <Mail className="w-4 h-4" />
-                          Will be sent to: {staffList.find(s => s.id === selectedStaffId)?.email}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-yellow-500 mt-2">
-                          ⚠️ No email on file. Contact your system administrator for the new PIN.
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -444,26 +404,6 @@ export default function DashboardLayout({
               >
                 Back to Login
               </button>
-              <div className="text-center">
-                <Link
-                  href="/dashboard/reset-pin"
-                  className="text-sm text-muted-foreground hover:text-primary transition-colors underline"
-                >
-                  Need email verification reset?
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {/* Alternative reset link */}
-          {!showResetOption && selectedStaffId && !resetSuccess && (
-            <div className="mt-6 text-center">
-              <Link
-                href="/dashboard/reset-pin"
-                className="text-sm text-muted-foreground hover:text-primary transition-colors underline"
-              >
-                Need to reset with email verification?
-              </Link>
             </div>
           )}
 
@@ -482,73 +422,83 @@ export default function DashboardLayout({
   return (
     <div className="flex h-screen bg-gradient-to-br from-background via-muted to-card overflow-hidden">
       
-      {/* Sidebar with collapse functionality */}
+      {/* Sidebar Overlay for mobile */}
+      {sidebarOpen && isMobile && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-card/80 backdrop-blur-xl border-r border-border
-        transition-transform duration-300 ease-in-out md:static md:z-auto
-        ${sidebarCollapsed ? '-translate-x-full' : 'translate-x-0'}
+        fixed md:static inset-y-0 left-0 z-50 w-72 bg-card/95 backdrop-blur-xl border-r border-border
+        transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         md:translate-x-0
         flex flex-col shadow-2xl
+        ${isCollapsing ? 'pointer-events-none' : ''}
       `}>
         
-        <div className="p-6 border-b border-border relative">
-          {/* Sidebar Toggle Button */}
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="absolute top-6 right-6 p-2 hover:bg-accent rounded-lg transition-colors"
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {sidebarCollapsed ? (
-              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+        {/* Sidebar Header */}
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center justify-between mb-4">
+            {/* Business Logo */}
+            {businessLogoUrl ? (
+              <div className="flex items-center gap-3">
+                <img
+                  src={businessLogoUrl}
+                  alt={businessName}
+                  className="w-10 h-10 rounded-lg object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <div>
+                  <h1 className="text-xl font-bold text-foreground truncate">{businessName}</h1>
+                  <p className="text-xs text-muted-foreground">POS System</p>
+                </div>
+              </div>
             ) : (
-              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                  {businessName}
+                </h1>
+                <p className="text-sm text-muted-foreground">Point of Sale</p>
+              </div>
             )}
-          </button>
-          
-          {/* Business Logo */}
-          {businessLogoUrl && (
-            <div className="mb-4 flex items-center justify-center">
-              <img
-                src={businessLogoUrl}
-                alt={businessName}
-                className="max-w-full max-h-20 object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-          )}
-          
-          {/* Business Name */}
-          <div className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-center">
-              {businessName}
-            </h1>
+            
+            {/* Close Button for mobile */}
+            {isMobile && (
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
+                aria-label="Close sidebar"
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            )}
           </div>
-          <p className="text-muted-foreground text-sm mt-2 font-medium text-center">Point of Sale System</p>
           
           {/* Staff Info */}
           {staff && (
-            <div className="mt-4 bg-muted/50 rounded-xl p-3">
-              <p className="text-xs text-muted-foreground">Logged in as</p>
-              <p className="text-sm font-bold text-foreground flex items-center gap-2">
-                {staff.name}
-                {staff.role === "owner" && (
-                  <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
-                    OWNER
-                  </span>
-                )}
-                {staff.role === "manager" && (
-                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-500 text-xs rounded-full border border-blue-500/30">
-                    MANAGER
-                  </span>
-                )}
-              </p>
-              
-              {/* Theme Toggle */}
-              <div className="mt-3 pt-3 border-t border-border/50">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Theme</span>
+            <div className="bg-muted/50 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Logged in as</p>
+                  <p className="text-sm font-bold text-foreground flex items-center gap-2">
+                    {staff.name}
+                    {staff.role === "owner" && (
+                      <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
+                        OWNER
+                      </span>
+                    )}
+                  </p>
+                </div>
+                
+                {/* Theme Toggle */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground hidden md:inline">Theme</span>
                   <ThemeToggle />
                 </div>
               </div>
@@ -556,7 +506,8 @@ export default function DashboardLayout({
           )}
         </div>
 
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navigation.map((item) => {
             const isActive = pathname === item.href;
             
@@ -572,30 +523,63 @@ export default function DashboardLayout({
 
             if (!hasAccess) return null;
 
+            const Icon = item.icon;
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-200 font-semibold group ${
+                onClick={() => isMobile && setSidebarOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group ${
                   isActive
-                    ? "bg-primary/10 text-primary border border-primary/30 shadow-lg shadow-primary/10"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50 hover:border hover:border-border/50"
+                    ? "bg-primary/10 text-primary border-l-4 border-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 }`}
               >
-                <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
-                <span className="text-base">{item.name}</span>
+                <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
+                <span className="text-sm">{item.name}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-border/50">
+        {/* Footer */}
+        <div className="p-4 border-t border-border/50 space-y-3">
+          {/* Collapse Sidebar Button (Desktop) */}
+          {!isMobile && (
+            <button
+              onClick={toggleSidebar}
+              className="w-full flex items-center justify-between p-3 rounded-xl border border-border hover:bg-accent transition-all duration-200 group"
+              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-muted rounded-lg">
+                  {sidebarOpen ? (
+                    <ChevronLeft className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
+                  )}
+                </div>
+                <span className="text-sm font-medium text-muted-foreground group-hover:text-foreground">
+                  {sidebarOpen ? "Collapse" : "Expand"}
+                </span>
+              </div>
+              {!sidebarOpen && (
+                <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                  +
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-4 px-4 py-3 w-full rounded-2xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border hover:border-destructive/30 transition-all duration-200 font-semibold group"
+            className="w-full flex items-center gap-3 p-3 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 font-medium group"
           >
-            <LogOut className="w-5 h-5 group-hover:text-destructive transition-colors" />
-            <span>Logout</span>
+            <div className="p-2 bg-muted rounded-lg">
+              <LogOut className="w-4 h-4 group-hover:text-destructive transition-colors" />
+            </div>
+            <span className="text-sm">Logout</span>
           </button>
         </div>
       </aside>
@@ -604,19 +588,64 @@ export default function DashboardLayout({
       <main className={`
         flex-1 overflow-auto bg-background/50
         transition-all duration-300
-        ${sidebarCollapsed ? 'md:ml-0' : 'md:ml-0'}
+        ${sidebarOpen && !isMobile ? 'md:pl-72' : 'md:pl-0'}
       `}>
-        {/* Mobile Sidebar Toggle Button */}
-        {sidebarCollapsed && (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="fixed top-4 left-4 z-40 p-2 bg-card border border-border rounded-lg shadow-lg md:hidden"
-            title="Open sidebar"
-          >
-            <ChevronRight className="w-5 h-5 text-muted-foreground" />
-          </button>
-        )}
-        {children}
+        {/* Top Header with Menu Button */}
+        <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3">
+            <div className="flex items-center gap-3">
+              {/* Menu Button for mobile */}
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 hover:bg-accent rounded-lg transition-colors border border-border md:hidden"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5 text-muted-foreground" />
+              </button>
+              
+              {/* Collapse/Expand Button for desktop */}
+              {!isMobile && (
+                <button
+                  onClick={toggleSidebar}
+                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border hidden md:flex items-center gap-2"
+                  aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                >
+                  {sidebarOpen ? (
+                    <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                  )}
+                  <span className="text-sm font-medium text-muted-foreground hidden lg:inline">
+                    {sidebarOpen ? "Collapse" : "Expand"}
+                  </span>
+                </button>
+              )}
+              
+              {/* Page Title */}
+              <h1 className="text-xl font-bold text-foreground">
+                {navigation.find(item => item.href === pathname)?.name || "Dashboard"}
+              </h1>
+            </div>
+
+            {/* User Info */}
+            {staff && (
+              <div className="flex items-center gap-3">
+                <div className="text-right hidden sm:block">
+                  <p className="text-sm font-medium text-foreground">{staff.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{staff.role}</p>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold text-sm">
+                  {staff.name.charAt(0).toUpperCase()}
+                </div>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <div className="p-4 sm:p-6">
+          {children}
+        </div>
       </main>
     </div>
   );
