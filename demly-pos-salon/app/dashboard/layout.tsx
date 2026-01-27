@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - FIXED COMPREHENSIVE VERSION
+// app/dashboard/layout.tsx - COMPREHENSIVE FIX
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -13,7 +13,7 @@ import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, 
   Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight,
-  Menu, X, ChevronDown, ChevronUp, User
+  Menu, X, ChevronDown, ChevronUp, User, LogOutIcon
 } from "lucide-react";
 
 const navigation = [
@@ -59,9 +59,12 @@ export default function DashboardLayout({
   
   // Initialize sidebar state - desktop: expanded, mobile: collapsed
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
   // Properly initialize sidebar state based on screen size
   useEffect(() => {
+    setIsClient(true);
+    
     const handleResize = () => {
       if (window.innerWidth < 768) { // Mobile
         setSidebarCollapsed(true);
@@ -260,7 +263,7 @@ export default function DashboardLayout({
             </p>
           </div>
 
-          {/* Staff Selection Dropdown - FIXED */}
+          {/* Staff Selection Dropdown */}
           <div className="mb-6 relative">
             <label className="block text-sm font-medium text-foreground mb-2">
               Staff Member
@@ -431,6 +434,11 @@ export default function DashboardLayout({
     );
   }
 
+  // Don't render layout until client-side to avoid hydration issues
+  if (!isClient) {
+    return null;
+  }
+
   return (
     <div className="flex h-screen bg-gradient-to-br from-background via-muted to-card overflow-hidden">
       
@@ -444,47 +452,54 @@ export default function DashboardLayout({
 
       {/* Sidebar */}
       <aside className={`
-        fixed md:relative inset-y-0 left-0 z-50 w-72 bg-card/95 backdrop-blur-xl border-r border-border
-        transform transition-transform duration-300 ease-in-out h-full
-        ${!sidebarCollapsed ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0 md:flex
-        flex-col shadow-2xl
-        ${sidebarCollapsed ? 'md:w-0' : 'md:w-72'}
+        fixed md:relative inset-y-0 left-0 z-40 w-72 bg-card/95 backdrop-blur-xl border-r border-border
+        transform transition-all duration-300 ease-in-out h-full
+        ${sidebarCollapsed ? '-translate-x-full md:translate-x-0 md:w-20' : 'translate-x-0 md:w-72'}
+        flex flex-col shadow-2xl overflow-hidden
       `}>
         
         {/* Sidebar Header */}
-        <div className="p-6 border-b border-border">
-          <div className="flex items-center justify-between mb-4">
-            {/* Business Logo */}
-            {businessLogoUrl ? (
-              <div className="flex items-center gap-3">
-                <img
-                  src={businessLogoUrl}
-                  alt={businessName}
-                  className="w-10 h-10 rounded-lg object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                <div>
-                  <h1 className="text-xl font-bold text-foreground truncate">{businessName}</h1>
-                  <p className="text-xs text-muted-foreground">POS System</p>
+        <div className="p-4 md:p-6 border-b border-border">
+          <div className="flex items-center justify-between">
+            {/* Business Logo - Hidden when collapsed */}
+            {!sidebarCollapsed ? (
+              businessLogoUrl ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={businessLogoUrl}
+                    alt={businessName}
+                    className="w-10 h-10 rounded-lg object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                  <div className="overflow-hidden">
+                    <h1 className="text-xl font-bold text-foreground truncate">{businessName}</h1>
+                    <p className="text-xs text-muted-foreground truncate">POS System</p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="overflow-hidden">
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent truncate">
+                    {businessName}
+                  </h1>
+                  <p className="text-sm text-muted-foreground truncate">Point of Sale</p>
+                </div>
+              )
             ) : (
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-                  {businessName}
-                </h1>
-                <p className="text-sm text-muted-foreground">Point of Sale</p>
+              // Collapsed state - show only logo/icon
+              <div className="flex justify-center w-full">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">D</span>
+                </div>
               </div>
             )}
             
             {/* Close Button for mobile */}
-            {isMobile && (
+            {!sidebarCollapsed && isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(true)}
-                className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
+                className="p-2 hover:bg-accent rounded-lg transition-colors border border-border md:hidden"
                 aria-label="Close sidebar"
               >
                 <X className="w-5 h-5 text-muted-foreground" />
@@ -492,16 +507,16 @@ export default function DashboardLayout({
             )}
           </div>
           
-          {/* Staff Info */}
-          {staff && (
-            <div className="bg-muted/50 rounded-xl p-3">
+          {/* Staff Info - Only show when expanded */}
+          {!sidebarCollapsed && staff && (
+            <div className="mt-4 bg-muted/50 rounded-xl p-3">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="overflow-hidden">
                   <p className="text-xs text-muted-foreground">Logged in as</p>
-                  <p className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <p className="text-sm font-bold text-foreground flex items-center gap-2 truncate">
                     {staff.name}
                     {staff.role === "owner" && (
-                      <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30">
+                      <span className="px-2 py-0.5 bg-primary/20 text-primary text-xs rounded-full border border-primary/30 shrink-0">
                         OWNER
                       </span>
                     )}
@@ -509,8 +524,7 @@ export default function DashboardLayout({
                 </div>
                 
                 {/* Theme Toggle */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground hidden md:inline">Theme</span>
+                <div className="flex items-center gap-2 shrink-0">
                   <ThemeToggle />
                 </div>
               </div>
@@ -543,36 +557,41 @@ export default function DashboardLayout({
                 onClick={() => isMobile && setSidebarCollapsed(true)}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group ${
                   isActive
-                    ? "bg-primary/10 text-primary border-l-4 border-primary"
+                    ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
+                } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? item.name : ''}
               >
                 <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"} transition-colors`} />
-                <span className="text-sm">{item.name}</span>
+                {!sidebarCollapsed && (
+                  <span className="text-sm truncate">{item.name}</span>
+                )}
               </Link>
             );
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-border/50">
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 p-3 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 font-medium group"
-          >
-            <div className="p-2 bg-muted rounded-lg">
-              <LogOut className="w-4 h-4 group-hover:text-destructive transition-colors" />
-            </div>
-            <span className="text-sm">Logout</span>
-          </button>
-        </div>
+        {/* Logout Button in Sidebar Footer (removed since we moved it to header) */}
+        {!sidebarCollapsed && (
+          <div className="p-4 border-t border-border/50">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 p-3 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 font-medium group"
+            >
+              <div className="p-2 bg-muted rounded-lg">
+                <LogOutIcon className="w-4 h-4 group-hover:text-destructive transition-colors" />
+              </div>
+              <span className="text-sm">Logout</span>
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main Content */}
       <main className={`
         flex-1 overflow-auto bg-background/50
         transition-all duration-300
-        ${!sidebarCollapsed ? 'md:ml-72' : 'md:ml-0'}
+        ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-72'}
       `}>
         {/* Top Header with Menu Button */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
@@ -589,7 +608,7 @@ export default function DashboardLayout({
                 </button>
               ) : null}
               
-              {/* Collapse/Expand Button for desktop */}
+              {/* Collapse/Expand Button for desktop - ALWAYS VISIBLE */}
               {!isMobile && (
                 <button
                   onClick={toggleSidebar}
@@ -620,15 +639,51 @@ export default function DashboardLayout({
               </h1>
             </div>
 
-            {/* User Info */}
+            {/* User Info with Logout Button */}
             {staff && (
               <div className="flex items-center gap-3">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-medium text-foreground">{staff.name}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{staff.role}</p>
+                <div className="hidden sm:flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">{staff.name}</p>
+                    <span className="text-xs text-muted-foreground capitalize px-2 py-0.5 bg-muted rounded-full">
+                      {staff.role}
+                    </span>
+                  </div>
+                  {/* Logout Button moved here */}
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors group"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    <span>Logout</span>
+                  </button>
                 </div>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold text-sm">
-                  {staff.name.charAt(0).toUpperCase()}
+                <div className="relative group">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold text-sm cursor-pointer">
+                    {staff.name.charAt(0).toUpperCase()}
+                  </div>
+                  
+                  {/* Mobile Logout Dropdown */}
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-xl shadow-2xl z-40 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 sm:hidden">
+                    <div className="p-3">
+                      <div className="flex items-center gap-3 mb-3 pb-3 border-b border-border">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold">
+                          {staff.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{staff.name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{staff.role}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2 p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span className="text-sm">Logout</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -636,7 +691,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <div className="p-4 sm:p-6">
+        <div className="p-4 sm:p-6 min-h-[calc(100vh-64px)]">
           {children}
         </div>
       </main>
