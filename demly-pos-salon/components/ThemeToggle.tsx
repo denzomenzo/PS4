@@ -11,49 +11,58 @@ export default function ThemeToggle() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [mounted, setMounted] = useState(false);
 
-  // Ensure component is mounted (client-side only)
   useEffect(() => {
     setMounted(true);
-    
-    // Check localStorage first
-    const saved = localStorage.getItem("theme") as "dark" | "light" | null;
-    if (saved) {
-      setTheme(saved);
-      applyTheme(saved);
-    }
-    
-    // Then load from database
-    if (userId) loadTheme();
-  }, [userId]);
+    loadTheme();
+  }, []);
 
   const loadTheme = async () => {
-    const { data } = await supabase
-      .from("settings")
-      .select("theme_mode")
-      .eq("user_id", userId)
-      .single();
+    // First check localStorage for instant load
+    const savedTheme = localStorage.getItem("theme") as "dark" | "light" | null;
     
-    if (data?.theme_mode) {
-      setTheme(data.theme_mode);
-      applyTheme(data.theme_mode);
+    if (savedTheme) {
+      setTheme(savedTheme);
+      applyTheme(savedTheme);
+    }
+    
+    // Then load from database if user is logged in
+    if (userId) {
+      try {
+        const { data } = await supabase
+          .from("settings")
+          .select("theme_mode")
+          .eq("user_id", userId)
+          .single();
+        
+        if (data?.theme_mode) {
+          setTheme(data.theme_mode);
+          applyTheme(data.theme_mode);
+        }
+      } catch (error) {
+        console.error("Error loading theme:", error);
+      }
     }
   };
 
   const applyTheme = (mode: "dark" | "light") => {
     const html = document.documentElement;
     
-    if (mode === "light") {
-      html.classList.remove("dark");
-      html.classList.add("light");
-    } else {
-      html.classList.remove("light");
-      html.classList.add("dark");
-    }
+    // Remove both classes first
+    html.classList.remove("dark", "light");
+    // Add the correct class
+    html.classList.add(mode);
     
+    // Update localStorage
     localStorage.setItem("theme", mode);
     
-    // Update CSS custom properties
-    document.documentElement.style.colorScheme = mode;
+    // Update meta theme-color for mobile browsers
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute(
+        "content", 
+        mode === "dark" ? "#0f172a" : "#ffffff"
+      );
+    }
   };
 
   const toggleTheme = async () => {
@@ -63,20 +72,25 @@ export default function ThemeToggle() {
     
     // Save to database
     if (userId) {
-      await supabase
-        .from("settings")
-        .upsert({
-          user_id: userId,
-          theme_mode: newTheme,
-          updated_at: new Date().toISOString(),
-        });
+      try {
+        await supabase
+          .from("settings")
+          .upsert({
+            user_id: userId,
+            theme_mode: newTheme,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'user_id'
+          });
+      } catch (error) {
+        console.error("Error saving theme:", error);
+      }
     }
   };
 
-  // Avoid hydration mismatch
   if (!mounted) {
     return (
-      <div className="w-10 h-10 rounded-lg bg-muted animate-pulse"></div>
+      <div className="w-10 h-10 rounded-lg bg-muted animate-pulse" />
     );
   }
 
