@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - SIDEBAR GAP FIXED
+// app/dashboard/layout.tsx - FIXED VERSION (ThemeToggle size prop removed)
 "use client";
 
 import { useEffect, useState } from "react";
@@ -579,7 +579,8 @@ export default function DashboardLayout({
                           )}
                         </p>
                       </div>
-                      <ThemeToggle size="sm" />
+                      {/* REMOVED size prop from ThemeToggle */}
+                      <ThemeToggle />
                     </div>
                   </div>
                 )}
@@ -597,7 +598,7 @@ export default function DashboardLayout({
                     <span className="text-white font-bold text-sm">D</span>
                   </div>
                 )}
-                {staff && <ThemeToggle size="sm" />}
+                {staff && <ThemeToggle />}
               </div>
             )}
           </div>
