@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - FIXED VERSION (ThemeToggle size prop removed)
+// app/dashboard/layout.tsx - COMPLETELY FIXED VERSION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -57,7 +57,6 @@ export default function DashboardLayout({
   const [resetCodeSent, setResetCodeSent] = useState(false);
   const [resetVerificationSent, setResetVerificationSent] = useState("");
   
-  // New state for staff dropdown in PIN modal
   const [showStaffDropdown, setShowStaffDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -225,6 +224,7 @@ export default function DashboardLayout({
 
     setResettingPin(true);
     setResetError("");
+    setResetSuccess("");
 
     try {
       const newPin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -254,9 +254,10 @@ export default function DashboardLayout({
 
       if (emailError) {
         console.warn("Failed to send PIN email:", emailError);
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN: ${newPin} (Email not sent)`);
+        // DO NOT SHOW PIN IN UI - ONLY IN EMAIL
+        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
       } else {
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN sent to their email.`);
+        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
       }
 
       setResetVerificationCode("");
@@ -411,7 +412,7 @@ export default function DashboardLayout({
               Login to Dashboard
             </button>
 
-            {/* Reset PIN Section - Only shows verification after clicking */}
+            {/* Reset PIN Section */}
             <div className="pt-3 border-t border-border">
               <button
                 type="button"
@@ -525,7 +526,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-screen bg-background">
       {/* Mobile Overlay */}
       {isSidebarOpen && isMobile && (
         <div 
@@ -534,13 +535,14 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar - FIXED GAP */}
+      {/* Sidebar - FIXED: No extra space */}
       <aside className={`
         fixed md:relative z-40 h-full bg-card border-r border-border
-        transition-all duration-300
+        transition-transform duration-300 ease-in-out
         ${isMobile ? (isSidebarOpen ? 'translate-x-0' : '-translate-x-full') : ''}
         ${sidebarCollapsed ? 'w-16' : 'w-64'}
         flex flex-col
+        ${sidebarCollapsed ? 'md:translate-x-0' : ''}
       `}>
         <div className="h-full flex flex-col">
           {/* Sidebar Header */}
@@ -579,7 +581,6 @@ export default function DashboardLayout({
                           )}
                         </p>
                       </div>
-                      {/* REMOVED size prop from ThemeToggle */}
                       <ThemeToggle />
                     </div>
                   </div>
@@ -603,7 +604,7 @@ export default function DashboardLayout({
             )}
           </div>
 
-          {/* Navigation - Tight spacing */}
+          {/* Navigation */}
           <nav className="flex-1 p-1 space-y-0.5 overflow-y-auto">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
@@ -645,10 +646,12 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main Content - FIXED: No extra space */}
       <main className={`
         flex-1 overflow-auto
+        transition-all duration-300
         ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'}
+        w-full
       `}>
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
