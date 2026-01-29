@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - COMPLETELY FIXED VERSION
+// app/dashboard/layout.tsx - UPDATED WITH CORRECT FUNCTION CALL
 "use client";
 
 import { useEffect, useState } from "react";
@@ -176,28 +176,31 @@ export default function DashboardLayout({
     setResetVerificationSent(verificationCode);
 
     try {
+      // FIXED: Use your existing function 'send-verification-email' (not 'send-verification-code')
       const { error: emailError } = await supabase.functions.invoke(
-        'send-verification-code',
+        'send-verification-email', // Changed from 'send-verification-code'
         {
           body: {
             email: selectedStaff.email,
             staffName: selectedStaff.name,
+            code: verificationCode, // Changed from 'verificationCode' to 'code'
             businessName: businessName,
-            businessLogoUrl: businessLogoUrl,
-            verificationCode: verificationCode
+            type: "verification" // Make sure to specify type
           }
         }
       );
 
       if (emailError) {
-        throw new Error("Failed to send verification code");
+        console.error("Email function error:", emailError);
+        throw new Error("Failed to send verification code. Please try again.");
       }
 
       setResetCodeSent(true);
       setResetSuccess(`✅ Verification code sent to ${selectedStaff.email}`);
       setResetError("");
     } catch (error: any) {
-      setResetError("Failed to send verification code: " + error.message);
+      console.error("Error sending verification code:", error);
+      setResetError(error.message || "Failed to send verification code. Please check your connection.");
       setResetSuccess("");
       setResetVerificationSent("");
     } finally {
@@ -229,6 +232,7 @@ export default function DashboardLayout({
     try {
       const newPin = Math.floor(1000 + Math.random() * 9000).toString();
       
+      // First update the PIN in database
       const { error: updateError } = await supabase
         .from("staff")
         .update({ pin: newPin })
@@ -239,33 +243,41 @@ export default function DashboardLayout({
         throw new Error(updateError.message);
       }
 
-      const { error: emailError } = await supabase.functions.invoke(
-        'send-pin-reset-email',
-        {
-          body: {
-            email: selectedStaff.email,
-            staffName: selectedStaff.name,
-            newPin: newPin,
-            businessName: businessName,
-            businessLogoUrl: businessLogoUrl
+      // Then send the PIN reset email
+      try {
+        const { error: emailError } = await supabase.functions.invoke(
+          'send-verification-email', // Use the same function
+          {
+            body: {
+              email: selectedStaff.email,
+              staffName: selectedStaff.name,
+              pin: newPin, // Send the new PIN
+              businessName: businessName,
+              type: "pin_reset" // Specify PIN reset type
+            }
           }
-        }
-      );
+        );
 
-      if (emailError) {
-        console.warn("Failed to send PIN email:", emailError);
-        // DO NOT SHOW PIN IN UI - ONLY IN EMAIL
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
-      } else {
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
+        if (emailError) {
+          console.warn("Failed to send PIN email:", emailError);
+          // Fallback: Show success without email (but don't show PIN)
+          setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. Please contact administrator if you don't receive the email.`);
+        } else {
+          setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
+        }
+      } catch (emailError: any) {
+        console.warn("Email function error:", emailError);
+        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. Please contact administrator if you don't receive the email.`);
       }
 
+      // Clear all reset state
       setResetVerificationCode("");
       setResetVerificationSent("");
       setResetCodeSent(false);
       setResetError("");
       
     } catch (error: any) {
+      console.error("Error resetting PIN:", error);
       setResetError("Failed to reset PIN: " + error.message);
       setResetSuccess("");
     } finally {
@@ -535,14 +547,13 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar - FIXED: No extra space */}
+      {/* Sidebar */}
       <aside className={`
         fixed md:relative z-40 h-full bg-card border-r border-border
         transition-transform duration-300 ease-in-out
         ${isMobile ? (isSidebarOpen ? 'translate-x-0' : '-translate-x-full') : ''}
         ${sidebarCollapsed ? 'w-16' : 'w-64'}
         flex flex-col
-        ${sidebarCollapsed ? 'md:translate-x-0' : ''}
       `}>
         <div className="h-full flex flex-col">
           {/* Sidebar Header */}
@@ -646,9 +657,9 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main Content - FIXED: No extra space */}
+      {/* Main Content - FIXED LAYOUT */}
       <main className={`
-        flex-1 overflow-auto
+        flex-1 overflow-auto min-w-0
         transition-all duration-300
         ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'}
         w-full
