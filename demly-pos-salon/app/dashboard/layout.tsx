@@ -1,7 +1,7 @@
-// app/dashboard/layout.tsx - COMPREHENSIVE FIX
+// app/dashboard/layout.tsx - SIDEBAR GAP FIXED
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -53,12 +53,13 @@ export default function DashboardLayout({
   const [resettingPin, setResettingPin] = useState(false);
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
+  const [resetVerificationCode, setResetVerificationCode] = useState("");
+  const [resetCodeSent, setResetCodeSent] = useState(false);
+  const [resetVerificationSent, setResetVerificationSent] = useState("");
   
   // New state for staff dropdown in PIN modal
   const [showStaffDropdown, setShowStaffDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  // Initialize sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -68,8 +69,9 @@ export default function DashboardLayout({
   }, [userId, authLoading]);
 
   useEffect(() => {
-    // Check if PIN modal should be shown
-    if (pathname === "/dashboard/first-time-setup" || pathname === "/dashboard/display") {
+    const exemptPaths = ["/dashboard/first-time-setup", "/dashboard/display"];
+    
+    if (exemptPaths.includes(pathname)) {
       setShowPinModal(false);
       return;
     }
@@ -83,7 +85,6 @@ export default function DashboardLayout({
 
   const loadData = async () => {
     try {
-      // Load business settings
       const { data } = await supabase
         .from("settings")
         .select("business_name, shop_name, business_logo_url")
@@ -100,7 +101,6 @@ export default function DashboardLayout({
         setBusinessLogoUrl(data.business_logo_url);
       }
 
-      // Load staff list with emails
       const { data: staffData } = await supabase
         .from("staff")
         .select("id, name, role, email")
@@ -109,6 +109,9 @@ export default function DashboardLayout({
       
       if (staffData) {
         setStaffList(staffData);
+        if (staffData.length > 0 && !selectedStaffId) {
+          setSelectedStaffId(staffData[0].id);
+        }
       }
       
       setLoading(false);
@@ -137,7 +140,6 @@ export default function DashboardLayout({
       return;
     }
 
-    // Verify the logged-in staff matches selected staff
     if (result.staff && result.staff.id !== selectedStaffId) {
       setPinError("PIN doesn't match selected staff member");
       setPinInput("");
@@ -151,9 +153,11 @@ export default function DashboardLayout({
     setSelectedStaffId(null);
     setShowResetOption(false);
     setResetSuccess("");
+    setResetVerificationCode("");
+    setResetCodeSent(false);
   };
 
-  const handleResetPin = async () => {
+  const sendResetVerificationCode = async () => {
     if (!selectedStaffId) {
       setResetError("Please select a staff member first");
       return;
@@ -164,16 +168,67 @@ export default function DashboardLayout({
       setResetError("Staff member must have an email to reset PIN");
       return;
     }
-    
+
     setResettingPin(true);
     setResetError("");
     setResetSuccess("");
 
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    setResetVerificationSent(verificationCode);
+
     try {
-      // Generate a random 4-digit PIN
+      const { error: emailError } = await supabase.functions.invoke(
+        'send-verification-code',
+        {
+          body: {
+            email: selectedStaff.email,
+            staffName: selectedStaff.name,
+            businessName: businessName,
+            businessLogoUrl: businessLogoUrl,
+            verificationCode: verificationCode
+          }
+        }
+      );
+
+      if (emailError) {
+        throw new Error("Failed to send verification code");
+      }
+
+      setResetCodeSent(true);
+      setResetSuccess(`✅ Verification code sent to ${selectedStaff.email}`);
+      setResetError("");
+    } catch (error: any) {
+      setResetError("Failed to send verification code: " + error.message);
+      setResetSuccess("");
+      setResetVerificationSent("");
+    } finally {
+      setResettingPin(false);
+    }
+  };
+
+  const verifyAndResetPin = async () => {
+    if (!selectedStaffId) {
+      setResetError("Please select a staff member first");
+      return;
+    }
+
+    if (resetVerificationCode !== resetVerificationSent) {
+      setResetError("❌ Invalid verification code");
+      return;
+    }
+
+    const selectedStaff = staffList.find(s => s.id === selectedStaffId);
+    if (!selectedStaff?.email) {
+      setResetError("Staff member must have an email to reset PIN");
+      return;
+    }
+
+    setResettingPin(true);
+    setResetError("");
+
+    try {
       const newPin = Math.floor(1000 + Math.random() * 9000).toString();
       
-      // Update the staff PIN in database
       const { error: updateError } = await supabase
         .from("staff")
         .update({ pin: newPin })
@@ -184,7 +239,6 @@ export default function DashboardLayout({
         throw new Error(updateError.message);
       }
 
-      // Send email with new PIN
       const { error: emailError } = await supabase.functions.invoke(
         'send-pin-reset-email',
         {
@@ -192,22 +246,25 @@ export default function DashboardLayout({
             email: selectedStaff.email,
             staffName: selectedStaff.name,
             newPin: newPin,
-            businessName: businessName
+            businessName: businessName,
+            businessLogoUrl: businessLogoUrl
           }
         }
       );
 
       if (emailError) {
-        console.warn("Failed to send email:", emailError);
-        // Still show success but warn about email
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN: ${newPin} (Email may not have been sent)`);
+        console.warn("Failed to send PIN email:", emailError);
+        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN: ${newPin} (Email not sent)`);
       } else {
-        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
+        setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN sent to their email.`);
       }
-      
+
+      setResetVerificationCode("");
+      setResetVerificationSent("");
+      setResetCodeSent(false);
       setResetError("");
+      
     } catch (error: any) {
-      console.error("Error resetting PIN:", error);
       setResetError("Failed to reset PIN: " + error.message);
       setResetSuccess("");
     } finally {
@@ -241,45 +298,44 @@ export default function DashboardLayout({
     );
   }
 
-  // Show PIN modal if not authenticated (except for special pages)
+  // Show PIN modal if not authenticated
   if (showPinModal && staffList.length > 0) {
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-background via-muted to-card flex items-center justify-center p-4 fixed inset-0 z-50">
-        <div className="bg-card/90 backdrop-blur-xl rounded-2xl md:rounded-3xl p-6 md:p-8 w-full max-w-md border border-border shadow-2xl">
+        <div className="bg-card/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-border shadow-2xl">
           <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-gradient-to-r from-primary to-primary/80 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/20">
-              <Lock className="w-8 h-8 text-primary-foreground" />
+            <div className="w-12 h-12 bg-gradient-to-r from-primary to-primary/80 rounded-xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-primary/20">
+              <Lock className="w-6 h-6 text-primary-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Staff Login</h1>
-            <p className="text-muted-foreground">Select your name and enter your PIN</p>
+            <h1 className="text-xl font-bold text-foreground mb-1">Staff Login</h1>
+            <p className="text-sm text-muted-foreground">Select your name and enter your PIN</p>
           </div>
 
-          {/* Staff Selection Dropdown - UPDATED */}
+          {/* Staff Selection */}
           <div className="mb-4 relative">
-            <label className="block text-sm font-medium text-foreground mb-2">
+            <label className="block text-sm font-medium text-foreground mb-1">
               Staff Member
             </label>
             <button
               type="button"
               onClick={() => setShowStaffDropdown(!showStaffDropdown)}
-              className="w-full bg-muted/50 border border-border rounded-lg px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-left flex items-center justify-between hover:bg-muted transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <User className="w-5 h-5 text-muted-foreground" />
-                <span className="font-medium text-foreground">
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-muted-foreground" />
+                <span className="font-medium text-foreground text-sm">
                   {getSelectedStaffName()}
                 </span>
               </div>
               {showStaffDropdown ? (
-                <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
 
-            {/* Dropdown Menu */}
             {showStaffDropdown && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
                 {staffList.map((staffMember) => (
                   <button
                     key={staffMember.id}
@@ -288,23 +344,29 @@ export default function DashboardLayout({
                       setSelectedStaffId(staffMember.id);
                       setShowStaffDropdown(false);
                       setPinError("");
+                      setResetError("");
+                      setResetSuccess("");
+                      setResetVerificationCode("");
+                      setResetCodeSent(false);
                     }}
-                    className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-muted transition-colors ${
+                    className={`w-full px-3 py-2.5 text-left flex items-center justify-between hover:bg-muted transition-colors text-sm ${
                       selectedStaffId === staffMember.id
                         ? "bg-primary/10 text-primary"
                         : "text-foreground"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <div className="text-left">
                         <div className="font-medium">{staffMember.name}</div>
                         {staffMember.email && (
-                          <div className="text-xs text-muted-foreground">{staffMember.email}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[180px]">
+                            {staffMember.email}
+                          </div>
                         )}
                       </div>
                     </div>
                     {selectedStaffId === staffMember.id && (
-                      <Check className="w-5 h-5 text-primary" />
+                      <Check className="w-4 h-4 text-primary" />
                     )}
                   </button>
                 ))}
@@ -312,51 +374,30 @@ export default function DashboardLayout({
             )}
           </div>
 
-          {/* PIN Input - UPDATED to include email field */}
+          {/* PIN Input */}
           <div className="mb-4">
-            <div className="space-y-3">
-              {selectedStaffId && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Email Verification
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                    <input
-                      type="email"
-                      value={staffList.find(s => s.id === selectedStaffId)?.email || ""}
-                      readOnly
-                      className="w-full bg-muted/50 border border-border rounded-lg pl-10 pr-4 py-3 text-foreground/60"
-                    />
-                  </div>
-                </div>
-              )}
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  PIN Code
-                </label>
-                <div className="relative">
-                  <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={pinInput}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '');
-                      setPinInput(value);
-                      setPinError("");
-                    }}
-                    placeholder="Enter 4-6 digit PIN"
-                    className="w-full bg-muted/50 border border-border rounded-lg pl-10 pr-4 py-3 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
-                  />
-                </div>
-              </div>
+            <label className="block text-sm font-medium text-foreground mb-1">
+              PIN Code
+            </label>
+            <div className="relative">
+              <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={pinInput}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '');
+                  setPinInput(value);
+                  setPinError("");
+                }}
+                placeholder="Enter 4-6 digit PIN"
+                className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                onKeyDown={(e) => e.key === 'Enter' && handlePinSubmit()}
+              />
             </div>
             {pinError && (
-              <p className="mt-2 text-sm text-destructive">{pinError}</p>
+              <p className="mt-1 text-sm text-destructive">{pinError}</p>
             )}
           </div>
 
@@ -365,66 +406,115 @@ export default function DashboardLayout({
             <button
               onClick={handlePinSubmit}
               disabled={!selectedStaffId || pinInput.length < 4}
-              className="w-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-primary text-primary-foreground font-medium py-2.5 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               Login to Dashboard
             </button>
 
-            {/* Reset PIN Section */}
+            {/* Reset PIN Section - Only shows verification after clicking */}
             <div className="pt-3 border-t border-border">
               <button
                 type="button"
-                onClick={() => setShowResetOption(!showResetOption)}
-                className="w-full text-sm text-muted-foreground hover:text-foreground flex items-center justify-center gap-1"
+                onClick={() => {
+                  setShowResetOption(!showResetOption);
+                  setResetError("");
+                  setResetSuccess("");
+                  setResetVerificationCode("");
+                  setResetCodeSent(false);
+                }}
+                className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1"
               >
-                {showResetOption ? (
-                  <>
-                    <ChevronUp className="w-4 h-4" />
-                    Hide Reset Options
-                  </>
-                ) : (
-                  <>
-                    <Shield className="w-4 h-4" />
-                    Forgot PIN?
-                  </>
-                )}
+                <Shield className="w-3 h-3" />
+                Forgot PIN? Reset Options
               </button>
 
               {showResetOption && (
-                <div className="bg-muted/30 rounded-lg p-3 mt-2">
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Reset PIN for selected staff member. A new PIN will be sent to their email.
-                  </p>
-                  
-                  {resetSuccess && (
-                    <div className="bg-success/20 border border-success/30 rounded-lg p-2 mb-2">
-                      <p className="text-sm text-success font-medium">{resetSuccess}</p>
-                    </div>
+                <div className="bg-muted/30 rounded-lg p-3 mt-2 space-y-3">
+                  {!resetCodeSent ? (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Reset PIN for selected staff member. A verification code will be sent to their email.
+                      </p>
+                      
+                      {resetSuccess && (
+                        <div className="bg-success/20 border border-success/30 rounded p-2">
+                          <p className="text-xs text-success font-medium">{resetSuccess}</p>
+                        </div>
+                      )}
+                      
+                      {resetError && (
+                        <div className="bg-destructive/20 border border-destructive/30 rounded p-2">
+                          <p className="text-xs text-destructive font-medium">{resetError}</p>
+                        </div>
+                      )}
+                      
+                      <button
+                        onClick={sendResetVerificationCode}
+                        disabled={resettingPin || !selectedStaffId}
+                        className="w-full bg-gradient-to-r from-destructive/80 to-destructive/60 text-destructive-foreground font-medium py-2 px-4 rounded hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs"
+                      >
+                        {resettingPin ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Sending Code...
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="w-3 h-3" />
+                            Send Verification Code
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Enter the 6-digit verification code sent to {staffList.find(s => s.id === selectedStaffId)?.email}
+                      </p>
+                      
+                      {resetError && (
+                        <div className="bg-destructive/20 border border-destructive/30 rounded p-2">
+                          <p className="text-xs text-destructive font-medium">{resetError}</p>
+                        </div>
+                      )}
+                      
+                      <div>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={resetVerificationCode}
+                          onChange={(e) => setResetVerificationCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Enter 6-digit code"
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-center text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <button
+                          onClick={sendResetVerificationCode}
+                          className="w-full text-xs text-primary hover:text-primary/80 transition-colors mt-1"
+                        >
+                          Resend Code
+                        </button>
+                      </div>
+                      
+                      <button
+                        onClick={verifyAndResetPin}
+                        disabled={resettingPin || resetVerificationCode.length !== 6}
+                        className="w-full bg-gradient-to-r from-destructive/80 to-destructive/60 text-destructive-foreground font-medium py-2 px-4 rounded hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs"
+                      >
+                        {resettingPin ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Resetting PIN...
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3 h-3" />
+                            Verify & Reset PIN
+                          </>
+                        )}
+                      </button>
+                    </>
                   )}
-                  
-                  {resetError && (
-                    <div className="bg-destructive/20 border border-destructive/30 rounded-lg p-2 mb-2">
-                      <p className="text-sm text-destructive font-medium">{resetError}</p>
-                    </div>
-                  )}
-                  
-                  <button
-                    onClick={handleResetPin}
-                    disabled={resettingPin || !selectedStaffId}
-                    className="w-full bg-gradient-to-r from-destructive/80 to-destructive/60 text-destructive-foreground font-medium py-2 px-4 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                  >
-                    {resettingPin ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Resetting PIN...
-                      </>
-                    ) : (
-                      <>
-                        <Mail className="w-4 h-4" />
-                        Send New PIN to Email
-                      </>
-                    )}
-                  </button>
                 </div>
               )}
             </div>
@@ -444,81 +534,79 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - FIXED GAP */}
       <aside className={`
         fixed md:relative z-40 h-full bg-card border-r border-border
-        transition-all duration-300 ease-in-out
+        transition-all duration-300
         ${isMobile ? (isSidebarOpen ? 'translate-x-0' : '-translate-x-full') : ''}
-        ${sidebarCollapsed ? 'w-20' : 'w-72'}
+        ${sidebarCollapsed ? 'w-16' : 'w-64'}
+        flex flex-col
       `}>
         <div className="h-full flex flex-col">
           {/* Sidebar Header */}
-          <div className={`p-4 border-b border-border ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <div className={`p-3 border-b border-border ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
             {!sidebarCollapsed ? (
-              <div>
-                <div className="flex items-center gap-3 mb-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
                   {businessLogoUrl ? (
                     <img
                       src={businessLogoUrl}
                       alt={businessName}
-                      className="w-10 h-10 rounded-lg object-cover"
+                      className="w-8 h-8 rounded-lg object-cover"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center">
-                      <span className="text-white font-bold">D</span>
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">D</span>
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <h1 className="text-lg font-bold text-foreground truncate">{businessName}</h1>
-                    <p className="text-xs text-muted-foreground truncate">POS System</p>
+                  <div className="min-w-0">
+                    <h1 className="text-sm font-bold text-foreground truncate">{businessName}</h1>
+                    <p className="text-[10px] text-muted-foreground truncate">POS</p>
                   </div>
                 </div>
                 
-                {/* Staff Info */}
                 {staff && (
-                  <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="bg-muted/50 rounded-lg p-2">
                     <div className="flex items-center justify-between">
                       <div className="min-w-0">
-                        <p className="text-xs text-muted-foreground truncate">Logged in as</p>
-                        <p className="text-sm font-semibold text-foreground truncate flex items-center gap-1">
+                        <p className="text-[10px] text-muted-foreground truncate">Logged in as</p>
+                        <p className="text-xs font-semibold text-foreground truncate flex items-center gap-1">
                           {staff.name}
                           {staff.role === "owner" && (
-                            <span className="px-1.5 py-0.5 bg-primary/20 text-primary text-[10px] rounded-full border border-primary/30 shrink-0">
+                            <span className="px-1 py-0.5 bg-primary/20 text-primary text-[9px] rounded border border-primary/30 shrink-0">
                               OWNER
                             </span>
                           )}
                         </p>
                       </div>
-                      <ThemeToggle />
+                      <ThemeToggle size="sm" />
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              // Collapsed state
-              <div className="flex flex-col items-center gap-4">
+              <div className="flex flex-col items-center gap-3">
                 {businessLogoUrl ? (
                   <img
                     src={businessLogoUrl}
                     alt={businessName}
-                    className="w-10 h-10 rounded-lg object-cover"
+                    className="w-8 h-8 rounded-lg object-cover"
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center">
-                    <span className="text-white font-bold">D</span>
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">D</span>
                   </div>
                 )}
-                {staff && <ThemeToggle />}
+                {staff && <ThemeToggle size="sm" />}
               </div>
             )}
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+          {/* Navigation - Tight spacing */}
+          <nav className="flex-1 p-1 space-y-0.5 overflow-y-auto">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               
-              // Check permissions
               let hasAccess = true;
               if (staff) {
                 if (item.ownerOnly) {
@@ -536,8 +624,8 @@ export default function DashboardLayout({
                   key={item.name}
                   href={item.href}
                   onClick={() => isMobile && setIsSidebarOpen(false)}
-                  className={`flex items-center gap-3 rounded-lg transition-all duration-200 font-medium group ${
-                    sidebarCollapsed ? 'justify-center p-3' : 'px-3 py-2.5 mx-2'
+                  className={`flex items-center gap-2 rounded-md transition-all font-medium text-sm ${
+                    sidebarCollapsed ? 'justify-center p-2' : 'px-2 py-1.5 mx-1'
                   } ${
                     isActive
                       ? "bg-primary/10 text-primary"
@@ -545,9 +633,9 @@ export default function DashboardLayout({
                   }`}
                   title={sidebarCollapsed ? item.name : ''}
                 >
-                  <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
                   {!sidebarCollapsed && (
-                    <span className="text-sm truncate">{item.name}</span>
+                    <span className="truncate">{item.name}</span>
                   )}
                 </Link>
               );
@@ -558,20 +646,20 @@ export default function DashboardLayout({
 
       {/* Main Content */}
       <main className={`
-        flex-1 overflow-auto transition-all duration-300
-        ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-72'}
+        flex-1 overflow-auto
+        ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'}
       `}>
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between px-4 py-2">
+            <div className="flex items-center gap-2">
               {/* Mobile Menu Button */}
               {isMobile && (
                 <button
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
+                  className="p-1.5 hover:bg-accent rounded transition-colors"
                 >
-                  <Menu className="w-5 h-5 text-muted-foreground" />
+                  <Menu className="w-4 h-4 text-muted-foreground" />
                 </button>
               )}
               
@@ -579,65 +667,43 @@ export default function DashboardLayout({
               {!isMobile && (
                 <button
                   onClick={toggleSidebar}
-                  className="p-2 hover:bg-accent rounded-lg transition-colors border border-border"
+                  className="p-1.5 hover:bg-accent rounded transition-colors"
                 >
                   {sidebarCollapsed ? (
-                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   ) : (
-                    <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+                    <ChevronLeft className="w-4 h-4 text-muted-foreground" />
                   )}
                 </button>
               )}
               
               {/* Page Title */}
-              <h1 className="text-lg font-bold text-foreground">
+              <h1 className="text-base font-semibold text-foreground">
                 {navigation.find(item => item.href === pathname)?.name || "Dashboard"}
               </h1>
             </div>
 
             {/* User Info with Logout */}
             {staff && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <div className="hidden sm:flex flex-col items-end">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">{staff.name}</span>
-                    <span className="text-xs text-muted-foreground capitalize px-2 py-0.5 bg-muted rounded-full">
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm text-foreground truncate max-w-[120px]">{staff.name}</span>
+                    <span className="text-xs text-muted-foreground capitalize px-1.5 py-0.5 bg-muted rounded-full">
                       {staff.role}
                     </span>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors mt-0.5"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <LogOut className="w-3 h-3" />
                     Logout
                   </button>
                 </div>
                 <div className="relative">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold text-sm">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold text-sm">
                     {staff.name.charAt(0).toUpperCase()}
-                  </div>
-                  
-                  {/* Mobile Dropdown */}
-                  <div className="sm:hidden absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-lg shadow-lg z-40 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                    <div className="p-3">
-                      <div className="flex items-center gap-3 mb-3 pb-3 border-b border-border">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold">
-                          {staff.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{staff.name}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{staff.role}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-2 p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors text-sm"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        Logout
-                      </button>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -646,7 +712,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <div className="p-4 sm:p-6 min-h-[calc(100vh-64px)]">
+        <div className="p-4 min-h-[calc(100vh-48px)]">
           {children}
         </div>
       </main>
