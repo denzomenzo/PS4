@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - UPDATED WITH CORRECT FUNCTION CALL
+// app/dashboard/layout.tsx - FIXED SIDEBAR GAP ISSUE
 "use client";
 
 import { useEffect, useState } from "react";
@@ -176,16 +176,15 @@ export default function DashboardLayout({
     setResetVerificationSent(verificationCode);
 
     try {
-      // FIXED: Use your existing function 'send-verification-email' (not 'send-verification-code')
       const { error: emailError } = await supabase.functions.invoke(
-        'send-verification-email', // Changed from 'send-verification-code'
+        'send-verification-email',
         {
           body: {
             email: selectedStaff.email,
             staffName: selectedStaff.name,
-            code: verificationCode, // Changed from 'verificationCode' to 'code'
+            code: verificationCode,
             businessName: businessName,
-            type: "verification" // Make sure to specify type
+            type: "verification"
           }
         }
       );
@@ -246,21 +245,20 @@ export default function DashboardLayout({
       // Then send the PIN reset email
       try {
         const { error: emailError } = await supabase.functions.invoke(
-          'send-verification-email', // Use the same function
+          'send-verification-email',
           {
             body: {
               email: selectedStaff.email,
               staffName: selectedStaff.name,
-              pin: newPin, // Send the new PIN
+              pin: newPin,
               businessName: businessName,
-              type: "pin_reset" // Specify PIN reset type
+              type: "pin_reset"
             }
           }
         );
 
         if (emailError) {
           console.warn("Failed to send PIN email:", emailError);
-          // Fallback: Show success without email (but don't show PIN)
           setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. Please contact administrator if you don't receive the email.`);
         } else {
           setResetSuccess(`✅ PIN reset for ${selectedStaff.name}. New PIN has been sent to their email.`);
@@ -550,7 +548,7 @@ export default function DashboardLayout({
       {/* Sidebar */}
       <aside className={`
         fixed md:relative z-40 h-full bg-card border-r border-border
-        transition-transform duration-300 ease-in-out
+        transition-all duration-300 ease-in-out
         ${isMobile ? (isSidebarOpen ? 'translate-x-0' : '-translate-x-full') : ''}
         ${sidebarCollapsed ? 'w-16' : 'w-64'}
         flex flex-col
@@ -657,13 +655,8 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main Content - FIXED LAYOUT */}
-      <main className={`
-        flex-1 overflow-auto min-w-0
-        transition-all duration-300
-        ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'}
-        w-full
-      `}>
+      {/* Main Content - FIXED: Removed margin classes that caused the gap */}
+      <main className="flex-1 overflow-auto min-w-0 w-full">
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
           <div className="flex items-center justify-between px-4 py-2">
