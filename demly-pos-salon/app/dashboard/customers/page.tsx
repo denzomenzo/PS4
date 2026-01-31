@@ -1074,23 +1074,23 @@ function CustomersContent() {
         <div className="lg:w-2/5">
           {/* Search and Add Customer */}
           <div className="bg-card rounded-xl shadow-sm border border-border p-4 mb-4">
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-start">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
+                <Search className="absolute left-3 top-2.5 text-muted-foreground w-5 h-5" />
                 <input
                   type="text"
                   placeholder="Search by name, email, phone, or address..."
-                  className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground placeholder:text-muted-foreground"
+                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground placeholder:text-muted-foreground"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground mt-1 ml-1">
+                <p className="text-xs text-muted-foreground mt-1.5 ml-1">
                   Tip: Search by postcode/ZIP code to find customers by area
                 </p>
               </div>
               <button
                 onClick={openAddCustomerModal}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 flex items-center gap-2 font-medium"
+                className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 flex items-center gap-2 font-medium shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 Add
