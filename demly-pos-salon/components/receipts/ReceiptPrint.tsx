@@ -1,13 +1,17 @@
-// /components/receipts/ReceiptPrint.tsx - FIXED VERSION
-import React, { useEffect, useRef } from 'react';
+// components/receipts/ReceiptPrint.tsx
+"use client";
+
+import { useEffect, useRef } from 'react';
+import { X, Printer } from 'lucide-react';
+import Barcode from 'react-barcode';
 
 export interface ReceiptData {
-  id: number | string;
+  id: string;
   createdAt: string;
   subtotal: number;
   vat: number;
   total: number;
-  paymentMethod: string;
+  paymentMethod: 'cash' | 'card' | 'split' | 'balance';
   products: Array<{
     id: string | number;
     name: string;
@@ -19,14 +23,14 @@ export interface ReceiptData {
     barcode?: string;
   }>;
   customer?: {
-    id: string | number;
+    id: string;
     name: string;
     phone?: string;
     email?: string;
     balance?: number;
   };
-  businessInfo: {
-    name: string;
+  businessInfo?: {
+    name?: string;
     address?: string;
     phone?: string;
     email?: string;
@@ -37,7 +41,7 @@ export interface ReceiptData {
     fontSize?: number;
     footer?: string;
     showBarcode?: boolean;
-    barcodeType?: string;
+    barcodeType?: 'CODE128' | 'CODE39' | 'EAN13' | 'UPC';
     showTaxBreakdown?: boolean;
   };
   balanceDeducted?: number;
@@ -48,421 +52,426 @@ export interface ReceiptData {
 
 interface ReceiptPrintProps {
   data: ReceiptData;
-  onClose?: () => void;
+  onClose: () => void;
 }
 
 export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
-  const barcodeRef = useRef<HTMLCanvasElement>(null);
-
-  // Thermal receipt style
-  const receiptStyle = `
-    @media print {
-      @page {
-        margin: 0;
-        size: 80mm auto;
-      }
-      
-      body, html {
-        margin: 0 !important;
-        padding: 0 !important;
-        width: 80mm !important;
-      }
-      
-      .no-print {
-        display: none !important;
-      }
-      
-      button {
-        display: none !important;
-      }
-      
-      * {
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-    }
-    
-    @media screen {
-      body {
-        background: #f5f5f5;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        margin: 0;
-        padding: 20px;
-      }
-      
-      .receipt-actions {
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
-      }
-      
-      .print-button {
-        background: #10b981;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      
-      .close-button {
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-    }
-    
-    /* Receipt Container */
-    .receipt-container {
-      font-family: 'Courier New', Courier, monospace !important;
-      width: 80mm !important;
-      max-width: 80mm !important;
-      margin: 0 auto !important;
-      font-size: ${data.receiptSettings?.fontSize || 13}px !important;
-      line-height: 1.2 !important;
-      color: #000 !important;
-      background: white !important;
-      padding: 10px !important;
-    }
-    
-    /* Logo */
-    .logo-container {
-      text-align: center;
-      margin-bottom: 8px;
-    }
-    
-    .logo-container img {
-      max-height: 40px;
-      max-width: 100%;
-      object-fit: contain;
-    }
-    
-    /* Business Info */
-    .business-name {
-      text-align: center;
-      font-weight: bold;
-      font-size: ${(data.receiptSettings?.fontSize || 13) + 2}px;
-      margin: 5px 0;
-      text-transform: uppercase;
-    }
-    
-    .business-details {
-      text-align: center;
-      font-size: ${(data.receiptSettings?.fontSize || 13) - 2}px;
-      margin-bottom: 10px;
-      line-height: 1.3;
-    }
-    
-    /* Divider */
-    .divider {
-      border-bottom: 1px dashed #000;
-      margin: 10px 0;
-    }
-    
-    /* Receipt Header */
-    .receipt-header {
-      margin-bottom: 10px;
-    }
-    
-    .receipt-header div {
-      margin: 2px 0;
-    }
-    
-    /* Items */
-    .item-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 4px 0;
-      font-size: ${data.receiptSettings?.fontSize || 13}px;
-    }
-    
-    .item-name {
-      flex: 1;
-      padding-right: 10px;
-      word-break: break-word;
-    }
-    
-    .item-quantity {
-      min-width: 20px;
-      text-align: center;
-    }
-    
-    .item-price {
-      min-width: 60px;
-      text-align: right;
-      font-weight: bold;
-    }
-    
-    /* Totals */
-    .total-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 4px 0;
-      font-size: ${data.receiptSettings?.fontSize || 13}px;
-    }
-    
-    .grand-total {
-      font-weight: bold;
-      font-size: ${(data.receiptSettings?.fontSize || 13) + 2}px;
-      border-top: 2px solid #000;
-      padding-top: 8px;
-      margin-top: 8px;
-    }
-    
-    /* Payment Info */
-    .payment-info {
-      text-align: center;
-      margin: 10px 0;
-      padding: 8px;
-      background: #f5f5f5;
-      border: 1px dashed #ccc;
-      font-weight: bold;
-    }
-    
-    /* Footer */
-    .receipt-footer {
-      text-align: center;
-      margin-top: 15px;
-      font-size: ${(data.receiptSettings?.fontSize || 13) - 2}px;
-      font-style: italic;
-    }
-    
-    /* Barcode */
-    .barcode-container {
-      text-align: center;
-      margin: 15px 0;
-    }
-    
-    .barcode-container canvas {
-      max-width: 100%;
-      height: 40px;
-    }
-    
-    /* Notes */
-    .notes {
-      margin: 10px 0;
-      padding: 5px;
-      font-style: italic;
-      color: #666;
-      border-top: 1px dashed #ccc;
-      border-bottom: 1px dashed #ccc;
-    }
-  `;
-
-  useEffect(() => {
-    // Generate barcode if needed
-    if (data.receiptSettings?.showBarcode && barcodeRef.current) {
-      generateBarcode();
-    }
-    
-    // Auto-print after a short delay
-    const timer = setTimeout(() => {
-      if (receiptRef.current) {
-        window.print();
-      }
-    }, 500);
-    
-    return () => clearTimeout(timer);
-  }, []);
-
-  const generateBarcode = () => {
-    if (typeof window !== 'undefined' && (window as any).JsBarcode && barcodeRef.current) {
-      try {
-        (window as any).JsBarcode(barcodeRef.current, `TXN${data.id}`, {
-          format: data.receiptSettings?.barcodeType || 'CODE128',
-          width: 2,
-          height: 40,
-          displayValue: true,
-          fontSize: 10,
-          textMargin: 5,
-          margin: 0
-        });
-      } catch (error) {
-        console.error('Barcode error:', error);
-      }
-    }
-  };
 
   const handlePrint = () => {
-    window.print();
+    if (receiptRef.current) {
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Receipt #${data.id}</title>
+              <style>
+                * {
+                  margin: 0;
+                  padding: 0;
+                  box-sizing: border-box;
+                }
+                
+                body {
+                  font-family: 'Courier New', monospace;
+                  width: 80mm;
+                  margin: 0 auto;
+                  padding: 10mm;
+                  background: white;
+                }
+                
+                .receipt {
+                  width: 100%;
+                }
+                
+                .logo-section {
+                  text-align: center;
+                  margin-bottom: 20px;
+                }
+                
+                .logo {
+                  max-width: 160px;
+                  max-height: 80px;
+                  margin: 0 auto 10px;
+                  display: block;
+                }
+                
+                .business-name {
+                  font-size: 18px;
+                  font-weight: bold;
+                  margin-bottom: 8px;
+                  text-transform: uppercase;
+                }
+                
+                .business-info {
+                  font-size: 11px;
+                  line-height: 1.4;
+                  margin-bottom: 15px;
+                  text-align: center;
+                }
+                
+                .divider {
+                  border-top: 1px dashed #000;
+                  margin: 15px 0;
+                }
+                
+                .section-title {
+                  font-size: 12px;
+                  font-weight: bold;
+                  margin: 15px 0 8px;
+                  text-transform: uppercase;
+                }
+                
+                .info-row {
+                  font-size: 11px;
+                  margin: 5px 0;
+                  display: flex;
+                  justify-content: space-between;
+                }
+                
+                .items-table {
+                  width: 100%;
+                  margin: 15px 0;
+                  font-size: 11px;
+                }
+                
+                .items-header {
+                  font-weight: bold;
+                  border-bottom: 1px solid #000;
+                  padding-bottom: 5px;
+                  margin-bottom: 8px;
+                  display: grid;
+                  grid-template-columns: 2fr 1fr 1fr 1fr;
+                  gap: 5px;
+                }
+                
+                .item-row {
+                  display: grid;
+                  grid-template-columns: 2fr 1fr 1fr 1fr;
+                  gap: 5px;
+                  margin: 5px 0;
+                  padding: 3px 0;
+                }
+                
+                .item-name {
+                  font-weight: bold;
+                  word-wrap: break-word;
+                }
+                
+                .item-sku {
+                  font-size: 9px;
+                  color: #666;
+                  margin-top: 2px;
+                }
+                
+                .text-right {
+                  text-align: right;
+                }
+                
+                .totals-section {
+                  margin-top: 15px;
+                  border-top: 1px solid #000;
+                  padding-top: 10px;
+                }
+                
+                .total-row {
+                  display: flex;
+                  justify-content: space-between;
+                  margin: 5px 0;
+                  font-size: 11px;
+                }
+                
+                .total-row.grand-total {
+                  font-size: 14px;
+                  font-weight: bold;
+                  border-top: 2px solid #000;
+                  border-bottom: 2px solid #000;
+                  padding: 8px 0;
+                  margin-top: 10px;
+                }
+                
+                .payment-info {
+                  margin: 15px 0;
+                  font-size: 11px;
+                  text-align: center;
+                }
+                
+                .barcode-section {
+                  text-align: center;
+                  margin: 20px 0;
+                }
+                
+                .footer {
+                  text-align: center;
+                  font-size: 10px;
+                  margin-top: 20px;
+                  padding-top: 15px;
+                  border-top: 1px dashed #000;
+                }
+                
+                @media print {
+                  body {
+                    width: 80mm;
+                    padding: 5mm;
+                  }
+                  
+                  @page {
+                    size: 80mm auto;
+                    margin: 0;
+                  }
+                }
+              </style>
+            </head>
+            <body>
+              ${receiptRef.current.innerHTML}
+            </body>
+          </html>
+        `);
+        
+        printWindow.document.close();
+        
+        // Wait for images to load before printing
+        setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+          printWindow.close();
+        }, 500);
+      }
+    }
   };
 
-  const handleClose = () => {
-    if (onClose) onClose();
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
-
-  // Calculate totals
-  const calculatedSubtotal = data.products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const calculatedDiscount = data.products.reduce((sum, item) => sum + (item.discount || 0), 0);
-  const calculatedTotal = calculatedSubtotal - calculatedDiscount + (data.vat || 0);
-  
-  const displaySubtotal = data.subtotal > 0 ? data.subtotal : calculatedSubtotal;
-  const displayVat = data.vat || 0;
-  const displayTotal = data.total > 0 ? data.total : calculatedTotal;
 
   return (
-    <>
-      <style>{receiptStyle}</style>
-      
-      <div ref={receiptRef} className="receipt-container">
-        {/* Logo */}
-        {data.businessInfo.logoUrl && (
-          <div className="logo-container">
-            <img 
-              src={data.businessInfo.logoUrl} 
-              alt={data.businessInfo.name}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          </div>
-        )}
-        
-        {/* Business Name */}
-        <div className="business-name">{data.businessInfo.name}</div>
-        
-        {/* Business Details */}
-        <div className="business-details">
-          {data.businessInfo.address && <div>{data.businessInfo.address}</div>}
-          {data.businessInfo.phone && <div>Tel: {data.businessInfo.phone}</div>}
-          {data.businessInfo.email && <div>{data.businessInfo.email}</div>}
-          {data.businessInfo.taxNumber && <div>Tax No: {data.businessInfo.taxNumber}</div>}
+    <div className="fixed inset-0 bg-background z-[9999] overflow-auto">
+      {/* Header Controls */}
+      <div className="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between shadow-sm z-10">
+        <h2 className="text-lg font-bold text-foreground">Receipt Preview</h2>
+        <div className="flex gap-2">
+          <button
+            onClick={handlePrint}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 flex items-center gap-2 font-medium"
+          >
+            <Printer className="w-4 h-4" />
+            Print
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 flex items-center gap-2 font-medium"
+          >
+            <X className="w-4 h-4" />
+            Close
+          </button>
         </div>
-        
-        <div className="divider"></div>
-        
-        {/* Receipt Header */}
-        <div className="receipt-header">
-          <div><strong>RECEIPT #{data.id}</strong></div>
-          <div>Date: {new Date(data.createdAt).toLocaleDateString('en-GB')}</div>
-          <div>Time: {new Date(data.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-          {data.customer && <div>Customer: {data.customer.name}</div>}
-          {data.staffName && <div>Staff: {data.staffName}</div>}
-        </div>
-        
-        <div className="divider"></div>
-        
-        {/* Items */}
-        {data.products.map((item, index) => (
-          <div key={item.id || index} className="item-row">
-            <div className="item-name">
-              {item.name}
-              {item.discount > 0 && (
-                <div style={{ fontSize: '10px', color: '#666' }}>
-                  Discount: £{item.discount.toFixed(2)}
+      </div>
+
+      {/* Receipt Preview */}
+      <div className="flex justify-center p-8">
+        <div className="bg-white shadow-2xl" style={{ width: '80mm', minHeight: '200mm' }}>
+          <div ref={receiptRef} className="receipt p-4" style={{ fontFamily: "'Courier New', monospace" }}>
+            
+            {/* Logo and Business Info */}
+            <div className="logo-section">
+              {data.businessInfo?.logoUrl && (
+                <img 
+                  src={data.businessInfo.logoUrl} 
+                  alt="Business Logo" 
+                  className="logo"
+                  style={{ maxWidth: '160px', maxHeight: '80px', margin: '0 auto 10px', display: 'block' }}
+                />
+              )}
+              <div className="business-name" style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase' }}>
+                {data.businessInfo?.name || 'Your Business'}
+              </div>
+              {data.businessInfo && (
+                <div className="business-info" style={{ fontSize: '11px', lineHeight: '1.4', marginBottom: '15px', textAlign: 'center' }}>
+                  {data.businessInfo.address && <div>{data.businessInfo.address}</div>}
+                  {data.businessInfo.phone && <div>Tel: {data.businessInfo.phone}</div>}
+                  {data.businessInfo.email && <div>{data.businessInfo.email}</div>}
+                  {data.businessInfo.taxNumber && <div>VAT: {data.businessInfo.taxNumber}</div>}
                 </div>
               )}
             </div>
-            <div className="item-quantity">{item.quantity}x</div>
-            <div className="item-price">£{item.total.toFixed(2)}</div>
-          </div>
-        ))}
-        
-        <div className="divider"></div>
-        
-        {/* Totals */}
-        <div className="total-row">
-          <span>Subtotal:</span>
-          <span>£{displaySubtotal.toFixed(2)}</span>
-        </div>
-        
-        {calculatedDiscount > 0 && (
-          <div className="total-row" style={{ color: '#dc2626' }}>
-            <span>Discount:</span>
-            <span>-£{calculatedDiscount.toFixed(2)}</span>
-          </div>
-        )}
-        
-        {displayVat > 0 && (
-          <>
-            <div className="total-row">
-              <span>VAT:</span>
-              <span>£{displayVat.toFixed(2)}</span>
+
+            <div className="divider" style={{ borderTop: '1px dashed #000', margin: '15px 0' }}></div>
+
+            {/* Receipt Info */}
+            <div style={{ fontSize: '11px', marginBottom: '15px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+                <span>Receipt #:</span>
+                <strong>{data.id}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+                <span>Date:</span>
+                <span>{formatDate(data.createdAt)}</span>
+              </div>
+              {data.staffName && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+                  <span>Staff:</span>
+                  <span>{data.staffName}</span>
+                </div>
+              )}
+              {data.customer && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+                    <span>Customer:</span>
+                    <span>{data.customer.name}</span>
+                  </div>
+                  {data.customer.phone && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+                      <span>Phone:</span>
+                      <span>{data.customer.phone}</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            {data.receiptSettings?.showTaxBreakdown && (
-              <div className="total-row" style={{ fontSize: '11px', color: '#666' }}>
-                <span>Net: £{(displaySubtotal - calculatedDiscount).toFixed(2)}</span>
-                <span>Tax: £{displayVat.toFixed(2)}</span>
+
+            <div className="divider" style={{ borderTop: '1px dashed #000', margin: '15px 0' }}></div>
+
+            {/* Items Table */}
+            <div className="section-title" style={{ fontSize: '12px', fontWeight: 'bold', margin: '15px 0 8px', textTransform: 'uppercase' }}>
+              ITEMS
+            </div>
+            
+            <div className="items-header" style={{ 
+              fontWeight: 'bold', 
+              borderBottom: '1px solid #000', 
+              paddingBottom: '5px', 
+              marginBottom: '8px',
+              display: 'grid',
+              gridTemplateColumns: '2fr 1fr 1fr 1fr',
+              gap: '5px',
+              fontSize: '11px'
+            }}>
+              <div>Item</div>
+              <div className="text-right" style={{ textAlign: 'right' }}>Price</div>
+              <div className="text-right" style={{ textAlign: 'right' }}>Qty</div>
+              <div className="text-right" style={{ textAlign: 'right' }}>Total</div>
+            </div>
+
+            {data.products.map((item, index) => (
+              <div key={index} style={{ marginBottom: '10px' }}>
+                <div className="item-row" style={{
+                  display: 'grid',
+                  gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                  gap: '5px',
+                  margin: '5px 0',
+                  padding: '3px 0',
+                  fontSize: '11px'
+                }}>
+                  <div>
+                    <div className="item-name" style={{ fontWeight: 'bold', wordWrap: 'break-word' }}>
+                      {item.name}
+                    </div>
+                    {item.sku && (
+                      <div className="item-sku" style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                        SKU: {item.sku}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right" style={{ textAlign: 'right' }}>£{item.price.toFixed(2)}</div>
+                  <div className="text-right" style={{ textAlign: 'right' }}>×{item.quantity}</div>
+                  <div className="text-right" style={{ textAlign: 'right' }}>£{item.total.toFixed(2)}</div>
+                </div>
+              </div>
+            ))}
+
+            <div className="divider" style={{ borderTop: '1px dashed #000', margin: '15px 0' }}></div>
+
+            {/* Totals */}
+            <div className="totals-section" style={{ marginTop: '15px', borderTop: '1px solid #000', paddingTop: '10px' }}>
+              <div className="total-row" style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', fontSize: '11px' }}>
+                <span>Subtotal:</span>
+                <span>£{data.subtotal.toFixed(2)}</span>
+              </div>
+              
+              {data.receiptSettings?.showTaxBreakdown !== false && data.vat > 0 && (
+                <div className="total-row" style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', fontSize: '11px' }}>
+                  <span>VAT (20%):</span>
+                  <span>£{data.vat.toFixed(2)}</span>
+                </div>
+              )}
+
+              {data.balanceDeducted && data.balanceDeducted > 0 && (
+                <div className="total-row" style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', fontSize: '11px', color: '#059669' }}>
+                  <span>Balance Used:</span>
+                  <span>-£{data.balanceDeducted.toFixed(2)}</span>
+                </div>
+              )}
+
+              <div className="total-row grand-total" style={{ 
+                fontSize: '14px', 
+                fontWeight: 'bold', 
+                borderTop: '2px solid #000', 
+                borderBottom: '2px solid #000', 
+                padding: '8px 0', 
+                marginTop: '10px',
+                display: 'flex',
+                justifyContent: 'space-between'
+              }}>
+                <span>TOTAL:</span>
+                <span>£{data.total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Payment Method */}
+            <div className="payment-info" style={{ margin: '15px 0', fontSize: '11px', textAlign: 'center' }}>
+              <strong>Payment Method: </strong>
+              <span style={{ textTransform: 'uppercase' }}>{data.paymentMethod}</span>
+            </div>
+
+            {/* Notes */}
+            {data.notes && (
+              <div style={{ margin: '15px 0', fontSize: '10px', padding: '8px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px' }}>
+                <strong>Note:</strong> {data.notes}
               </div>
             )}
-          </>
-        )}
-        
-        <div className="total-row grand-total">
-          <span>TOTAL:</span>
-          <span>£{displayTotal.toFixed(2)}</span>
-        </div>
-        
-        <div className="divider"></div>
-        
-        {/* Payment Info */}
-        <div className="payment-info">
-          <div>PAID: {data.paymentMethod.toUpperCase()}</div>
-          {data.balanceDeducted && data.balanceDeducted > 0 && (
-            <div style={{ fontSize: '11px', marginTop: '5px' }}>
-              Balance Used: £{data.balanceDeducted.toFixed(2)}
+
+            {/* Barcode */}
+            {data.receiptSettings?.showBarcode !== false && (
+              <div className="barcode-section" style={{ textAlign: 'center', margin: '20px 0' }}>
+                <Barcode 
+                  value={String(data.id)}
+                  format={data.receiptSettings?.barcodeType || 'CODE128'}
+                  width={1.5}
+                  height={40}
+                  displayValue={true}
+                  fontSize={12}
+                  margin={10}
+                />
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="footer" style={{ 
+              textAlign: 'center', 
+              fontSize: '10px', 
+              marginTop: '20px', 
+              paddingTop: '15px', 
+              borderTop: '1px dashed #000' 
+            }}>
+              {data.receiptSettings?.footer || 'Thank you for your business!'}
+              <div style={{ marginTop: '10px', fontSize: '9px', color: '#666' }}>
+                {formatDate(data.createdAt)}
+              </div>
             </div>
-          )}
-        </div>
-        
-        {/* Notes */}
-        {data.notes && (
-          <div className="notes">
-            Note: {data.notes}
-          </div>
-        )}
-        
-        {/* Barcode */}
-        {data.receiptSettings?.showBarcode && (
-          <div className="barcode-container">
-            <canvas ref={barcodeRef}></canvas>
-          </div>
-        )}
-        
-        {/* Footer */}
-        <div className="receipt-footer">
-          <div style={{ margin: '10px 0', fontWeight: 'bold' }}>THANK YOU!</div>
-          {data.receiptSettings?.footer || 'Thank you for your business!'}
-          <div style={{ marginTop: '10px', fontSize: '10px' }}>
-            {new Date().toLocaleDateString('en-GB')}
+
           </div>
         </div>
       </div>
-      
-      {/* Print/Close Buttons (visible only on screen) */}
-      <div className="receipt-actions no-print">
-        <button onClick={handlePrint} className="print-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-            <rect x="6" y="14" width="12" height="8"></rect>
-          </svg>
-          Print Receipt
-        </button>
-        <button onClick={handleClose} className="close-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-          Close
-        </button>
-      </div>
-    </>
+    </div>
   );
 }
