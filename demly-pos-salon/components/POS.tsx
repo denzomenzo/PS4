@@ -777,53 +777,55 @@ export default function POS() {
         staffId: currentStaff?.id,
       });
 
-      if (printReceiptOption) {
-        const receiptData: ReceiptPrintData = {
-          id: transaction.id,
-          createdAt: new Date().toISOString(),
-          subtotal: subtotal,
-          vat: vat,
-          total: grandTotal,
-          paymentMethod: finalPaymentMethod,
-          products: cart.map(item => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            discount: item.discount || 0,
-            total: (item.price * item.quantity) - (item.discount || 0)
-          })),
-          customer: selectedCustomer ? {
-            id: selectedCustomer.id,
-            name: selectedCustomer.name,
-            phone: selectedCustomer.phone || undefined,
-            email: selectedCustomer.email || undefined,
-            balance: selectedCustomer.balance
-          } : undefined,
-          businessInfo: {
-            name: receiptSettings?.business_name || "Your Business",
-            address: receiptSettings?.business_address,
-            phone: receiptSettings?.business_phone,
-            email: receiptSettings?.business_email,
-            taxNumber: receiptSettings?.tax_number,
-            logoUrl: receiptSettings?.receipt_logo_url
-          },
-          receiptSettings: {
-            fontSize: receiptSettings?.receipt_font_size || 12,
-            footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-            showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-            barcodeType: receiptSettings?.barcode_type || 'code128', // FIXED: lowercase
-            showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-          },
-          balanceDeducted: balanceDeducted,
-          paymentDetails: paymentDetails,
-          staffName: currentStaff?.name,
-          notes: transactionNotes
-        };
-        
-        setReceiptData(receiptData);
-        setShowReceiptPrint(true);
-      }
+if (printReceiptOption) {
+  const receiptData: ReceiptPrintData = {
+    id: transaction.id.toString(), // ✅ Convert to string
+    createdAt: new Date().toISOString(),
+    subtotal: subtotal,
+    vat: vat,
+    total: grandTotal,
+    paymentMethod: finalPaymentMethod,
+    products: cart.map(item => ({
+      id: item.id.toString(), // ✅ Convert to string
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      discount: item.discount || 0,
+      total: (item.price * item.quantity) - (item.discount || 0),
+      sku: item.sku || undefined, // ✅ Add SKU
+      barcode: item.barcode || undefined // ✅ Add barcode
+    })),
+    customer: selectedCustomer ? {
+      id: selectedCustomer.id.toString(), // ✅ Convert to string
+      name: selectedCustomer.name,
+      phone: selectedCustomer.phone || undefined,
+      email: selectedCustomer.email || undefined,
+      balance: selectedCustomer.balance
+    } : undefined,
+    businessInfo: {
+      name: receiptSettings?.business_name || "Your Business",
+      address: receiptSettings?.business_address,
+      phone: receiptSettings?.business_phone,
+      email: receiptSettings?.business_email,
+      taxNumber: receiptSettings?.tax_number,
+      logoUrl: receiptSettings?.receipt_logo_url
+    },
+    receiptSettings: {
+      fontSize: receiptSettings?.receipt_font_size || 12,
+      footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+      showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+      barcodeType: (receiptSettings?.barcode_type?.toUpperCase() || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC', // ✅ Convert to uppercase
+      showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+    },
+    balanceDeducted: balanceDeducted,
+    paymentDetails: paymentDetails,
+    staffName: currentStaff?.name,
+    notes: transactionNotes
+  };
+  
+  setReceiptData(receiptData);
+  setShowReceiptPrint(true);
+}
 
       alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
       
@@ -2055,3 +2057,4 @@ export default function POS() {
     </div>
   );
 }
+
