@@ -194,70 +194,27 @@ function CustomersContent() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // FIXED: Fetch business settings properly
-const fetchBusinessSettings = async () => {
-  try {
-    console.log('🔍 Fetching business settings...');
-    
-    // First check if we can connect to Supabase
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log('👤 Current user:', user?.id);
-    
-    // Try to get settings
-    const { data, error } = await supabase
-      .from('settings')
-      .select('*')
-      .maybeSingle(); // Use maybeSingle instead of single
-    
-    if (error) {
-      console.error('❌ Error loading business settings:', error);
-      
-      // Check what data is in settings table
-      const { data: allSettings } = await supabase
+  // Fetch business settings
+  const fetchBusinessSettings = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
         .from('settings')
-        .select('*');
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
       
-      console.log('📋 All settings in table:', allSettings);
-      
-      if (!allSettings || allSettings.length === 0) {
-        console.log('⚠️ No settings found in database');
-        // Create default settings if table is empty
-        const { data: newSettings } = await supabase
-          .from('settings')
-          .insert([{
-            business_name: 'Your Business',
-            business_address: '123 Business Street',
-            business_phone: '+44 1234 567890',
-            business_email: 'info@business.com',
-            tax_number: 'GB123456789',
-            receipt_logo_url: '/logo.png',
-            receipt_font_size: 12,
-            receipt_footer: 'Thank you for your business!',
-            show_barcode_on_receipt: true,
-            barcode_type: 'CODE128',
-            show_tax_breakdown: true
-          }])
-          .select()
-          .single();
-        
-        if (newSettings) {
-          console.log('✅ Created default settings:', newSettings);
-          setBusinessSettings(newSettings);
-        }
-      } else if (allSettings.length > 0) {
-        console.log('✅ Using first settings entry:', allSettings[0]);
-        setBusinessSettings(allSettings[0]);
+      if (error) {
+        console.error('Error loading business settings:', error);
+      } else if (data) {
+        setBusinessSettings(data);
       }
-    } else if (data) {
-      console.log('✅ Settings loaded successfully:', data);
-      setBusinessSettings(data);
-    } else {
-      console.log('⚠️ No settings data returned');
+    } catch (error) {
+      console.error('Error in fetchBusinessSettings:', error);
     }
-  } catch (error) {
-    console.error('💥 Error in fetchBusinessSettings:', error);
-  }
-};
+  };
 
   // Search customers by name, email, phone, AND address
   const fetchCustomers = async () => {
@@ -269,7 +226,6 @@ const fetchBusinessSettings = async () => {
         .order('created_at', { ascending: false });
       
       if (searchQuery) {
-        // Search in name, email, phone, AND address
         query = query.or(`
           name.ilike.%${searchQuery}%,
           email.ilike.%${searchQuery}%,
@@ -352,101 +308,113 @@ const fetchBusinessSettings = async () => {
     };
   };
 
-  // FIXED: Print receipt with proper business info
-const printTransactionReceipt = async (transaction: Transaction) => {
-  try {
-    console.log('🖨️ Generating receipt...');
-    
-    const customer = selectedCustomer || 
-      customers.find(c => c.id === transaction.customer_id) || 
-      { 
-        id: '', 
-        name: 'Customer', 
-        email: '', 
-        phone: '', 
-        balance: 0
-      };
-
-    // Fetch transaction items
-    let transactionItems: Array<{
-      id: string | number;
-      name: string;
-      price: number;
-      quantity: number;
-      discount: number;
-      total: number;
-      sku?: string;
-      barcode?: string;
-    }> = [];
-    
+  // FIXED: Print receipt with proper data structure matching POS.tsx
+  const printTransactionReceipt = async (transaction: Transaction) => {
     try {
-      const { data } = await supabase
-        .from('transaction_items')
-        .select('*, product:products(name, sku, barcode)')
-        .eq('transaction_id', transaction.id);
+      console.log('🖨️ Generating receipt for transaction:', transaction.id);
       
-      if (data && data.length > 0) {
-        transactionItems = data.map(item => ({
-          id: item.product?.id || item.id || Math.random().toString(),
-          name: item.product?.name || 'Product',
-          price: getSafeNumber(item.price),
-          quantity: getSafeNumber(item.quantity),
-          discount: 0,
-          total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
-          sku: item.product?.sku,
-          barcode: item.product?.barcode
-        }));
-      }
-    } catch (error) {
-      console.error('Error fetching transaction items:', error);
-    }
+      const customer = selectedCustomer || 
+        customers.find(c => c.id === transaction.customer_id) || 
+        { 
+          id: '', 
+          name: 'Walk-in Customer', 
+          email: null, 
+          phone: null, 
+          address: null,
+          balance: 0,
+          created_at: new Date().toISOString(),
+          notes: null
+        };
 
-    // Create receipt data
-    const receiptData: ReceiptData = {
-      id: String(transaction.id),
-      createdAt: transaction.created_at,
-      subtotal: getSafeNumber(transaction.subtotal),
-      vat: getSafeNumber(transaction.vat),
-      total: getSafeNumber(transaction.total),
-      paymentMethod: transaction.payment_method || 'cash',
-      products: transactionItems,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone || undefined,
-        email: customer.email || undefined,
-        balance: getSafeNumber(customer.balance)
-      },
-      businessInfo: {
-        name: businessSettings?.business_name || "Your Business",
-        address: businessSettings?.business_address,
-        phone: businessSettings?.business_phone,
-        email: businessSettings?.business_email,
-        taxNumber: businessSettings?.tax_number,
-        logoUrl: businessSettings?.receipt_logo_url
-      },
-      receiptSettings: {
-        fontSize: 13, // Fixed font size for thermal printers
-        footer: businessSettings?.receipt_footer || "Thank you for your business!",
-        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-        barcodeType: businessSettings?.barcode_type || 'CODE128',
-        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-      },
-      balanceDeducted: getSafeNumber(transaction.balance_deducted),
-      paymentDetails: transaction.payment_details || {},
-      staffName: transaction.staff_name || currentStaff?.name || 'Staff',
-      notes: transaction.notes || undefined
-    };
-    
-    console.log('✅ Receipt data created');
-    setReceiptData(receiptData);
-    setShowReceiptPrint(true);
-    
-  } catch (error) {
-    console.error('❌ Error preparing receipt:', error);
-    alert('Failed to generate receipt. Please try again.');
-  }
-};
+      // Fetch transaction items with product details
+      let transactionItems: Array<{
+        id: string | number;
+        name: string;
+        price: number;
+        quantity: number;
+        discount: number;
+        total: number;
+        sku?: string;
+        barcode?: string;
+      }> = [];
+      
+      try {
+        const { data: itemsData, error: itemsError } = await supabase
+          .from('transaction_items')
+          .select('*, product:product_id(name, sku, barcode)')
+          .eq('transaction_id', transaction.id);
+        
+        if (itemsError) throw itemsError;
+        
+        if (itemsData && itemsData.length > 0) {
+          transactionItems = itemsData.map(item => ({
+            id: item.id || Math.random().toString(),
+            name: item.product?.name || 'Product',
+            price: getSafeNumber(item.price),
+            quantity: getSafeNumber(item.quantity),
+            discount: getSafeNumber(item.discount) || 0,
+            total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+            sku: item.product?.sku,
+            barcode: item.product?.barcode
+          }));
+          console.log('✅ Loaded transaction items:', transactionItems.length);
+        }
+      } catch (error) {
+        console.error('Error fetching transaction items:', error);
+      }
+
+      // Create receipt data matching POS.tsx structure
+      const receiptData: ReceiptData = {
+        id: String(transaction.id),
+        createdAt: transaction.created_at,
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
+        paymentMethod: transaction.payment_method || 'cash',
+        products: transactionItems,
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone || undefined,
+          email: customer.email || undefined,
+          balance: getSafeNumber(customer.balance)
+        },
+        businessInfo: {
+          name: businessSettings?.business_name || businessSettings?.shop_name || "Your Business",
+          address: businessSettings?.business_address || businessSettings?.address,
+          phone: businessSettings?.business_phone || businessSettings?.phone,
+          email: businessSettings?.business_email || businessSettings?.email,
+          taxNumber: businessSettings?.tax_number || businessSettings?.vat_number,
+          logoUrl: businessSettings?.business_logo_url || businessSettings?.logo_url
+        },
+        receiptSettings: {
+          fontSize: 13,
+          footer: businessSettings?.receipt_footer || "Thank you for your business!",
+          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+          barcodeType: (businessSettings?.barcode_type || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
+          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+        },
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
+        paymentDetails: transaction.payment_details || {},
+        staffName: transaction.staff_name || currentStaff?.name || 'Staff',
+        notes: transaction.notes || undefined
+      };
+      
+      console.log('✅ Receipt data prepared:', {
+        transactionId: receiptData.id,
+        itemsCount: receiptData.products.length,
+        total: receiptData.total,
+        hasBarcode: receiptData.receiptSettings.showBarcode
+      });
+      
+      setReceiptData(receiptData);
+      setShowReceiptPrint(true);
+      
+    } catch (error) {
+      console.error('❌ Error preparing receipt:', error);
+      alert('Failed to generate receipt. Please try again.');
+    }
+  };
 
   const closeReceiptPrint = () => {
     setShowReceiptPrint(false);
@@ -480,121 +448,117 @@ const printTransactionReceipt = async (transaction: Transaction) => {
     setShowAddEditModal(true);
   };
 
-const saveCustomer = async () => {
-  if (!newCustomer.name.trim()) {
-    alert('Customer name is required');
-    return;
-  }
-
-  try {
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      alert('You must be logged in to save customers');
+  const saveCustomer = async () => {
+    if (!newCustomer.name.trim()) {
+      alert('Customer name is required');
       return;
     }
 
-    if (editingCustomer) {
-      const oldValues = {
-        name: editingCustomer.name,
-        email: editingCustomer.email,
-        phone: editingCustomer.phone,
-        address: editingCustomer.address,
-        notes: editingCustomer.notes,
-        balance: editingCustomer.balance
-      };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('You must be logged in to save customers');
+        return;
+      }
 
-      const { error } = await supabase
-        .from('customers')
-        .update({
-          name: newCustomer.name,
-          email: newCustomer.email || null,
-          phone: newCustomer.phone || null,
-          address: newCustomer.address || null,
-          notes: newCustomer.notes || null,
-          balance: getSafeNumber(newCustomer.balance),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', editingCustomer.id);
+      if (editingCustomer) {
+        const oldValues = {
+          name: editingCustomer.name,
+          email: editingCustomer.email,
+          phone: editingCustomer.phone,
+          address: editingCustomer.address,
+          notes: editingCustomer.notes,
+          balance: editingCustomer.balance
+        };
 
-      if (error) throw error;
-      
-      // Create audit log
-      if (userId && currentStaff) {
-        await createAuditLog(
-          userId,
-          currentStaff.id,
-          'CUSTOMER_UPDATED',
-          'customer',
-          editingCustomer.id,
-          oldValues,
-          newCustomer
-        );
+        const { error } = await supabase
+          .from('customers')
+          .update({
+            name: newCustomer.name,
+            email: newCustomer.email || null,
+            phone: newCustomer.phone || null,
+            address: newCustomer.address || null,
+            notes: newCustomer.notes || null,
+            balance: getSafeNumber(newCustomer.balance),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingCustomer.id);
+
+        if (error) throw error;
+        
+        if (userId && currentStaff) {
+          await createAuditLog(
+            userId,
+            currentStaff.id,
+            'CUSTOMER_UPDATED',
+            'customer',
+            editingCustomer.id,
+            oldValues,
+            newCustomer
+          );
+        }
+        
+        setCustomers(customers.map(c => 
+          c.id === editingCustomer.id 
+            ? { ...c, ...newCustomer }
+            : c
+        ));
+        
+        if (selectedCustomer?.id === editingCustomer.id) {
+          setSelectedCustomer({ ...selectedCustomer, ...newCustomer });
+        }
+        
+      } else {
+        const { data, error } = await supabase
+          .from('customers')
+          .insert([{
+            name: newCustomer.name,
+            email: newCustomer.email || null,
+            phone: newCustomer.phone || null,
+            address: newCustomer.address || null,
+            notes: newCustomer.notes || null,
+            balance: getSafeNumber(newCustomer.balance),
+            user_id: user.id,
+            created_at: new Date().toISOString()
+          }])
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        if (userId && currentStaff) {
+          await createAuditLog(
+            userId,
+            currentStaff.id,
+            'CUSTOMER_CREATED',
+            'customer',
+            data.id,
+            undefined,
+            data
+          );
+        }
+        
+        setCustomers([data, ...customers]);
+        setSelectedCustomer(data);
+        await fetchCustomerTransactions(data.id);
       }
       
-      setCustomers(customers.map(c => 
-        c.id === editingCustomer.id 
-          ? { ...c, ...newCustomer }
-          : c
-      ));
+      setShowAddEditModal(false);
+      setEditingCustomer(null);
+      setNewCustomer({
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        notes: '',
+        balance: 0
+      });
       
-      if (selectedCustomer?.id === editingCustomer.id) {
-        setSelectedCustomer({ ...selectedCustomer, ...newCustomer });
-      }
-      
-    } else {
-      // NEW: Include user_id when creating customer
-      const { data, error } = await supabase
-        .from('customers')
-        .insert([{
-          name: newCustomer.name,
-          email: newCustomer.email || null,
-          phone: newCustomer.phone || null,
-          address: newCustomer.address || null,
-          notes: newCustomer.notes || null,
-          balance: getSafeNumber(newCustomer.balance),
-          user_id: user.id, // IMPORTANT: Add user_id
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      
-      // Create audit log
-      if (userId && currentStaff) {
-        await createAuditLog(
-          userId,
-          currentStaff.id,
-          'CUSTOMER_CREATED',
-          'customer',
-          data.id,
-          undefined,
-          data
-        );
-      }
-      
-      setCustomers([data, ...customers]);
-      setSelectedCustomer(data);
-      await fetchCustomerTransactions(data.id);
+    } catch (error: any) {
+      console.error('Error saving customer:', error);
+      alert(`Failed to save customer: ${error.message}`);
     }
-    
-    setShowAddEditModal(false);
-    setEditingCustomer(null);
-    setNewCustomer({
-      name: '',
-      email: '',
-      phone: '',
-      address: '',
-      notes: '',
-      balance: 0
-    });
-    
-  } catch (error: any) {
-    console.error('Error saving customer:', error);
-    alert(`Failed to save customer: ${error.message}`);
-  }
-};
+  };
 
   const deleteCustomer = async (customerId: string) => {
     if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
@@ -602,7 +566,6 @@ const saveCustomer = async () => {
     try {
       const customer = customers.find(c => c.id === customerId);
       
-      // Create audit log before deletion
       if (userId && currentStaff && customer) {
         await createAuditLog(
           userId,
@@ -640,7 +603,7 @@ const saveCustomer = async () => {
     }
   };
 
-  // Balance adjustment functions with audit logging
+  // Balance adjustment functions
   const openAdjustBalanceModal = () => {
     if (!selectedCustomer) return;
     setBalanceAdjustment({
@@ -670,7 +633,6 @@ const saveCustomer = async () => {
       const adjustmentAmount = balanceAdjustment.type === 'credit' ? amount : -amount;
       const newBalance = previousBalance + adjustmentAmount;
 
-      // Update customer balance
       const { error: updateError } = await supabase
         .from('customers')
         .update({ 
@@ -681,7 +643,6 @@ const saveCustomer = async () => {
 
       if (updateError) throw updateError;
 
-      // Create audit log for balance adjustment
       await createAuditLog(
         userId,
         currentStaff.id,
@@ -701,7 +662,6 @@ const saveCustomer = async () => {
         }
       );
 
-      // Update local state
       const updatedCustomer = { ...selectedCustomer, balance: newBalance };
       setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => 
@@ -726,10 +686,9 @@ const saveCustomer = async () => {
   // View transaction items
   const viewTransactionItems = async (transaction: Transaction) => {
     try {
-      // Try to fetch detailed transaction items
       const { data } = await supabase
         .from('transaction_items')
-        .select('*, product:products(name, sku, category)')
+        .select('*, product:product_id(name, sku, category)')
         .eq('transaction_id', transaction.id);
       
       if (data && data.length > 0) {
@@ -743,7 +702,6 @@ const saveCustomer = async () => {
         })));
         setShowViewItemsModal(true);
       } else if (transaction.products && transaction.products.length > 0) {
-        // Fallback to existing products data
         setSelectedTransactionItems(transaction.products);
         setShowViewItemsModal(true);
       } else {
@@ -759,42 +717,42 @@ const saveCustomer = async () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Receipt Print Component - SIMPLE: No preview */}
-{showReceiptPrint && receiptData && (
-  <div className="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center p-4">
-    <div className="w-full max-w-md">
-      <ReceiptPrint 
-        data={receiptData} 
-        onClose={closeReceiptPrint}
-      />
-    </div>
-  </div>
-)}
+      {/* Receipt Print Component */}
+      {showReceiptPrint && receiptData && (
+        <div className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <ReceiptPrint 
+              data={receiptData} 
+              onClose={closeReceiptPrint}
+            />
+          </div>
+        </div>
+      )}
 
       {/* View Items Modal */}
       {showViewItemsModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
-            <div className="p-6 border-b">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-border">
+            <div className="p-6 border-b border-border">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-green-700">Transaction Items</h2>
+                <h2 className="text-xl font-bold text-foreground">Transaction Items</h2>
                 <button
                   onClick={() => setShowViewItemsModal(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-gray-600 mt-1">{selectedTransactionItems.length} items</p>
+              <p className="text-muted-foreground mt-1">{selectedTransactionItems.length} items</p>
             </div>
             
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               <div className="space-y-3">
                 {selectedTransactionItems.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
                     <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{item.name || 'Unknown Product'}</h4>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+                      <h4 className="font-medium text-foreground">{item.name || 'Unknown Product'}</h4>
+                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                         {item.sku && (
                           <span>SKU: {item.sku}</span>
                         )}
@@ -804,10 +762,10 @@ const saveCustomer = async () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-gray-900">
+                      <div className="font-medium text-foreground">
                         £{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
                       </div>
-                      <div className="text-sm text-gray-600">
+                      <div className="text-sm text-muted-foreground">
                         {item.quantity || 1} × £{(item.price || 0).toFixed(2)}
                       </div>
                     </div>
@@ -822,15 +780,15 @@ const saveCustomer = async () => {
       {/* Add/Edit Customer Modal */}
       {showAddEditModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="p-6 border-b">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-md border border-border">
+            <div className="p-6 border-b border-border">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-green-700">
+                <h2 className="text-xl font-bold text-foreground">
                   {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
                 </h2>
                 <button
                   onClick={() => setShowAddEditModal(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -839,63 +797,63 @@ const saveCustomer = async () => {
             
             <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Name *
                 </label>
                 <input
                   type="text"
                   value={newCustomer.name}
                   onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="Customer name"
                   autoFocus
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Email
                 </label>
                 <input
                   type="email"
                   value={newCustomer.email}
                   onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="customer@example.com"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Phone
                 </label>
                 <input
                   type="tel"
                   value={newCustomer.phone}
                   onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="+44 1234 567890"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Address (including postcode/ZIP)
                 </label>
                 <textarea
                   value={newCustomer.address}
                   onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="123 Street, City, Postcode"
                   rows={3}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Customers can be searched by postcode/ZIP code
                 </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Balance (£)
                 </label>
                 <input
@@ -903,39 +861,39 @@ const saveCustomer = async () => {
                   step="0.01"
                   value={newCustomer.balance}
                   onChange={(e) => setNewCustomer({...newCustomer, balance: parseFloat(e.target.value) || 0})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="0.00"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Positive balance = customer has credit, Negative balance = customer owes money
                 </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Notes
                 </label>
                 <textarea
                   value={newCustomer.notes}
                   onChange={(e) => setNewCustomer({...newCustomer, notes: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="Additional notes about this customer..."
                   rows={3}
                 />
               </div>
             </div>
             
-            <div className="p-6 border-t flex gap-3">
+            <div className="p-6 border-t border-border flex gap-3">
               <button
                 onClick={() => setShowAddEditModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={saveCustomer}
                 disabled={!newCustomer.name.trim()}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
                 {editingCustomer ? 'Update' : 'Create'}
@@ -948,23 +906,23 @@ const saveCustomer = async () => {
       {/* Adjust Balance Modal */}
       {showAdjustBalanceModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="p-6 border-b">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-md border border-border">
+            <div className="p-6 border-b border-border">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-green-700">Adjust Balance</h2>
+                <h2 className="text-xl font-bold text-foreground">Adjust Balance</h2>
                 <button
                   onClick={() => setShowAdjustBalanceModal(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-gray-600 mt-1">Current balance: £{getSafeNumber(selectedCustomer.balance).toFixed(2)}</p>
+              <p className="text-muted-foreground mt-1">Current balance: £{getSafeNumber(selectedCustomer.balance).toFixed(2)}</p>
             </div>
             
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Type
                 </label>
                 <div className="flex gap-2">
@@ -972,8 +930,8 @@ const saveCustomer = async () => {
                     onClick={() => setBalanceAdjustment({...balanceAdjustment, type: 'credit'})}
                     className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 ${
                       balanceAdjustment.type === 'credit'
-                        ? 'bg-green-100 text-green-700 border-2 border-green-500'
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
                     }`}
                   >
                     <ArrowUp className="w-4 h-4" />
@@ -983,8 +941,8 @@ const saveCustomer = async () => {
                     onClick={() => setBalanceAdjustment({...balanceAdjustment, type: 'debit'})}
                     className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 ${
                       balanceAdjustment.type === 'debit'
-                        ? 'bg-red-100 text-red-700 border-2 border-red-500'
-                        : 'bg-gray-100 text-gray-700 border border-gray-300'
+                        ? 'bg-destructive text-destructive-foreground'
+                        : 'bg-muted text-muted-foreground'
                     }`}
                   >
                     <ArrowDown className="w-4 h-4" />
@@ -994,7 +952,7 @@ const saveCustomer = async () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Amount (£)
                 </label>
                 <input
@@ -1003,31 +961,31 @@ const saveCustomer = async () => {
                   min="0.01"
                   value={balanceAdjustment.amount}
                   onChange={(e) => setBalanceAdjustment({...balanceAdjustment, amount: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="0.00"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Reason * (Will be audit logged)
                 </label>
                 <textarea
                   value={balanceAdjustment.reason}
                   onChange={(e) => setBalanceAdjustment({...balanceAdjustment, reason: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
                   placeholder="Reason for balance adjustment..."
                   rows={3}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   This action will be recorded in the audit logs
                 </p>
               </div>
               
               {balanceAdjustment.amount && !isNaN(parseFloat(balanceAdjustment.amount)) && (
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">New balance will be:</div>
-                  <div className="text-lg font-bold text-green-700">
+                <div className="p-3 bg-muted/50 rounded-lg border border-border">
+                  <div className="text-sm text-muted-foreground">New balance will be:</div>
+                  <div className="text-lg font-bold text-primary">
                     £{(getSafeNumber(selectedCustomer.balance) + 
                       (balanceAdjustment.type === 'credit' ? parseFloat(balanceAdjustment.amount) : -parseFloat(balanceAdjustment.amount))
                     ).toFixed(2)}
@@ -1036,20 +994,20 @@ const saveCustomer = async () => {
               )}
             </div>
             
-            <div className="p-6 border-t flex gap-3">
+            <div className="p-6 border-t border-border flex gap-3">
               <button
                 onClick={() => setShowAdjustBalanceModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={adjustCustomerBalance}
                 disabled={!balanceAdjustment.amount || !balanceAdjustment.reason.trim() || isNaN(parseFloat(balanceAdjustment.amount))}
-                className={`flex-1 px-4 py-2 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
+                className={`flex-1 px-4 py-2 text-primary-foreground rounded-lg font-medium flex items-center justify-center gap-2 ${
                   balanceAdjustment.type === 'credit'
-                    ? 'bg-green-600 hover:bg-green-700'
-                    : 'bg-red-600 hover:bg-red-700'
+                    ? 'bg-primary hover:opacity-90'
+                    : 'bg-destructive hover:opacity-90'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Save className="w-4 h-4" />
@@ -1062,48 +1020,48 @@ const saveCustomer = async () => {
 
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-green-700">Customers</h1>
-        <p className="text-green-600 mt-2">Manage your customers and view their transactions</p>
+        <h1 className="text-3xl font-bold text-foreground">Customers</h1>
+        <p className="text-muted-foreground mt-2">Manage your customers and view their transactions</p>
       </div>
       
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-green-600">Total Customers</p>
-              <p className="text-2xl font-bold mt-1 text-gray-900">{customers.length}</p>
+              <p className="text-sm font-medium text-muted-foreground">Total Customers</p>
+              <p className="text-2xl font-bold mt-1 text-foreground">{customers.length}</p>
             </div>
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <UserPlus className="w-6 h-6 text-blue-600" />
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <UserPlus className="w-6 h-6 text-primary" />
             </div>
           </div>
         </div>
         
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-green-600">Total Balance</p>
-              <p className="text-2xl font-bold mt-1 text-gray-900">
+              <p className="text-sm font-medium text-muted-foreground">Total Balance</p>
+              <p className="text-2xl font-bold mt-1 text-foreground">
                 £{customers.reduce((sum, c) => sum + getSafeNumber(c.balance), 0).toFixed(2)}
               </p>
             </div>
-            <div className="p-3 bg-green-50 rounded-lg">
-              <CreditCard className="w-6 h-6 text-green-600" />
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <CreditCard className="w-6 h-6 text-primary" />
             </div>
           </div>
         </div>
         
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-green-600">Active Accounts</p>
-              <p className="text-2xl font-bold mt-1 text-gray-900">
+              <p className="text-sm font-medium text-muted-foreground">Active Accounts</p>
+              <p className="text-2xl font-bold mt-1 text-foreground">
                 {customers.filter(c => getSafeNumber(c.balance) !== 0).length}
               </p>
             </div>
-            <div className="p-3 bg-purple-50 rounded-lg">
-              <ShoppingBag className="w-6 h-6 text-purple-600" />
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <ShoppingBag className="w-6 h-6 text-primary" />
             </div>
           </div>
         </div>
@@ -1112,25 +1070,25 @@ const saveCustomer = async () => {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left Column - Customers List */}
         <div className="lg:w-2/5">
-          {/* Search and Add Customer - Shows address search hint */}
-          <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
+          {/* Search and Add Customer */}
+          <div className="bg-card rounded-xl shadow-sm border border-border p-4 mb-4">
             <div className="flex gap-3">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
                 <input
                   type="text"
                   placeholder="Search by name, email, phone, or address..."
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
+                  className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground placeholder:text-muted-foreground"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <p className="text-xs text-gray-500 mt-1 ml-1">
+                <p className="text-xs text-muted-foreground mt-1 ml-1">
                   Tip: Search by postcode/ZIP code to find customers by area
                 </p>
               </div>
               <button
                 onClick={openAddCustomerModal}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 flex items-center gap-2 font-medium"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -1138,38 +1096,38 @@ const saveCustomer = async () => {
             </div>
           </div>
           
-          {/* Customers List - Show address if available */}
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          {/* Customers List */}
+          <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
             {loading ? (
               <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
-                <p className="mt-2 text-gray-500">Loading customers...</p>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-2 text-muted-foreground">Loading customers...</p>
               </div>
             ) : customers.length === 0 ? (
               <div className="p-8 text-center">
-                <UserPlus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No customers found</p>
+                <UserPlus className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+                <p className="text-muted-foreground">No customers found</p>
                 <button
                   onClick={openAddCustomerModal}
-                  className="mt-3 text-green-600 hover:text-green-700 font-medium"
+                  className="mt-3 text-primary hover:opacity-80 font-medium"
                 >
                   Add your first customer
                 </button>
               </div>
             ) : (
-              <div className="divide-y max-h-[70vh] overflow-y-auto">
+              <div className="divide-y divide-border max-h-[70vh] overflow-y-auto">
                 {customers.map((customer) => (
                   <div
                     key={customer.id}
-                    className={`p-4 cursor-pointer transition-colors hover:bg-gray-50 ${
-                      selectedCustomer?.id === customer.id ? 'bg-green-50 border-l-4 border-l-green-500' : ''
+                    className={`p-4 cursor-pointer transition-colors hover:bg-muted/50 ${
+                      selectedCustomer?.id === customer.id ? 'bg-primary/10 border-l-4 border-l-primary' : ''
                     }`}
                     onClick={() => handleCustomerSelect(customer)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{customer.name || 'Unnamed Customer'}</h3>
-                        <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                        <h3 className="font-semibold text-foreground">{customer.name || 'Unnamed Customer'}</h3>
+                        <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                           {customer.phone && (
                             <span className="flex items-center gap-1">
                               <Phone className="w-3 h-3" />
@@ -1184,7 +1142,7 @@ const saveCustomer = async () => {
                           )}
                         </div>
                         {customer.address && (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
+                          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                             <MapPin className="w-3 h-3 flex-shrink-0" />
                             <span className="truncate">{customer.address}</span>
                           </div>
@@ -1193,14 +1151,14 @@ const saveCustomer = async () => {
                       <div className="text-right">
                         <div className={`font-bold ${
                           getSafeNumber(customer.balance) > 0 
-                            ? 'text-green-600'  // Positive balance (customer has credit)
+                            ? 'text-primary'
                             : getSafeNumber(customer.balance) < 0 
-                            ? 'text-blue-600'   // Negative balance (customer owes)
-                            : 'text-gray-600'   // Zero balance
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
                         }`}>
                           £{getSafeNumber(customer.balance).toFixed(2)}
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-muted-foreground mt-1">
                           {formatDate(customer.created_at, false)}
                         </div>
                       </div>
@@ -1212,28 +1170,28 @@ const saveCustomer = async () => {
           </div>
         </div>
         
-        {/* Right Column - Customer Details and Transactions */}
+        {/* Right Column - Customer Details */}
         <div className="lg:w-3/5">
           {selectedCustomer ? (
             <>
-              {/* Customer Details Header - Show address prominently */}
-              <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+              {/* Customer Details Header */}
+              <div className="bg-card rounded-xl shadow-sm border border-border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <button
                         onClick={() => setSelectedCustomer(null)}
-                        className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                        className="p-1 hover:bg-muted rounded-lg transition-colors"
                         title="Back to list"
                       >
-                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                        <ChevronLeft className="w-5 h-5 text-muted-foreground" />
                       </button>
-                      <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name || 'Unnamed Customer'}</h2>
-                      <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
+                      <h2 className="text-2xl font-bold text-foreground">{selectedCustomer.name || 'Unnamed Customer'}</h2>
+                      <span className="text-xs px-2 py-1 bg-muted text-muted-foreground rounded">
                         ID: {getCustomerIdDisplay(selectedCustomer)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 mt-2 text-gray-600">
+                    <div className="flex items-center gap-4 mt-2 text-muted-foreground">
                       {selectedCustomer.phone && (
                         <span className="flex items-center gap-2">
                           <Phone className="w-4 h-4" />
@@ -1251,14 +1209,13 @@ const saveCustomer = async () => {
                         Since {formatDate(selectedCustomer.created_at, false)}
                       </span>
                     </div>
-                    {/* Show address prominently */}
                     {selectedCustomer.address && (
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
+                      <div className="mt-3 p-3 bg-muted/50 rounded-lg border border-border">
                         <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                          <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                           <div>
-                            <h3 className="text-sm font-semibold text-gray-700 mb-1">Address</h3>
-                            <p className="text-gray-600">{selectedCustomer.address}</p>
+                            <h3 className="text-sm font-semibold text-foreground mb-1">Address</h3>
+                            <p className="text-muted-foreground">{selectedCustomer.address}</p>
                           </div>
                         </div>
                       </div>
@@ -1267,25 +1224,25 @@ const saveCustomer = async () => {
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
                       getSafeNumber(selectedCustomer.balance) > 0 
-                        ? 'text-green-600'  // Positive
+                        ? 'text-primary'
                         : getSafeNumber(selectedCustomer.balance) < 0 
-                        ? 'text-blue-600'   // Negative
-                        : 'text-gray-600'   // Zero
+                        ? 'text-destructive'
+                        : 'text-muted-foreground'
                     }`}>
                       £{getSafeNumber(selectedCustomer.balance).toFixed(2)}
                     </div>
-                    <div className="text-sm text-gray-500">Current Balance</div>
+                    <div className="text-sm text-muted-foreground">Current Balance</div>
                     <div className="flex gap-2 mt-3">
                       <button
                         onClick={() => openEditCustomerModal(selectedCustomer)}
-                        className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center justify-center gap-1 font-medium"
+                        className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
                       >
                         <Edit className="w-3 h-3" />
                         Edit
                       </button>
                       <button
                         onClick={openAdjustBalanceModal}
-                        className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 flex items-center justify-center gap-1 font-medium"
+                        className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 flex items-center justify-center gap-1 font-medium"
                       >
                         <DollarSign className="w-3 h-3" />
                         Adjust Balance
@@ -1296,22 +1253,22 @@ const saveCustomer = async () => {
                 
                 {/* Customer Stats */}
                 <div className="grid grid-cols-3 gap-4 mb-6">
-                  <div className="bg-gray-50 p-4 rounded-lg border">
-                    <div className="text-sm font-medium text-gray-600">Total Spent</div>
-                    <div className="text-xl font-bold mt-1 text-gray-900">£{(stats.totalSpent || 0).toFixed(2)}</div>
-                    <div className="text-xs text-gray-500 mt-1">{stats.totalTransactions} transactions</div>
+                  <div className="bg-muted/50 p-4 rounded-lg border border-border">
+                    <div className="text-sm font-medium text-muted-foreground">Total Spent</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">£{(stats.totalSpent || 0).toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{stats.totalTransactions} transactions</div>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-lg border">
-                    <div className="text-sm font-medium text-gray-600">Items Purchased</div>
-                    <div className="text-xl font-bold mt-1 text-gray-900">{stats.itemsPurchased}</div>
-                    <div className="text-xs text-gray-500 mt-1">Total items</div>
+                  <div className="bg-muted/50 p-4 rounded-lg border border-border">
+                    <div className="text-sm font-medium text-muted-foreground">Items Purchased</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">{stats.itemsPurchased}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Total items</div>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-lg border">
-                    <div className="text-sm font-medium text-gray-600">Last Transaction</div>
-                    <div className="text-xl font-bold mt-1 text-gray-900">
+                  <div className="bg-muted/50 p-4 rounded-lg border border-border">
+                    <div className="text-sm font-medium text-muted-foreground">Last Transaction</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">
                       {stats.lastTransaction ? `£${getSafeNumber(stats.lastTransaction.total).toFixed(2)}` : 'None'}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1 truncate">
+                    <div className="text-xs text-muted-foreground mt-1 truncate">
                       {stats.lastTransaction ? formatDate(stats.lastTransaction.created_at, true) : 'No transactions'}
                     </div>
                   </div>
@@ -1320,25 +1277,25 @@ const saveCustomer = async () => {
                 {/* Customer Notes */}
                 {selectedCustomer.notes && (
                   <div className="mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Notes</h3>
-                    <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100">
-                      <p className="text-gray-700">{selectedCustomer.notes}</p>
+                    <h3 className="text-sm font-semibold text-foreground mb-2">Notes</h3>
+                    <div className="bg-accent/50 p-3 rounded-lg border border-border">
+                      <p className="text-foreground">{selectedCustomer.notes}</p>
                     </div>
                   </div>
                 )}
               </div>
               
               {/* Transactions */}
-              <div className="bg-white rounded-xl shadow-sm border">
-                <div className="p-6 border-b">
+              <div className="bg-card rounded-xl shadow-sm border border-border">
+                <div className="p-6 border-b border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-xl font-bold text-gray-900">Transaction History ({customerTransactions.length})</h2>
-                      <p className="text-sm text-gray-500 mt-1">All transactions for this customer</p>
+                      <h2 className="text-xl font-bold text-foreground">Transaction History ({customerTransactions.length})</h2>
+                      <p className="text-sm text-muted-foreground mt-1">All transactions for this customer</p>
                     </div>
                     <button
                       onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
-                      className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium"
+                      className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium"
                     >
                       Refresh
                     </button>
@@ -1347,58 +1304,58 @@ const saveCustomer = async () => {
                 
                 {loadingTransactions ? (
                   <div className="p-8 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
-                    <p className="mt-2 text-gray-500">Loading transactions...</p>
-                    </div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                    <p className="mt-2 text-muted-foreground">Loading transactions...</p>
+                  </div>
                 ) : customerTransactions.length === 0 ? (
                   <div className="p-8 text-center">
-                    <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500">No transactions found</p>
-                    <p className="text-sm text-gray-400 mt-1">Transactions will appear here after purchases</p>
+                    <Receipt className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+                    <p className="text-muted-foreground">No transactions found</p>
+                    <p className="text-sm text-muted-foreground/70 mt-1">Transactions will appear here after purchases</p>
                   </div>
                 ) : (
-                  <div className="divide-y">
+                  <div className="divide-y divide-border">
                     {customerTransactions.map((transaction) => (
-                      <div key={String(transaction.id)} className="p-4 hover:bg-gray-50">
+                      <div key={String(transaction.id)} className="p-4 hover:bg-muted/50">
                         <div className="flex items-center justify-between mb-2">
                           <div>
-                            <div className="font-semibold text-gray-900 flex items-center gap-2">
-                              <Hash className="w-4 h-4 text-gray-400" />
+                            <div className="font-semibold text-foreground flex items-center gap-2">
+                              <Hash className="w-4 h-4 text-muted-foreground" />
                               Transaction {getTransactionIdDisplay(transaction)}
                             </div>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                            <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Calendar className="w-3 h-3" />
                                 {formatDate(transaction.created_at, true)}
                               </span>
                               <span className={`px-2 py-0.5 rounded-full text-xs ${
                                 transaction.status === 'completed' 
-                                  ? 'bg-green-100 text-green-800'
+                                  ? 'bg-primary/20 text-primary'
                                   : transaction.status === 'pending'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
+                                  ? 'bg-accent text-foreground'
+                                  : 'bg-destructive/20 text-destructive'
                               }`}>
                                 {transaction.status || 'unknown'}
                               </span>
                               {transaction.staff_name && (
-                                <span className="text-gray-500">
+                                <span className="text-muted-foreground">
                                   by {transaction.staff_name}
                                 </span>
                               )}
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="font-bold text-gray-900">
+                            <div className="font-bold text-foreground">
                               £{getSafeNumber(transaction.total).toFixed(2)}
                             </div>
-                            <div className="text-sm text-gray-500 capitalize">
+                            <div className="text-sm text-muted-foreground capitalize">
                               {transaction.payment_method || 'unknown'}
                             </div>
                           </div>
                         </div>
                         
                         {/* Transaction Details */}
-                        <div className="mt-3 text-sm text-gray-600 space-y-1">
+                        <div className="mt-3 text-sm text-muted-foreground space-y-1">
                           <div className="flex justify-between">
                             <span>Subtotal:</span>
                             <span>£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
@@ -1410,7 +1367,7 @@ const saveCustomer = async () => {
                             </div>
                           )}
                           {transaction.notes && (
-                            <div className="mt-2 text-gray-500">
+                            <div className="mt-2 text-muted-foreground">
                               <span className="font-medium">Note:</span> {transaction.notes}
                             </div>
                           )}
@@ -1420,20 +1377,20 @@ const saveCustomer = async () => {
                         <div className="flex gap-2 mt-3">
                           <button
                             onClick={() => printTransactionReceipt(transaction)}
-                            className="flex-1 px-3 py-1.5 text-sm bg-green-50 text-green-600 rounded hover:bg-green-100 flex items-center justify-center gap-1 font-medium"
+                            className="flex-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded hover:bg-primary/20 flex items-center justify-center gap-1 font-medium"
                           >
                             <Printer className="w-3 h-3" />
                             Print Receipt
                           </button>
                           {getSafeNumber(transaction.balance_deducted) > 0 && (
-                            <div className="flex-1 px-3 py-1.5 text-sm bg-purple-50 text-purple-600 rounded flex items-center justify-center gap-1 font-medium">
+                            <div className="flex-1 px-3 py-1.5 text-sm bg-accent text-foreground rounded flex items-center justify-center gap-1 font-medium">
                               <DollarSign className="w-3 h-3" />
                               £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
                             </div>
                           )}
                           <button
                             onClick={() => viewTransactionItems(transaction)}
-                            className="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex items-center justify-center gap-1 font-medium"
+                            className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
                           >
                             <Package className="w-3 h-3" />
                             View Items
@@ -1446,12 +1403,11 @@ const saveCustomer = async () => {
               </div>
             </>
           ) : (
-            // No customer selected view
-            <div className="bg-white rounded-xl shadow-sm border h-full flex items-center justify-center p-12">
+            <div className="bg-card rounded-xl shadow-sm border border-border h-full flex items-center justify-center p-12">
               <div className="text-center">
-                <UserPlus className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">No Customer Selected</h3>
-                <p className="text-gray-500 max-w-sm">
+                <UserPlus className="w-16 h-16 text-muted-foreground/50 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-foreground mb-2">No Customer Selected</h3>
+                <p className="text-muted-foreground max-w-sm">
                   Select a customer from the list to view their details and transaction history
                 </p>
               </div>
@@ -1463,17 +1419,15 @@ const saveCustomer = async () => {
   );
 }
 
-// Rest of your code above remains the same...
-
 // Error fallback component
 function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-white rounded-xl shadow-lg border p-8">
+      <div className="bg-card rounded-xl shadow-lg border border-border p-8">
         <div className="flex items-center gap-4 mb-6">
-          <div className="p-3 bg-red-100 rounded-full">
+          <div className="p-3 bg-destructive/10 rounded-full">
             <svg 
-              className="w-8 h-8 text-red-600" 
+              className="w-8 h-8 text-destructive" 
               fill="none" 
               stroke="currentColor" 
               viewBox="0 0 24 24"
@@ -1487,14 +1441,14 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Customer Dashboard Error</h1>
-            <p className="text-gray-600 mt-1">Something went wrong while loading the customer data</p>
+            <h1 className="text-2xl font-bold text-foreground">Customer Dashboard Error</h1>
+            <p className="text-muted-foreground mt-1">Something went wrong while loading the customer data</p>
           </div>
         </div>
         
-        <div className="bg-gray-50 p-4 rounded-lg mb-6">
-          <p className="text-sm text-gray-700 mb-2">Error details:</p>
-          <code className="text-sm text-red-600 bg-red-50 p-3 rounded block overflow-auto">
+        <div className="bg-muted/50 p-4 rounded-lg mb-6 border border-border">
+          <p className="text-sm text-foreground mb-2">Error details:</p>
+          <code className="text-sm text-destructive bg-destructive/10 p-3 rounded block overflow-auto">
             {error?.message || 'Unknown error occurred'}
           </code>
         </div>
@@ -1502,13 +1456,13 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
         <div className="space-y-3">
           <button
             onClick={resetErrorBoundary}
-            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+            className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 font-medium transition-colors"
           >
             Try Loading Again
           </button>
           <button
             onClick={() => window.location.href = '/dashboard'}
-            className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition-colors"
+            className="w-full px-4 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium transition-colors"
           >
             Return to Dashboard
           </button>
@@ -1518,7 +1472,6 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
   );
 }
 
-// FIXED: Export CustomersPage as default
 export default function CustomersPage() {
   return (
     <ErrorBoundary fallback={<CustomersErrorFallback />}>
@@ -1526,9 +1479,3 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
-
-
-
-
-
-
