@@ -866,7 +866,7 @@ if (printReceiptOption) {
       subtotal: subtotal,
       vat: vat,
       total: grandTotal,
-      paymentMethod: "preview",
+      paymentMethod: "cash",
       products: cart.map(item => ({
         id: item.id,
         name: item.name,
@@ -2057,4 +2057,5 @@ if (printReceiptOption) {
     </div>
   );
 }
+
 
