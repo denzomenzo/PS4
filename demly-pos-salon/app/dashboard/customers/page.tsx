@@ -364,6 +364,14 @@ function CustomersContent() {
       }
 
       // Create receipt data matching POS.tsx structure
+      const receiptSettings = {
+        fontSize: 13,
+        footer: businessSettings?.receipt_footer || "Thank you for your business!",
+        showBarcode: businessSettings?.show_barcode_on_receipt !== false,
+        barcodeType: (businessSettings?.barcode_type || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
+        showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
+      };
+
       const receiptData: ReceiptData = {
         id: String(transaction.id),
         createdAt: transaction.created_at,
@@ -387,13 +395,7 @@ function CustomersContent() {
           taxNumber: businessSettings?.tax_number || businessSettings?.vat_number,
           logoUrl: businessSettings?.business_logo_url || businessSettings?.logo_url
         },
-        receiptSettings: {
-          fontSize: 13,
-          footer: businessSettings?.receipt_footer || "Thank you for your business!",
-          showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-          barcodeType: (businessSettings?.barcode_type || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
-          showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
-        },
+        receiptSettings: receiptSettings,
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
         staffName: transaction.staff_name || currentStaff?.name || 'Staff',
@@ -404,7 +406,7 @@ function CustomersContent() {
         transactionId: receiptData.id,
         itemsCount: receiptData.products.length,
         total: receiptData.total,
-        hasBarcode: receiptData.receiptSettings.showBarcode
+        hasBarcode: receiptSettings.showBarcode
       });
       
       setReceiptData(receiptData);
