@@ -876,7 +876,7 @@ if (printReceiptOption) {
         total: (item.price * item.quantity) - (item.discount || 0)
       })),
       customer: selectedCustomer ? {
-        id: selectedCustomer.id,
+        id: selectedCustomer.id.toString(),
         name: selectedCustomer.name,
         phone: selectedCustomer.phone || undefined,
         email: selectedCustomer.email || undefined,
@@ -2057,5 +2057,6 @@ if (printReceiptOption) {
     </div>
   );
 }
+
 
 
