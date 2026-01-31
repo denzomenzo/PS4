@@ -2011,7 +2011,7 @@ if (printReceiptOption) {
                             total: transaction.total || 0,
                             paymentMethod: transaction.payment_method || 'cash',
                             products: transaction.products || [],
-                            customer: customers.find(c => c.id === transaction.customer_id) ? {
+                            customer: customers.find(c => c.id === transaction.customer_id.toString()) ? {
                               id: customers.find(c => c.id === transaction.customer_id)!.id,
                               name: customers.find(c => c.id === transaction.customer_id)!.name,
                               phone: customers.find(c => c.id === transaction.customer_id)!.phone || undefined,
@@ -2057,6 +2057,7 @@ if (printReceiptOption) {
     </div>
   );
 }
+
 
 
 
