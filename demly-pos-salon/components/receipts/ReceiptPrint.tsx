@@ -57,6 +57,7 @@ interface ReceiptPrintProps {
 
 export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
+  const isPreview = data.id.toString().startsWith('PREVIEW-');
 
   const handlePrint = () => {
     if (receiptRef.current) {
@@ -278,9 +279,9 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
       </div>
 
       {/* Receipt Preview */}
-      <div className="flex justify-center p-8">
+      <div className="flex justify-center p-8 bg-slate-100">
         <div className="bg-white shadow-2xl" style={{ width: '80mm', minHeight: '200mm' }}>
-          <div ref={receiptRef} className="receipt p-4" style={{ fontFamily: "'Courier New', monospace" }}>
+          <div ref={receiptRef} className="receipt p-4" style={{ fontFamily: "'Courier New', monospace", color: '#000' }}>
             
             {/* Logo and Business Info */}
             <div className="logo-section">
@@ -441,7 +442,7 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
             )}
 
             {/* Barcode */}
-            {data.receiptSettings?.showBarcode !== false && (
+            {!isPreview && data.receiptSettings?.showBarcode !== false && (
               <div className="barcode-section" style={{ textAlign: 'center', margin: '20px 0' }}>
                 <Barcode 
                   value={String(data.id)}
