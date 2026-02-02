@@ -1,10 +1,10 @@
-// app/dashboard/card-terminal/page.tsx - COMPLETE CARD TERMINAL INTEGRATION
+// app/dashboard/card-terminal/page.tsx - PRODUCTION CARD TERMINAL
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, CreditCard, Check, Loader2, AlertCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, Check, Loader2, AlertCircle, Zap, X, ChevronDown } from "lucide-react";
 import Link from "next/link";
 
 interface Provider {
@@ -20,7 +20,6 @@ interface Provider {
 }
 
 const PROVIDERS: Provider[] = [
-  // TOP PROVIDERS
   {
     id: "worldpay",
     name: "Worldpay",
@@ -47,7 +46,7 @@ const PROVIDERS: Provider[] = [
     id: "square",
     name: "Square",
     logo: "⬛",
-    description: "All-in-one POS with card reader - Very popular for small businesses",
+    description: "All-in-one POS with card reader",
     fields: ["accessToken", "locationId"],
     connectionType: 'wifi',
     setupGuide: "https://squareup.com/gb/en",
@@ -58,7 +57,7 @@ const PROVIDERS: Provider[] = [
     id: "sumup",
     name: "SumUp",
     logo: "🔵",
-    description: "Mobile card readers - Very popular with sole traders & small shops",
+    description: "Mobile card readers for small businesses",
     fields: ["apiKey", "merchantCode"],
     connectionType: 'bluetooth',
     setupGuide: "https://sumup.co.uk/",
@@ -69,19 +68,18 @@ const PROVIDERS: Provider[] = [
     id: "zettle",
     name: "Zettle by PayPal",
     logo: "🅿️",
-    description: "PayPal's card reader - Popular with market stalls & mobile vendors",
+    description: "PayPal's card reader",
     fields: ["apiKey", "clientId"],
     connectionType: 'bluetooth',
     setupGuide: "https://www.zettle.com/gb",
     popularity: 5,
     ukMarketShare: "10%"
   },
-  // OTHER MAJOR UK PROVIDERS
   {
     id: "barclaycard",
     name: "Barclaycard Payments",
     logo: "🏦",
-    description: "Barclays bank card terminals - Smartpay series",
+    description: "Barclays bank card terminals",
     fields: ["merchantId", "terminalId", "apiKey"],
     connectionType: 'wifi',
     setupGuide: "https://www.barclaycard.co.uk/business/accepting-payments",
@@ -92,7 +90,7 @@ const PROVIDERS: Provider[] = [
     id: "dojo",
     name: "Dojo (Paymentsense)",
     logo: "🥋",
-    description: "Fast-growing UK provider - Portable & countertop terminals",
+    description: "Fast-growing UK provider",
     fields: ["merchantId", "terminalId", "apiKey"],
     connectionType: 'wifi',
     setupGuide: "https://www.dojo.tech/",
@@ -100,89 +98,15 @@ const PROVIDERS: Provider[] = [
     ukMarketShare: "7%"
   },
   {
-    id: "lloyds-cardnet",
-    name: "Lloyds Cardnet",
-    logo: "🐴",
-    description: "Lloyds Banking Group's payment service",
-    fields: ["merchantId", "terminalId"],
-    connectionType: 'wifi',
-    setupGuide: "https://www.lloydsbankinggroup.com/",
-    popularity: 8,
-    ukMarketShare: "6%"
-  },
-  {
-    id: "elavon",
-    name: "Elavon",
-    logo: "🔷",
-    description: "Global payment processor with strong UK presence",
-    fields: ["merchantId", "terminalId", "apiKey"],
-    connectionType: 'wifi',
-    setupGuide: "https://www.elavon.co.uk/",
-    popularity: 9,
-    ukMarketShare: "5%"
-  },
-  {
-    id: "handepay",
-    name: "Handepay",
-    logo: "🤝",
-    description: "UK mobile card payment specialist",
-    fields: ["merchantCode", "apiKey"],
-    connectionType: 'bluetooth',
-    setupGuide: "https://www.handepay.co.uk/",
-    popularity: 10,
-    ukMarketShare: "4%"
-  },
-  {
-    id: "takepayments",
-    name: "takepayments",
-    logo: "💷",
-    description: "UK card payment solutions - Portable terminals",
-    fields: ["merchantId", "apiKey"],
-    connectionType: 'bluetooth',
-    setupGuide: "https://www.takepayments.com/",
-    popularity: 11,
-    ukMarketShare: "3%"
-  },
-  {
     id: "clover",
     name: "Clover",
     logo: "☘️",
-    description: "All-in-one POS system by First Data",
+    description: "All-in-one POS system",
     fields: ["apiToken", "merchantId"],
     connectionType: 'wifi',
     setupGuide: "https://www.clover.com/gb",
-    popularity: 12,
+    popularity: 8,
     ukMarketShare: "2%"
-  },
-  {
-    id: "pax",
-    name: "PAX Technology",
-    logo: "🏧",
-    description: "PAX countertop terminals - A920, A80, popular in restaurants",
-    fields: ["terminalId", "merchantId"],
-    connectionType: 'wifi',
-    setupGuide: "https://www.paxtechnology.com/",
-    popularity: 13
-  },
-  {
-    id: "ingenico",
-    name: "Ingenico/Worldline",
-    logo: "🌐",
-    description: "Enterprise-grade terminals - Move 5000, Desk 5000",
-    fields: ["terminalIp", "port"],
-    connectionType: 'wifi',
-    setupGuide: "https://www.ingenico.com/",
-    popularity: 14
-  },
-  {
-    id: "verifone",
-    name: "Verifone",
-    logo: "✓",
-    description: "Global payment terminals - V400m series",
-    fields: ["terminalId", "merchantId"],
-    connectionType: 'wifi',
-    setupGuide: "https://www.verifone.com/",
-    popularity: 15
   }
 ];
 
@@ -190,9 +114,14 @@ export default function CardTerminal() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   
   const [enabled, setEnabled] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
+  const [showProviderList, setShowProviderList] = useState(true);
+  
+  // Connection fields
   const [apiKey, setApiKey] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [accessToken, setAccessToken] = useState("");
@@ -205,8 +134,11 @@ export default function CardTerminal() {
   const [port, setPort] = useState("10009");
   const [apiToken, setApiToken] = useState("");
   const [testMode, setTestMode] = useState(true);
+  
+  // Connection status
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'connected' | 'error'>('idle');
+  const [connectionMessage, setConnectionMessage] = useState("");
   const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<string>("Not connected");
 
   useEffect(() => {
     loadSettings();
@@ -224,6 +156,8 @@ export default function CardTerminal() {
     if (data) {
       setEnabled(data.enabled || false);
       setSelectedProvider(data.provider || "");
+      if (data.provider) setShowProviderList(false);
+      
       setApiKey(data.api_key || "");
       setDeviceId(data.device_id || "");
       setAccessToken(data.access_token || "");
@@ -236,6 +170,13 @@ export default function CardTerminal() {
       setPort(data.port || "10009");
       setApiToken(data.api_token || "");
       setTestMode(data.test_mode !== false);
+      
+      // Check if terminal is configured and set connection status
+      if (data.enabled && data.provider) {
+        setConnectionStatus('connected');
+        setIsConnected(true);
+        setConnectionMessage("Terminal configured and ready");
+      }
     }
     
     setLoading(false);
@@ -274,6 +215,12 @@ export default function CardTerminal() {
       if (error) throw error;
 
       alert("✅ Card terminal settings saved!");
+      
+      if (enabled && selectedProvider) {
+        setConnectionStatus('connected');
+        setIsConnected(true);
+        setConnectionMessage("Settings saved - Terminal ready to use");
+      }
     } catch (error: any) {
       console.error("Error saving settings:", error);
       alert("❌ Error saving settings: " + error.message);
@@ -288,8 +235,10 @@ export default function CardTerminal() {
       return;
     }
 
-    setConnectionStatus("Testing connection...");
-    
+    setTesting(true);
+    setConnectionStatus('testing');
+    setConnectionMessage("Testing connection to terminal...");
+
     try {
       const { data, error } = await supabase.functions.invoke('test-card-terminal', {
         body: {
@@ -297,28 +246,135 @@ export default function CardTerminal() {
           apiKey,
           deviceId,
           accessToken,
+          locationId,
+          merchantCode,
+          merchantId,
+          clientId,
+          terminalId,
           terminalIp,
           port,
+          apiToken,
           testMode
         }
       });
 
       if (error) throw error;
 
-      if (data?.connected) {
+      if (data?.success) {
+        setConnectionStatus('connected');
+        setConnectionMessage(data.message || "✅ Connection successful!");
         setIsConnected(true);
-        setConnectionStatus("✅ Connected successfully!");
-        alert("✅ Terminal connected successfully!");
+        alert("✅ Terminal connection successful!\n\n" + (data.details || "Terminal is ready to accept payments."));
       } else {
+        setConnectionStatus('error');
+        setConnectionMessage(data?.error || "Connection test failed");
         setIsConnected(false);
-        setConnectionStatus("❌ Connection failed");
-        alert("❌ Could not connect to terminal: " + (data?.error || "Unknown error"));
+        alert("❌ Connection Failed\n\n" + (data?.error || "Could not connect to terminal"));
       }
     } catch (error: any) {
       console.error("Connection test error:", error);
+      setConnectionStatus('error');
+      setConnectionMessage("Connection test failed: " + error.message);
       setIsConnected(false);
-      setConnectionStatus("❌ Connection failed");
-      alert("❌ Connection test failed: " + error.message);
+      alert("❌ Connection Test Failed\n\n" + error.message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const connectTerminal = async () => {
+    if (!selectedProvider) {
+      alert("Please select a provider first");
+      return;
+    }
+
+    // Validate required fields
+    const provider = PROVIDERS.find(p => p.id === selectedProvider);
+    if (!provider) return;
+
+    const missingFields = [];
+    if (provider.fields.includes("apiKey") && !apiKey) missingFields.push("API Key");
+    if (provider.fields.includes("accessToken") && !accessToken) missingFields.push("Access Token");
+    if (provider.fields.includes("merchantId") && !merchantId) missingFields.push("Merchant ID");
+    if (provider.fields.includes("apiToken") && !apiToken) missingFields.push("API Token");
+
+    if (missingFields.length > 0) {
+      alert("⚠️ Missing Required Fields\n\n" + missingFields.join(", "));
+      return;
+    }
+
+    setConnecting(true);
+    setConnectionStatus('testing');
+    setConnectionMessage("Establishing connection to terminal...");
+
+    try {
+      const { data, error } = await supabase.functions.invoke('connect-card-terminal', {
+        body: {
+          provider: selectedProvider,
+          apiKey,
+          deviceId,
+          accessToken,
+          locationId,
+          merchantCode,
+          merchantId,
+          clientId,
+          terminalId,
+          terminalIp,
+          port,
+          apiToken,
+          testMode
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        setConnectionStatus('connected');
+        setIsConnected(true);
+        setConnectionMessage("✅ Terminal connected and ready");
+        
+        // Auto-save settings after successful connection
+        await saveSettings();
+        
+        alert("✅ Terminal Connected Successfully!\n\n" + 
+          (data.terminal_info || "Terminal is online and ready to accept payments.") +
+          "\n\nSettings have been saved automatically.");
+      } else {
+        setConnectionStatus('error');
+        setConnectionMessage(data?.error || "Failed to connect");
+        setIsConnected(false);
+        alert("❌ Connection Failed\n\n" + (data?.error || "Could not establish connection to terminal"));
+      }
+    } catch (error: any) {
+      console.error("Connection error:", error);
+      setConnectionStatus('error');
+      setConnectionMessage("Connection failed: " + error.message);
+      setIsConnected(false);
+      alert("❌ Connection Failed\n\n" + error.message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const changeProvider = () => {
+    if (confirm("Change payment provider? This will clear current settings.")) {
+      setSelectedProvider("");
+      setShowProviderList(true);
+      setConnectionStatus('idle');
+      setIsConnected(false);
+      setConnectionMessage("");
+      // Clear all fields
+      setApiKey("");
+      setDeviceId("");
+      setAccessToken("");
+      setLocationId("");
+      setMerchantCode("");
+      setMerchantId("");
+      setClientId("");
+      setTerminalId("");
+      setTerminalIp("");
+      setPort("10009");
+      setApiToken("");
     }
   };
 
@@ -328,7 +384,6 @@ export default function CardTerminal() {
     switch (type) {
       case 'bluetooth': return '📶';
       case 'wifi': return '📡';
-      case 'usb': return '🔌';
       default: return '🌐';
     }
   };
@@ -345,7 +400,7 @@ export default function CardTerminal() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -392,19 +447,69 @@ export default function CardTerminal() {
             </button>
           </div>
 
-          {enabled && currentProvider && (
-            <div className="mt-4 p-3 bg-muted/50 rounded-lg border border-border">
+          {/* Connection Status */}
+          {enabled && selectedProvider && (
+            <div className={`mt-4 p-4 rounded-lg border ${
+              connectionStatus === 'connected' ? 'bg-primary/5 border-primary/20' :
+              connectionStatus === 'error' ? 'bg-destructive/5 border-destructive/20' :
+              connectionStatus === 'testing' ? 'bg-blue-500/5 border-blue-500/20' :
+              'bg-muted/50 border-border'
+            }`}>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
-                  <span className="text-sm text-foreground">{connectionStatus}</span>
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${
+                    connectionStatus === 'connected' ? 'bg-primary animate-pulse' :
+                    connectionStatus === 'error' ? 'bg-destructive' :
+                    connectionStatus === 'testing' ? 'bg-blue-500 animate-pulse' :
+                    'bg-muted-foreground'
+                  }`} />
+                  <div>
+                    <p className={`text-sm font-medium ${
+                      connectionStatus === 'connected' ? 'text-primary' :
+                      connectionStatus === 'error' ? 'text-destructive' :
+                      'text-foreground'
+                    }`}>
+                      {connectionStatus === 'connected' ? '✅ Connected' :
+                       connectionStatus === 'error' ? '❌ Connection Error' :
+                       connectionStatus === 'testing' ? '⏳ Testing...' :
+                       'Not Connected'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{connectionMessage}</p>
+                  </div>
                 </div>
-                <button
-                  onClick={testConnection}
-                  className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors"
-                >
-                  Test Connection
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={testConnection}
+                    disabled={testing || connecting}
+                    className="px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {testing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                        Testing...
+                      </>
+                    ) : (
+                      'Test Connection'
+                    )}
+                  </button>
+                  <button
+                    onClick={connectTerminal}
+                    disabled={testing || connecting}
+                    className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {connecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        Connect Terminal
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -414,55 +519,75 @@ export default function CardTerminal() {
           <>
             {/* Provider Selection */}
             <div className="bg-card border border-border rounded-xl p-6">
-              <h2 className="text-xl font-bold text-foreground mb-4">Select Payment Provider</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {PROVIDERS.map((provider) => (
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-foreground">
+                  {selectedProvider && !showProviderList ? "Selected Provider" : "Select Payment Provider"}
+                </h2>
+                {selectedProvider && !showProviderList && (
                   <button
-                    key={provider.id}
-                    onClick={() => setSelectedProvider(provider.id)}
-                    className={`p-4 rounded-lg border-2 transition-all text-left ${
-                      selectedProvider === provider.id
-                        ? 'bg-primary/10 border-primary'
-                        : 'bg-muted/50 border-border hover:border-muted-foreground/50'
-                    }`}
+                    onClick={changeProvider}
+                    className="text-sm text-primary hover:underline flex items-center gap-1"
                   >
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-3xl">{provider.logo}</span>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-base font-bold text-foreground truncate">{provider.name}</h3>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <span>{getConnectionIcon(provider.connectionType)}</span>
-                          <span className="capitalize">{provider.connectionType}</span>
-                          {provider.ukMarketShare && (
-                            <span className="ml-2 text-primary">• {provider.ukMarketShare}</span>
-                          )}
-                        </div>
-                      </div>
-                      {selectedProvider === provider.id && (
-                        <Check className="w-5 h-5 text-primary flex-shrink-0" />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{provider.description}</p>
+                    <X className="w-4 h-4" />
+                    Change Provider
                   </button>
-                ))}
+                )}
               </div>
+              
+              {showProviderList ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {PROVIDERS.map((provider) => (
+                    <button
+                      key={provider.id}
+                      onClick={() => {
+                        setSelectedProvider(provider.id);
+                        setShowProviderList(false);
+                      }}
+                      className="p-4 rounded-lg border-2 border-border hover:border-primary/50 transition-all text-left bg-background"
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-3xl">{provider.logo}</span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-bold text-foreground truncate">{provider.name}</h3>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{getConnectionIcon(provider.connectionType)}</span>
+                            <span className="capitalize">{provider.connectionType}</span>
+                            {provider.ukMarketShare && (
+                              <span className="text-primary">• {provider.ukMarketShare}</span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronDown className="w-5 h-5 text-muted-foreground -rotate-90" />
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-1">{provider.description}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : currentProvider && (
+                <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-4xl">{currentProvider.logo}</span>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground">{currentProvider.name}</h3>
+                      <p className="text-sm text-muted-foreground">{currentProvider.description}</p>
+                      <a
+                        href={currentProvider.setupGuide}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline mt-1 inline-block"
+                      >
+                        View Setup Guide →
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Provider Configuration */}
-            {currentProvider && (
+            {currentProvider && !showProviderList && (
               <div className="bg-card border border-border rounded-xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-foreground">Configure {currentProvider.name}</h2>
-                  <a
-                    href={currentProvider.setupGuide}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline"
-                  >
-                    Setup Guide →
-                  </a>
-                </div>
+                <h2 className="text-xl font-bold text-foreground mb-4">Terminal Configuration</h2>
 
                 <div className="space-y-4">
                   {currentProvider.fields.includes("apiKey") && (
@@ -474,12 +599,9 @@ export default function CardTerminal() {
                         type="password"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="sk_test_..."
+                        placeholder="sk_live_..."
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Find this in your {currentProvider.name} dashboard under API settings
-                      </p>
                     </div>
                   )}
 
@@ -495,9 +617,6 @@ export default function CardTerminal() {
                         placeholder="tmr_xxxxxxxxxxxxx"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Pair your reader first, then enter its ID here
-                      </p>
                     </div>
                   )}
 
@@ -510,7 +629,7 @@ export default function CardTerminal() {
                         type="password"
                         value={accessToken}
                         onChange={(e) => setAccessToken(e.target.value)}
-                        placeholder="Enter your access token..."
+                        placeholder="Enter access token..."
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -525,7 +644,7 @@ export default function CardTerminal() {
                         type="text"
                         value={locationId}
                         onChange={(e) => setLocationId(e.target.value)}
-                        placeholder="Your business location ID"
+                        placeholder="Location ID"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -540,7 +659,7 @@ export default function CardTerminal() {
                         type="text"
                         value={merchantCode}
                         onChange={(e) => setMerchantCode(e.target.value)}
-                        placeholder="Your merchant code"
+                        placeholder="Merchant code"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -555,7 +674,7 @@ export default function CardTerminal() {
                         type="text"
                         value={merchantId}
                         onChange={(e) => setMerchantId(e.target.value)}
-                        placeholder="Your merchant ID"
+                        placeholder="Merchant ID"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -570,7 +689,7 @@ export default function CardTerminal() {
                         type="text"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
-                        placeholder="Your client ID"
+                        placeholder="Client ID"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -585,7 +704,7 @@ export default function CardTerminal() {
                         type="text"
                         value={terminalId}
                         onChange={(e) => setTerminalId(e.target.value)}
-                        placeholder="Terminal serial number"
+                        placeholder="Terminal serial"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
@@ -594,23 +713,23 @@ export default function CardTerminal() {
                   {currentProvider.fields.includes("apiToken") && (
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-1.5">
-                        API Token
+                        API Token *
                       </label>
                       <input
                         type="password"
                         value={apiToken}
                         onChange={(e) => setApiToken(e.target.value)}
-                        placeholder="Your API token"
+                        placeholder="API token"
                         className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
                   )}
 
                   {currentProvider.fields.includes("terminalIp") && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1.5">
-                          Terminal IP Address
+                          Terminal IP
                         </label>
                         <input
                           type="text"
@@ -635,11 +754,11 @@ export default function CardTerminal() {
                     </div>
                   )}
 
-                  {/* Test Mode Toggle */}
+                  {/* Test Mode */}
                   <div className="flex items-center justify-between bg-muted/50 border border-border p-4 rounded-lg">
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Test Mode</h3>
-                      <p className="text-xs text-muted-foreground">Use test credentials (no real charges)</p>
+                      <p className="text-xs text-muted-foreground">Use sandbox credentials (no real charges)</p>
                     </div>
                     <button
                       onClick={() => setTestMode(!testMode)}
@@ -658,7 +777,7 @@ export default function CardTerminal() {
               </div>
             )}
 
-            {/* Setup Instructions */}
+            {/* Info Box */}
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
               <div className="flex gap-4">
                 <AlertCircle className="w-6 h-6 text-primary flex-shrink-0" />
@@ -667,23 +786,23 @@ export default function CardTerminal() {
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2">
                       <span className="text-primary">1.</span>
-                      <span>Create account with your chosen provider and get API credentials</span>
+                      <span>Select your payment provider above</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary">2.</span>
-                      <span>For Bluetooth readers: Pair device in your device settings first</span>
+                      <span>Enter your API credentials from the provider's dashboard</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary">3.</span>
-                      <span>For WiFi terminals: Ensure terminal is on same network as POS</span>
+                      <span>Click "Connect Terminal" to establish connection</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary">4.</span>
-                      <span>Enable test mode and test transactions before going live</span>
+                      <span>Test the connection to verify everything works</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary">5.</span>
-                      <span>Click "Test Connection" to verify terminal is reachable</span>
+                      <span>Save settings and start accepting payments!</span>
                     </li>
                   </ul>
                 </div>
@@ -706,7 +825,7 @@ export default function CardTerminal() {
           ) : (
             <>
               <Check className="w-6 h-6" />
-              Save Card Terminal Settings
+              Save Settings
             </>
           )}
         </button>
