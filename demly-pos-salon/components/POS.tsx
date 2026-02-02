@@ -6,6 +6,7 @@ import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
+import { BroadcastChannel } from 'broadcast-channel';
 import { processCardPayment } from "@/lib/cardPaymentProcessor"; // STEP 1: ADD CARD PAYMENT PROCESSOR
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import { 
@@ -298,6 +299,75 @@ export default function POS() {
       setFilteredProducts(products);
     }
   }, [searchQuery, products]);
+
+  const broadcastChannel = new BroadcastChannel('pos-display');
+
+
+  const broadcastCartUpdate = useCallback(() => {
+  if (activeTransaction && cart.length > 0) {
+    const broadcastData = {
+      staffId: currentStaff?.id,
+      staffName: currentStaff?.name,
+      transactionId: activeTransaction.id,
+      transactionName: activeTransaction.name,
+      cart: cart.map(item => ({
+        id: item.id,
+        cartId: item.cartId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        discount: item.discount || 0,
+        icon: item.icon,
+        image_url: item.image_url,
+        note: item.note
+      })),
+      subtotal: subtotal,
+      vat: vat,
+      grandTotal: grandTotal,
+      customerId: customerId,
+      customerName: selectedCustomer?.name || null,
+      timestamp: Date.now()
+    };
+    
+    broadcastChannel.postMessage(broadcastData);
+    
+    // Also send via Supabase realtime for cross-tab sync
+    if (currentStaff?.id) {
+      supabase.channel(`pos-display-${currentStaff.id}`).send({
+        type: 'broadcast',
+        event: 'cart-update',
+        payload: broadcastData
+      });
+    }
+  } else {
+    // Clear the display when cart is empty
+    broadcastChannel.postMessage({ 
+      staffId: currentStaff?.id,
+      clear: true,
+      timestamp: Date.now() 
+    });
+    
+    if (currentStaff?.id) {
+      supabase.channel(`pos-display-${currentStaff.id}`).send({
+        type: 'broadcast',
+        event: 'cart-update',
+        payload: { staffId: currentStaff.id, clear: true }
+      });
+    }
+  }
+}, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff]);
+
+// Add this effect to broadcast cart changes
+useEffect(() => {
+  broadcastCartUpdate();
+}, [cart, subtotal, vat, grandTotal, broadcastCartUpdate]);
+
+// Add cleanup effect
+useEffect(() => {
+  return () => {
+    broadcastChannel.close();
+  };
+}, []);
 
   // Barcode scanner
   // STEP 4: UPDATE handleBarcodeScan (add beep sound)
@@ -2194,3 +2264,4 @@ export default function POS() {
     </div>
   );
 }
+
