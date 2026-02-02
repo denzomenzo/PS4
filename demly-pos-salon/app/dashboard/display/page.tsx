@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
-import { ShoppingCart, Check, Loader2, User, Store, Receipt, CreditCard } from 'lucide-react';
+import { ShoppingCart, Check, Loader2, User, Store, Receipt, CreditCard, Wifi, WifiOff } from 'lucide-react';
 
 interface CartItem {
   id: number;
@@ -43,6 +43,7 @@ export default function CustomerDisplay() {
   const [loading, setLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
+  const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
 
   // Load business settings
   useEffect(() => {
@@ -73,7 +74,40 @@ export default function CustomerDisplay() {
     loadBusinessInfo();
   }, []);
 
-  // Listen for cart updates
+  // Setup BroadcastChannel
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('pos-display');
+        setBroadcastChannel(channel);
+
+        channel.onmessage = (event: MessageEvent) => {
+          const data = event.data;
+          console.log('BroadcastChannel update:', data);
+          handleDisplayUpdate(data);
+        };
+
+        return () => {
+          channel.close();
+        };
+      } catch (error) {
+        console.warn('BroadcastChannel not supported:', error);
+      }
+    }
+  }, []);
+
+  // Handle display updates
+  const handleDisplayUpdate = useCallback((data: any) => {
+    if (data.clear) {
+      setDisplayData(null);
+    } else if (data.staffId === currentStaff?.id) {
+      setDisplayData(data);
+      setLastUpdate(Date.now());
+    }
+    setConnectionStatus('connected');
+  }, [currentStaff?.id]);
+
+  // Listen for cart updates via Supabase
   useEffect(() => {
     if (!currentStaff?.id) return;
 
@@ -93,15 +127,8 @@ export default function CustomerDisplay() {
         }
       })
         .on('broadcast', { event: 'cart-update' }, (payload: any) => {
-          console.log('Received update:', payload.payload);
-          
-          if (payload.payload.clear) {
-            setDisplayData(null);
-          } else if (payload.payload.staffId === currentStaff.id) {
-            setDisplayData(payload.payload);
-            setLastUpdate(Date.now());
-          }
-          setConnectionStatus('connected');
+          console.log('Supabase update:', payload.payload);
+          handleDisplayUpdate(payload.payload);
         })
         .subscribe((status) => {
           console.log('Channel status:', status);
@@ -114,22 +141,7 @@ export default function CustomerDisplay() {
           }
         });
 
-      // Also listen via BroadcastChannel for same-tab updates
-      const broadcastChannel = new BroadcastChannel('pos-display');
-      broadcastChannel.onmessage = (data: DisplayData | { clear: boolean }) => {
-        console.log('Broadcast channel update:', data);
-        if ('clear' in data) {
-          if (data.clear) {
-            setDisplayData(null);
-          }
-        } else if (data.staffId === currentStaff.id) {
-          setDisplayData(data);
-          setLastUpdate(Date.now());
-        }
-      };
-
       return () => {
-        broadcastChannel.close();
         supabase.removeChannel(channel);
         clearTimeout(timeoutId);
       };
@@ -139,7 +151,7 @@ export default function CustomerDisplay() {
     setLoading(false);
 
     return cleanup;
-  }, [currentStaff?.id]);
+  }, [currentStaff?.id, handleDisplayUpdate]);
 
   // Format currency
   const formatCurrency = (amount: number) => {
@@ -201,11 +213,11 @@ export default function CustomerDisplay() {
               <div className="flex items-center gap-4">
                 {/* Connection Status */}
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    connectionStatus === 'connected' ? 'bg-emerald-500 animate-pulse' :
-                    connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' :
-                    'bg-destructive'
-                  }`} />
+                  {connectionStatus === 'connected' ? (
+                    <Wifi className="w-5 h-5 text-emerald-500" />
+                  ) : (
+                    <WifiOff className="w-5 h-5 text-destructive" />
+                  )}
                   <span className="text-sm text-muted-foreground">
                     {connectionStatus === 'connected' ? 'Connected' :
                      connectionStatus === 'connecting' ? 'Connecting...' :
