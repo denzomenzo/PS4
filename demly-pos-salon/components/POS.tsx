@@ -62,6 +62,32 @@ interface SplitPayment {
   remaining: number;
 }
 
+interface DisplayBroadcastData {
+  staffId?: number;
+  staffName?: string;
+  transactionId?: string;
+  transactionName?: string;
+  cart?: Array<{
+    id: number;
+    cartId: string;
+    name: string;
+    price: number;
+    quantity: number;
+    discount: number;
+    icon: string;
+    image_url?: string | null;
+    note?: string;
+  }>;
+  subtotal?: number;
+  vat?: number;
+  grandTotal?: number;
+  customerId?: string;
+  customerName?: string | null;
+  timestamp?: number;
+  clear?: boolean;
+}
+
+
 // Helper functions
 const getSafeNumber = (value: any): number => {
   if (value == null) return 0;
@@ -2264,4 +2290,5 @@ useEffect(() => {
     </div>
   );
 }
+
 
