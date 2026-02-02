@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
-import { BroadcastChannel } from 'broadcast-channel';
-import { processCardPayment } from "@/lib/cardPaymentProcessor"; // STEP 1: ADD CARD PAYMENT PROCESSOR
+import { processCardPayment } from "@/lib/cardPaymentProcessor";
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
@@ -87,7 +86,6 @@ interface DisplayBroadcastData {
   clear?: boolean;
 }
 
-
 // Helper functions
 const getSafeNumber = (value: any): number => {
   if (value == null) return 0;
@@ -165,7 +163,7 @@ export default function POS() {
   const [vatEnabled, setVatEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   
-  // STEP 2: ADD HARDWARE STATE (updated with proper typing)
+  // Hardware State
   const [hardwareSettings, setHardwareSettings] = useState<{
     printer_enabled: boolean;
     cash_drawer_enabled: boolean;
@@ -222,6 +220,9 @@ export default function POS() {
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   
+  // Broadcast channel ref
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  
   // Transactions
   const { 
     transactions, 
@@ -257,9 +258,7 @@ export default function POS() {
   const grandTotal = subtotal + vat;
   const customerBalance = selectedCustomer ? getBalance(selectedCustomer.balance) : 0;
 
-  // STEP 3: ADD HELPER FUNCTIONS
-
-  // Play scanner beep sound
+  // Hardware Helper Functions
   const playBeep = () => {
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -281,7 +280,6 @@ export default function POS() {
     }
   };
 
-  // Open cash drawer
   const openCashDrawer = async () => {
     try {
       console.log('📂 Opening cash drawer...');
@@ -292,6 +290,80 @@ export default function POS() {
       console.error('Failed to open cash drawer:', error);
     }
   };
+
+  // Broadcast Functions
+  const initializeBroadcast = useCallback(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        broadcastChannelRef.current = new BroadcastChannel('pos-display');
+      } catch (error) {
+        console.warn('BroadcastChannel not supported:', error);
+      }
+    }
+  }, []);
+
+  const broadcastCartUpdate = useCallback((data: DisplayBroadcastData) => {
+    // Send via BroadcastChannel if available
+    if (broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage(data);
+      } catch (error) {
+        console.warn('Failed to broadcast via BroadcastChannel:', error);
+      }
+    }
+
+    // Always send via Supabase realtime for cross-device support
+    if (data.staffId) {
+      supabase.channel(`pos-display-${data.staffId}`).send({
+        type: 'broadcast',
+        event: 'cart-update',
+        payload: data
+      });
+    }
+  }, []);
+
+  const closeBroadcast = useCallback(() => {
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.close();
+    }
+  }, []);
+
+  const broadcastCartUpdateToDisplay = useCallback(() => {
+    if (activeTransaction && cart.length > 0 && currentStaff?.id) {
+      const broadcastData: DisplayBroadcastData = {
+        staffId: currentStaff.id,
+        staffName: currentStaff.name,
+        transactionId: activeTransaction.id,
+        transactionName: activeTransaction.name,
+        cart: cart.map(item => ({
+          id: item.id,
+          cartId: item.cartId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          discount: item.discount || 0,
+          icon: item.icon,
+          image_url: item.image_url,
+          note: item.note
+        })),
+        subtotal: subtotal,
+        vat: vat,
+        grandTotal: grandTotal,
+        customerId: customerId,
+        customerName: selectedCustomer?.name || null,
+        timestamp: Date.now()
+      };
+      
+      broadcastCartUpdate(broadcastData);
+    } else if (currentStaff?.id) {
+      // Clear the display when cart is empty
+      broadcastCartUpdate({
+        staffId: currentStaff.id,
+        clear: true,
+        timestamp: Date.now()
+      });
+    }
+  }, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff, broadcastCartUpdate]);
 
   // Effects
   useEffect(() => {
@@ -326,136 +398,20 @@ export default function POS() {
     }
   }, [searchQuery, products]);
 
-  const broadcastChannel = new BroadcastChannel('pos-display');
-
-
-  const broadcastCartUpdate = useCallback(() => {
-  if (activeTransaction && cart.length > 0) {
-    const broadcastData = {
-      staffId: currentStaff?.id,
-      staffName: currentStaff?.name,
-      transactionId: activeTransaction.id,
-      transactionName: activeTransaction.name,
-      cart: cart.map(item => ({
-        id: item.id,
-        cartId: item.cartId,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        discount: item.discount || 0,
-        icon: item.icon,
-        image_url: item.image_url,
-        note: item.note
-      })),
-      subtotal: subtotal,
-      vat: vat,
-      grandTotal: grandTotal,
-      customerId: customerId,
-      customerName: selectedCustomer?.name || null,
-      timestamp: Date.now()
+  // Initialize broadcast
+  useEffect(() => {
+    initializeBroadcast();
+    return () => {
+      closeBroadcast();
     };
-    
-    broadcastChannel.postMessage(broadcastData);
-    
-    // Also send via Supabase realtime for cross-tab sync
-    if (currentStaff?.id) {
-      supabase.channel(`pos-display-${currentStaff.id}`).send({
-        type: 'broadcast',
-        event: 'cart-update',
-        payload: broadcastData
-      });
-    }
-  } else {
-    // Clear the display when cart is empty
-    broadcastChannel.postMessage({ 
-      staffId: currentStaff?.id,
-      clear: true,
-      timestamp: Date.now() 
-    });
-    
-    if (currentStaff?.id) {
-      supabase.channel(`pos-display-${currentStaff.id}`).send({
-        type: 'broadcast',
-        event: 'cart-update',
-        payload: { staffId: currentStaff.id, clear: true }
-      });
-    }
-  }
-}, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff]);
+  }, [initializeBroadcast, closeBroadcast]);
 
-// Add this effect to broadcast cart changes
-useEffect(() => {
-  broadcastCartUpdate();
-}, [cart, subtotal, vat, grandTotal, broadcastCartUpdate]);
-
-// Add cleanup effect
-useEffect(() => {
-  return () => {
-    broadcastChannel.close();
-  };
-}, []);
-
-
-  const { 
-  initializeBroadcast, 
-  broadcastCartUpdate, 
-  closeBroadcast 
-} = useDisplayBroadcast();
-
-// Initialize broadcast channel on mount
-useEffect(() => {
-  initializeBroadcast();
-  return () => {
-    closeBroadcast();
-  };
-}, [initializeBroadcast, closeBroadcast]);
-
-// Update the broadcastCartUpdate function in your POS component:
-const broadcastCartUpdateToDisplay = useCallback(() => {
-  if (activeTransaction && cart.length > 0 && currentStaff?.id) {
-    const broadcastData: DisplayBroadcastData = {
-      staffId: currentStaff.id,
-      staffName: currentStaff.name,
-      transactionId: activeTransaction.id,
-      transactionName: activeTransaction.name,
-      cart: cart.map(item => ({
-        id: item.id,
-        cartId: item.cartId,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        discount: item.discount || 0,
-        icon: item.icon,
-        image_url: item.image_url,
-        note: item.note
-      })),
-      subtotal: subtotal,
-      vat: vat,
-      grandTotal: grandTotal,
-      customerId: customerId,
-      customerName: selectedCustomer?.name || null,
-      timestamp: Date.now()
-    };
-    
-    broadcastCartUpdate(broadcastData);
-  } else if (currentStaff?.id) {
-    // Clear the display when cart is empty
-    broadcastCartUpdate({
-      staffId: currentStaff.id,
-      clear: true,
-      timestamp: Date.now()
-    });
-  }
-}, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff, broadcastCartUpdate]);
-
-// Add this effect to broadcast cart changes
-useEffect(() => {
-  broadcastCartUpdateToDisplay();
-}, [cart, subtotal, vat, grandTotal, broadcastCartUpdateToDisplay]);
-
+  // Broadcast cart changes
+  useEffect(() => {
+    broadcastCartUpdateToDisplay();
+  }, [cart, subtotal, vat, grandTotal, broadcastCartUpdateToDisplay]);
 
   // Barcode scanner
-  // STEP 4: UPDATE handleBarcodeScan (add beep sound)
   const handleBarcodeScan = useCallback((barcode: string) => {
     const product = products.find((p) => p.barcode === barcode || p.sku === barcode);
     if (product) {
@@ -477,7 +433,7 @@ useEffect(() => {
     playSoundOnScan: hardwareSettings?.scanner_sound_enabled !== false,
   });
 
-  // STEP 5: UPDATE loadData() to include hardware settings
+  // Data loading
   const loadData = async () => {
     setLoading(true);
     try {
@@ -774,7 +730,6 @@ useEffect(() => {
     setCustomerId("");
   };
 
-  // STEP 11: UPDATE noSale() - OPEN CASH DRAWER
   const noSale = async () => {
     if (!confirm("Open cash drawer without recording a sale?")) return;
 
@@ -798,7 +753,6 @@ useEffect(() => {
     }
   };
 
-  // STEP 10: UPDATE checkout() - SET AUTO-PRINT DEFAULT
   const checkout = () => {
     if (cart.length === 0) return alert("Cart is empty");
     
@@ -828,7 +782,6 @@ useEffect(() => {
       const amountToPay = parseFloat(customAmount) || grandTotal;
 
       // Payment method logic
-      // STEP 6: UPDATE processPayment() - REPLACE CASH PAYMENT SECTION
       if (paymentMethod === "cash") {
         paymentSuccess = true;
         
@@ -838,7 +791,6 @@ useEffect(() => {
         }
         
       } else if (paymentMethod === "card") {
-        // STEP 7: UPDATE processPayment() - REPLACE CARD PAYMENT SECTION
         // Get card terminal settings
         const { data: cardSettings } = await supabase
           .from("card_terminal_settings")
@@ -954,7 +906,6 @@ useEffect(() => {
           balance: splitPayment.balance
         };
 
-        // STEP 8: UPDATE processPayment() - ADD CASH DRAWER FOR SPLIT PAYMENT
         // Open cash drawer for split payment with cash component
         if (hardwareSettings?.cash_drawer_enabled && splitPayment.cash > 0) {
           await openCashDrawer();
@@ -1066,7 +1017,7 @@ useEffect(() => {
         staffId: currentStaff?.id,
       });
 
-      // STEP 9: UPDATE processPayment() - AUTO-PRINT RECEIPTS
+      // AUTO-PRINT RECEIPTS
       const shouldPrint = printReceiptOption || hardwareSettings?.auto_print_receipt;
 
       if (shouldPrint) {
@@ -1100,7 +1051,7 @@ useEffect(() => {
             phone: receiptSettings?.business_phone,
             email: receiptSettings?.business_email,
             taxNumber: receiptSettings?.tax_number,
-            logoUrl: receiptSettings?.business_logo_url // Fixed from receipt_logo_url
+            logoUrl: receiptSettings?.business_logo_url
           },
           receiptSettings: {
             fontSize: receiptSettings?.receipt_font_size || 12,
@@ -1694,7 +1645,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* All Modals - Updated to match layout style */}
+      {/* All Modals */}
       {/* Discount Modal */}
       {showDiscountModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -2349,6 +2300,3 @@ useEffect(() => {
     </div>
   );
 }
-
-
-
