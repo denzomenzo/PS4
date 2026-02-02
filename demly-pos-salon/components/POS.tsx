@@ -395,6 +395,65 @@ useEffect(() => {
   };
 }, []);
 
+
+  const { 
+  initializeBroadcast, 
+  broadcastCartUpdate, 
+  closeBroadcast 
+} = useDisplayBroadcast();
+
+// Initialize broadcast channel on mount
+useEffect(() => {
+  initializeBroadcast();
+  return () => {
+    closeBroadcast();
+  };
+}, [initializeBroadcast, closeBroadcast]);
+
+// Update the broadcastCartUpdate function in your POS component:
+const broadcastCartUpdateToDisplay = useCallback(() => {
+  if (activeTransaction && cart.length > 0 && currentStaff?.id) {
+    const broadcastData: DisplayBroadcastData = {
+      staffId: currentStaff.id,
+      staffName: currentStaff.name,
+      transactionId: activeTransaction.id,
+      transactionName: activeTransaction.name,
+      cart: cart.map(item => ({
+        id: item.id,
+        cartId: item.cartId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        discount: item.discount || 0,
+        icon: item.icon,
+        image_url: item.image_url,
+        note: item.note
+      })),
+      subtotal: subtotal,
+      vat: vat,
+      grandTotal: grandTotal,
+      customerId: customerId,
+      customerName: selectedCustomer?.name || null,
+      timestamp: Date.now()
+    };
+    
+    broadcastCartUpdate(broadcastData);
+  } else if (currentStaff?.id) {
+    // Clear the display when cart is empty
+    broadcastCartUpdate({
+      staffId: currentStaff.id,
+      clear: true,
+      timestamp: Date.now()
+    });
+  }
+}, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff, broadcastCartUpdate]);
+
+// Add this effect to broadcast cart changes
+useEffect(() => {
+  broadcastCartUpdateToDisplay();
+}, [cart, subtotal, vat, grandTotal, broadcastCartUpdateToDisplay]);
+
+
   // Barcode scanner
   // STEP 4: UPDATE handleBarcodeScan (add beep sound)
   const handleBarcodeScan = useCallback((barcode: string) => {
@@ -2290,5 +2349,6 @@ useEffect(() => {
     </div>
   );
 }
+
 
 
