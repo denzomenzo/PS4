@@ -280,16 +280,78 @@ export default function POS() {
     }
   };
 
-  const openCashDrawer = async () => {
-    try {
-      console.log('📂 Opening cash drawer...');
-      // ESC/POS command: ESC p m t1 t2
-      const command = new Uint8Array([27, 112, 0, 50, 250]);
-      console.log('✅ Cash drawer command sent');
-    } catch (error) {
-      console.error('Failed to open cash drawer:', error);
+const openCashDrawer = async () => {
+  try {
+    console.log('📂 Opening cash drawer...');
+    
+    // Check if printer is enabled
+    if (!hardwareSettings?.cash_drawer_enabled) {
+      console.log('Cash drawer not enabled');
+      return;
     }
-  };
+    
+    // Send ESC/POS command to open cash drawer
+    const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]); // ESC p m t1 t2
+    
+    // Try to send via WebUSB first
+    if ('usb' in navigator) {
+      try {
+        const device = await navigator.usb.requestDevice({
+          filters: [
+            { vendorId: 0x04B8 }, // Epson
+            { vendorId: 0x0416 }, // Citizen
+            { vendorId: 0x15A9 }, // Star Micronics
+          ]
+        });
+        
+        await device.open();
+        await device.selectConfiguration(1);
+        await device.claimInterface(0);
+        
+        await device.transferOut(1, cashDrawerCommand);
+        await device.close();
+        
+        console.log('✅ Cash drawer opened via USB');
+        return;
+      } catch (usbError) {
+        console.warn('USB cash drawer failed:', usbError);
+      }
+    }
+    
+    // Fallback: Print a receipt with cash drawer command
+    try {
+      await printReceiptToHardware({
+        id: `cash-drawer-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        subtotal: 0,
+        vat: 0,
+        total: 0,
+        paymentMethod: 'cash',
+        products: [],
+        businessInfo: {
+          name: 'Cash Drawer Open'
+        },
+        receiptSettings: {
+          fontSize: 12,
+          footer: 'Cash drawer command',
+          showBarcode: false,
+          barcodeType: 'CODE128' as const,
+          showTaxBreakdown: false
+        },
+        staffName: currentStaff?.name,
+        notes: 'Cash drawer opened'
+      } as ReceiptPrintData);
+      
+      console.log('✅ Cash drawer opened via printer');
+    } catch (printError) {
+      console.error('Failed to open cash drawer:', printError);
+      alert('Failed to open cash drawer. Please check printer connection.');
+    }
+    
+  } catch (error) {
+    console.error('Cash drawer error:', error);
+  }
+};
 
   // Broadcast Functions
   const initializeBroadcast = useCallback(() => {
@@ -1068,6 +1130,12 @@ export default function POS() {
         
         setReceiptData(receiptData);
         setShowReceiptPrint(true);
+          try {
+          await printReceiptToHardware(receiptData);
+        } catch (printError) {
+          console.warn('Hardware printing failed:', printError);
+          // Continue anyway - PDF receipt preview is already showing
+        }
       }
 
       alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
@@ -1102,6 +1170,146 @@ export default function POS() {
       alert("Cart is empty");
       return;
     }
+
+
+    // Add these functions AFTER the existing printReceipt function:
+
+// Network printer fallback
+const printReceiptViaNetwork = async (receiptData: ReceiptPrintData) => {
+  try {
+    // Get ESC/POS data from edge function
+    const { data } = await supabase.functions.invoke('print-receipt', {
+      body: receiptData
+    });
+    
+    if (!data?.success || !data.escposBuffer) {
+      throw new Error('Failed to generate receipt data');
+    }
+    
+    // Send to printer via HTTP POST (network printer endpoint)
+    const printerIp = hardwareSettings?.printer_ip || '192.168.1.100';
+    const response = await fetch(`/api/printer/network`, {
+      method: 'POST',
+      body: JSON.stringify({
+        printerIp: printerIp,
+        printerPort: 9100,
+        escposData: data.escposBuffer
+      }),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Network printer error: ${response.status}`);
+    }
+    
+    console.log('✅ Receipt printed via network');
+    return true;
+    
+  } catch (error: any) {
+    console.error('Network printing error:', error);
+    throw error;
+  }
+};
+
+// Main printing function
+const printReceiptToHardware = async (receiptData: ReceiptPrintData) => {
+  const printerEnabled = hardwareSettings?.printer_enabled;
+  const printerName = hardwareSettings?.printer_name;
+  
+  if (!printerEnabled) {
+    console.log('Printer not enabled in settings');
+    return false;
+  }
+  
+  try {
+    // Check printer type
+    const printerIp = hardwareSettings?.printer_ip;
+    
+    if (printerIp) {
+      // Network printer
+      return await printReceiptViaNetwork(receiptData);
+    } else if (printerName?.toLowerCase().includes('usb') || printerName?.toLowerCase().includes('epson')) {
+      // USB printer - use WebUSB
+      await printReceiptViaUSB(receiptData);
+      return true;
+    } else {
+      // Try network first, fallback to USB
+      try {
+        return await printReceiptViaNetwork(receiptData);
+      } catch {
+        console.log('Network failed, trying WebUSB...');
+        await printReceiptViaUSB(receiptData);
+        return true;
+      }
+    }
+    
+  } catch (error: any) {
+    console.error('All printing methods failed:', error);
+    
+    // Show fallback option - print as PDF
+    if (confirm('Hardware printer failed. Print as PDF instead?')) {
+      setReceiptData(receiptData);
+      setShowReceiptPrint(true);
+    }
+    
+    return false;
+  }
+};
+
+// WebUSB printing function
+const printReceiptViaUSB = async (receiptData: ReceiptPrintData) => {
+  try {
+    // Check if WebUSB is available
+    if (!('usb' in navigator)) {
+      throw new Error('WebUSB not supported in this browser');
+    }
+    
+    // Request USB device
+    const device = await navigator.usb.requestDevice({
+      filters: [
+        { vendorId: 0x04B8 }, // Epson
+        { vendorId: 0x0416 }, // Citizen
+        { vendorId: 0x15A9 }, // Star Micronics
+      ]
+    });
+    
+    await device.open();
+    await device.selectConfiguration(1);
+    await device.claimInterface(0);
+    
+    // Get ESC/POS commands from edge function
+    const { data, error } = await supabase.functions.invoke('print-receipt', {
+      body: receiptData
+    });
+    
+    if (error) throw error;
+    
+    if (!data?.success || !data.escposBuffer) {
+      throw new Error('Failed to generate receipt data');
+    }
+    
+    // Convert array back to Uint8Array
+    const escposData = new Uint8Array(data.escposBuffer);
+    
+    // Send data to printer in chunks
+    const chunkSize = 64;
+    for (let i = 0; i < escposData.length; i += chunkSize) {
+      const chunk = escposData.slice(i, i + chunkSize);
+      await device.transferOut(1, chunk);
+    }
+    
+    await device.close();
+    
+    console.log('✅ Receipt printed via USB');
+    return true;
+    
+  } catch (error: any) {
+    console.error('USB printing error:', error);
+    throw error;
+  }
+};
 
     const receiptData: ReceiptPrintData = {
       id: "PREVIEW-" + Date.now(),
@@ -2300,3 +2508,4 @@ export default function POS() {
     </div>
   );
 }
+
