@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import net from 'net';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
     const { printerIp = '192.168.1.100', printerPort = 9100, escposData } = await request.json();
     
@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
     // Convert array to Buffer
     const buffer = Buffer.from(escposData);
     
-    // Create promise for socket connection
-    return new Promise((resolve) => {
+    // Create promise for socket connection with proper typing
+    const printPromise = new Promise<Response>((resolve, reject) => {
       const client = new net.Socket();
       
       client.setTimeout(5000); // 5 second timeout
@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
       
       client.on('error', (error) => {
         console.error('Printer connection error:', error);
+        client.destroy();
+        
         resolve(NextResponse.json({ 
           success: false, 
           error: `Printer connection failed: ${error.message}` 
@@ -48,6 +50,8 @@ export async function POST(request: NextRequest) {
         }, { status: 500 }));
       });
     });
+    
+    return await printPromise;
     
   } catch (error: any) {
     console.error('Network printer API error:', error);
