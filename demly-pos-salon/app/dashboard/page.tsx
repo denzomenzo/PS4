@@ -20,7 +20,7 @@ import {
 
 const menuItems = [
   {
-    href: "/",
+    href: "/dashboard/pos",
     icon: ShoppingCart,
     title: "Point of Sale",
     description: "Process transactions and manage sales",
@@ -97,7 +97,7 @@ export default function DashboardHome() {
             <p className="text-muted-foreground">Welcome back! Manage your business from here.</p>
           </div>
           <Link 
-            href="/" 
+            href="/dashboard/pos" 
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-all"
           >
             <ShoppingCart className="w-5 h-5" />
@@ -229,3 +229,4 @@ export default function DashboardHome() {
     </div>
   );
 }
+
