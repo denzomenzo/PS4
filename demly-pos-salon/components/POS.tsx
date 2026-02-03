@@ -1256,7 +1256,7 @@ export default function POS() {
             phone: receiptSettings?.business_phone,
             email: receiptSettings?.business_email,
             taxNumber: receiptSettings?.tax_number,
-            logoUrl: receiptSettings?.business_logo_url
+            logoUrl: receiptSettings?.business_logo_url || receiptSettings?.receipt_logo_url
           },
           receiptSettings: {
             fontSize: receiptSettings?.receipt_font_size || 12,
@@ -2511,3 +2511,4 @@ export default function POS() {
     </div>
   );
 }
+
