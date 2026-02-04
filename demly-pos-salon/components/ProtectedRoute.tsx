@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 type StaffPermissionKey = keyof Staff["permissions"];
 
 // Map old permission names to new functional permission names
-const permissionMap: Record<string, StaffPermissionKey> = {
+const permissionMap: Record<string, keyof Staff["permissions"]> = {
   // Map page-based permissions to functional permissions
   pos: "access_pos",
   transactions: "process_transactions", 
@@ -18,6 +18,7 @@ const permissionMap: Record<string, StaffPermissionKey> = {
   hardware: "manage_hardware",
   card_terminal: "manage_card_terminal",
   settings: "manage_settings",
+
   // Note: manage_staff doesn't have a direct page mapping
 };
 
@@ -128,3 +129,4 @@ export default function ProtectedRoute({
 
   return <>{children}</>;
 }
+
