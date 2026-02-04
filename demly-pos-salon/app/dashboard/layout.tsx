@@ -1,4 +1,4 @@
-// app/dashboard/layout.tsx - FIXED SIDEBAR GAP ISSUE
+// app/dashboard/layout.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,19 +16,74 @@ import {
   Menu, X, ChevronDown, ChevronUp, User, Receipt
 } from "lucide-react";
 
+// Map pages to functional permissions
 const navigation = [
-  { name: "POS", href: "/dashboard", icon: Home, permission: "pos" as const },
-  { name: "Customers", href: "/dashboard/customers", icon: Users, permission: "pos" as const },
-  { name: "Appointments", href: "/dashboard/appointments", icon: Calendar, permission: "pos" as const },
-  { name: "Inventory", href: "/dashboard/inventory", icon: Package, permission: "inventory" as const },
-  { name: "Transactions", href: "/dashboard/transactions", icon: Receipt, permission: "transactions" as const },
-  { name: "Returns", href: "/dashboard/returns", icon: RotateCcw, permission: "pos" as const },
-  { name: "Reports", href: "/dashboard/reports", icon: TrendingUp, permission: "reports" as const },
-  { name: "Display", href: "/dashboard/display", icon: Monitor, permission: "pos" as const },
-  { name: "Apps", href: "/dashboard/apps", icon: Zap, permission: "reports" as const },
-  { name: "Settings", href: "/dashboard/settings", icon: Settings, ownerOnly: true },
-  { name: "Hardware", href: "/dashboard/hardware", icon: Printer, permission: "reports" as const },
-  { name: "Card Terminal", href: "/dashboard/card-terminal", icon: CreditCard, permission: "reports" as const },
+  { 
+    name: "POS", 
+    href: "/dashboard", 
+    icon: Home, 
+    requiredPermission: "access_pos" as const 
+  },
+  { 
+    name: "Customers", 
+    href: "/dashboard/customers", 
+    icon: Users, 
+    requiredPermission: "manage_customers" as const 
+  },
+  { 
+    name: "Appointments", 
+    href: "/dashboard/appointments", 
+    icon: Calendar, 
+    requiredPermission: "access_pos" as const // Appointments part of POS
+  },
+  { 
+    name: "Inventory", 
+    href: "/dashboard/inventory", 
+    icon: Package, 
+    requiredPermission: "manage_inventory" as const 
+  },
+  { 
+    name: "Transactions", 
+    href: "/dashboard/transactions", 
+    icon: Receipt, 
+    requiredPermission: "process_transactions" as const 
+  },
+  { 
+    name: "Reports", 
+    href: "/dashboard/reports", 
+    icon: TrendingUp, 
+    requiredPermission: "view_reports" as const 
+  },
+  { 
+    name: "Display", 
+    href: "/dashboard/display", 
+    icon: Monitor, 
+    requiredPermission: "access_display" as const 
+  },
+  { 
+    name: "Apps", 
+    href: "/dashboard/apps", 
+    icon: Zap, 
+    requiredPermission: "view_reports" as const // Apps requires reports permission
+  },
+  { 
+    name: "Settings", 
+    href: "/dashboard/settings", 
+    icon: Settings, 
+    requiredPermission: "manage_settings" as const 
+  },
+  { 
+    name: "Hardware", 
+    href: "/dashboard/hardware", 
+    icon: Printer, 
+    requiredPermission: "manage_hardware" as const 
+  },
+  { 
+    name: "Card Terminal", 
+    href: "/dashboard/card-terminal", 
+    icon: CreditCard, 
+    requiredPermission: "manage_card_terminal" as const 
+  },
 ];
 
 export default function DashboardLayout({
@@ -621,10 +676,9 @@ export default function DashboardLayout({
               
               let hasAccess = true;
               if (staff) {
-                if (item.ownerOnly) {
-                  hasAccess = staff.role === "owner";
-                } else if (item.permission) {
-                  hasAccess = hasPermission(item.permission);
+                // Check if user has the required functional permission
+                if (item.requiredPermission) {
+                  hasAccess = hasPermission(item.requiredPermission);
                 }
               }
 
@@ -728,4 +782,3 @@ export default function DashboardLayout({
     </div>
   );
 }
-
