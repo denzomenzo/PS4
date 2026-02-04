@@ -476,7 +476,7 @@ export default function Transactions() {
           phone: settings?.business_phone,
           email: settings?.business_email,
           taxNumber: settings?.tax_number,
-          logoUrl: settings?.business_logo_url
+          logoUrl: receiptSettings?.business_logo_url || receiptSettings?.receipt_logo_url
         },
         receiptSettings: {
           fontSize: settings?.receipt_font_size || 12,
@@ -1120,4 +1120,5 @@ export default function Transactions() {
 
     </div>
   );
+
 }
