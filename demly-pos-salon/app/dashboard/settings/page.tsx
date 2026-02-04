@@ -1,4 +1,4 @@
-// app/dashboard/settings/page.tsx - UPDATED VERSION
+// app/dashboard/settings/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -15,10 +15,21 @@ interface Staff {
   pin?: string | null;
   role: "staff" | "manager" | "owner";
   permissions: {
-    pos: boolean;
-    inventory: boolean;
-    reports: boolean;
-    settings: boolean;
+    // Core POS Operations
+    access_pos: boolean;
+    process_transactions: boolean;
+    manage_customers: boolean;
+    access_display: boolean;
+    
+    // Management Operations
+    manage_inventory: boolean;
+    view_reports: boolean;
+    manage_hardware: boolean;
+    manage_card_terminal: boolean;
+    
+    // Administrative Operations
+    manage_settings: boolean;
+    manage_staff: boolean;
   };
 }
 
@@ -59,10 +70,21 @@ export default function Settings() {
   const [staffPin, setStaffPin] = useState("");
   const [staffRole, setStaffRole] = useState<"staff" | "manager" | "owner">("staff");
   const [staffPermissions, setStaffPermissions] = useState({
-    pos: true,
-    inventory: false,
-    reports: false,
-    settings: false,
+    // Core POS Operations - Default enabled for all roles
+    access_pos: true,
+    process_transactions: true,
+    manage_customers: true,
+    access_display: true,
+    
+    // Management Operations - Default disabled, enabled based on role
+    manage_inventory: false,
+    view_reports: false,
+    manage_hardware: false,
+    manage_card_terminal: false,
+    
+    // Administrative Operations - Default disabled, only for managers/owners
+    manage_settings: false,
+    manage_staff: false,
   });
   
   // PIN Change Modal
@@ -75,6 +97,61 @@ export default function Settings() {
 
   // Username field for staff
   const [staffUsername, setStaffUsername] = useState("");
+
+  // Function to apply role-based permission presets
+  const applyRolePreset = (role: "staff" | "manager" | "owner") => {
+    if (role === "staff") {
+      setStaffPermissions({
+        // Core POS Operations - Required for staff
+        access_pos: true,
+        process_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        
+        // Management Operations - Disabled for staff
+        manage_inventory: false,
+        view_reports: false,
+        manage_hardware: false,
+        manage_card_terminal: false,
+        
+        // Administrative Operations - Never for staff
+        manage_settings: false,
+        manage_staff: false,
+      });
+    } else if (role === "manager") {
+      setStaffPermissions(prev => ({
+        // Core POS Operations - Required for managers
+        access_pos: true,
+        process_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        
+        // Management Operations - Enabled by default for managers
+        manage_inventory: true,
+        view_reports: true,
+        manage_hardware: true,
+        manage_card_terminal: true,
+        
+        // Administrative Operations - Keep existing or default to false
+        manage_settings: prev.manage_settings,
+        manage_staff: prev.manage_staff,
+      }));
+    } else if (role === "owner") {
+      // Owners have everything enabled
+      setStaffPermissions({
+        access_pos: true,
+        process_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        manage_inventory: true,
+        view_reports: true,
+        manage_hardware: true,
+        manage_card_terminal: true,
+        manage_settings: true,
+        manage_staff: true,
+      });
+    }
+  };
 
   useEffect(() => {
     if (userId && currentStaff) {
@@ -123,7 +200,30 @@ export default function Settings() {
         .eq("user_id", userId)
         .order("name");
       
-      if (staffData) setStaff(staffData);
+      if (staffData) {
+        // Normalize staff data with new permission structure
+        const normalizedStaffData = staffData.map((member: any) => ({
+          ...member,
+          permissions: {
+            // Core POS Operations
+            access_pos: member.permissions?.access_pos !== false,
+            process_transactions: member.permissions?.process_transactions !== false,
+            manage_customers: member.permissions?.manage_customers !== false,
+            access_display: member.permissions?.access_display !== false,
+            
+            // Management Operations
+            manage_inventory: member.permissions?.manage_inventory || false,
+            view_reports: member.permissions?.view_reports || false,
+            manage_hardware: member.permissions?.manage_hardware || false,
+            manage_card_terminal: member.permissions?.manage_card_terminal || false,
+            
+            // Administrative Operations
+            manage_settings: member.permissions?.manage_settings || false,
+            manage_staff: member.permissions?.manage_staff || false,
+          },
+        }));
+        setStaff(normalizedStaffData);
+      }
 
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -180,10 +280,16 @@ export default function Settings() {
     setStaffPin("");
     setStaffRole("staff");
     setStaffPermissions({
-      pos: true,
-      inventory: false,
-      reports: false,
-      settings: false,
+      access_pos: true,
+      process_transactions: true,
+      manage_customers: true,
+      access_display: true,
+      manage_inventory: false,
+      view_reports: false,
+      manage_hardware: false,
+      manage_card_terminal: false,
+      manage_settings: false,
+      manage_staff: false,
     });
     setVerificationCode("");
     setSentCode("");
@@ -201,15 +307,24 @@ export default function Settings() {
     setEditingStaff(member);
     setStaffName(member.name);
     setStaffEmail(member.email || "");
-    setStaffUsername(member.email?.split('@')[0] || ""); // Extract username from email
+    setStaffUsername(member.email?.split('@')[0] || "");
     setStaffPin("");
     setStaffRole(member.role);
-    setStaffPermissions(member.permissions || {
-      pos: true,
-      inventory: false,
-      reports: false,
-      settings: false,
+    
+    // Apply the member's permissions
+    setStaffPermissions({
+      access_pos: member.permissions.access_pos !== false,
+      process_transactions: member.permissions.process_transactions !== false,
+      manage_customers: member.permissions.manage_customers !== false,
+      access_display: member.permissions.access_display !== false,
+      manage_inventory: member.permissions.manage_inventory || false,
+      view_reports: member.permissions.view_reports || false,
+      manage_hardware: member.permissions.manage_hardware || false,
+      manage_card_terminal: member.permissions.manage_card_terminal || false,
+      manage_settings: member.permissions.manage_settings || false,
+      manage_staff: member.permissions.manage_staff || false,
     });
+    
     setShowStaffModal(true);
   };
 
@@ -462,12 +577,12 @@ export default function Settings() {
               {businessLogoUrl && (
                 <div className="mt-2 bg-muted rounded-lg p-3">
                   <p className="text-xs text-muted-foreground mb-2">Logo Preview:</p>
-                  <img
-                    src={businessLogoUrl}
-                    alt="Business logo preview"
-                    className="max-w-[120px] max-h-[60px] object-contain"
-                    onError={(e) => e.currentTarget.style.display = 'none'}
-                  />
+                    <img
+                      src={businessLogoUrl}
+                      alt="Business logo preview"
+                      className="max-w-[120px] max-h-[60px] object-contain"
+                      onError={(e) => e.currentTarget.style.display = 'none'}
+                    />
                 </div>
               )}
             </div>
@@ -759,13 +874,28 @@ export default function Settings() {
                   </div>
                   
                   <div className="flex flex-wrap gap-1 mb-2">
-                    {Object.entries(member.permissions || {}).map(([key, value]) => (
-                      value && (
-                        <span key={key} className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
-                          {key}
-                        </span>
-                      )
-                    ))}
+                    {Object.entries({
+                      access_pos: "POS Access",
+                      process_transactions: "Transactions",
+                      manage_customers: "Customers",
+                      access_display: "Display",
+                      manage_inventory: "Inventory",
+                      view_reports: "Reports",
+                      manage_hardware: "Hardware",
+                      manage_card_terminal: "Card Terminal",
+                      manage_settings: "Settings",
+                      manage_staff: "Staff Management",
+                    }).map(([key, label]) => {
+                      const hasPerm = member.permissions[key as keyof typeof member.permissions];
+                      if (hasPerm) {
+                        return (
+                          <span key={key} className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                            {label}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
                   </div>
                   
                   <div className="flex items-center justify-between pt-2 border-t border-border">
@@ -858,38 +988,108 @@ export default function Settings() {
                 <label className="block text-sm font-medium text-foreground mb-1">Role *</label>
                 <select
                   value={staffRole}
-                  onChange={(e) => setStaffRole(e.target.value as "staff" | "manager" | "owner")}
+                  onChange={(e) => {
+                    const newRole = e.target.value as "staff" | "manager" | "owner";
+                    setStaffRole(newRole);
+                    // Apply role preset when role changes
+                    applyRolePreset(newRole);
+                  }}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="staff">Staff</option>
                   <option value="manager">Manager</option>
                   {isOwner() && <option value="owner">Owner</option>}
                 </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {staffRole === "staff" 
+                    ? "Staff members have core POS access only"
+                    : staffRole === "manager"
+                    ? "Managers have POS + management access"
+                    : "Owners have full access to all features"}
+                </p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Permissions</label>
+                
                 <div className="space-y-2">
-                  {Object.entries({
-                    pos: "Point of Sale",
-                    inventory: "Inventory Management",
-                    reports: "Reports & Analytics",
-                    settings: "Settings (Manager/Owner only)"
-                  }).map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={staffPermissions[key as keyof typeof staffPermissions]}
-                        onChange={(e) => setStaffPermissions(prev => ({
-                          ...prev,
-                          [key]: e.target.checked
-                        }))}
-                        disabled={key === "settings" && staffRole === "staff"}
-                        className="rounded text-primary focus:ring-primary"
-                      />
-                      <span className="text-sm text-foreground">{label}</span>
-                    </label>
-                  ))}
+                  {/* Core POS Operations */}
+                  <div className="mb-2 pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
+                    {Object.entries({
+                      access_pos: "Access Point of Sale",
+                      process_transactions: "Process Sales & Returns",
+                      manage_customers: "Manage Customers",
+                      access_display: "Access Customer Display",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff"} // Core permissions locked for staff
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <div>
+                          <span className="text-sm text-foreground">{label}</span>
+                          {staffRole === "staff" && (
+                            <p className="text-xs text-muted-foreground">Required for staff role</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  
+                  {/* Management Operations */}
+                  <div className="mb-2 pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Management Operations</p>
+                    {Object.entries({
+                      manage_inventory: "Manage Inventory",
+                      view_reports: "View Reports & Analytics",
+                      manage_hardware: "Manage Hardware (Printers)",
+                      manage_card_terminal: "Manage Card Terminal",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff"} // Disabled for staff role
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <span className="text-sm text-foreground">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  
+                  {/* Administrative Operations */}
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Administrative Operations</p>
+                    {Object.entries({
+                      manage_settings: "Manage Business Settings",
+                      manage_staff: "Manage Staff Members",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff" || (staffRole === "manager" && !isOwner())}
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <span className="text-sm text-foreground">{label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
 
