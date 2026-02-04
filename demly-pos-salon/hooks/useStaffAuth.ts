@@ -1,7 +1,7 @@
-// hooks/useStaffAuth.ts - Fixed version
+// hooks/useStaffAuth.ts - Updated version
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { logLogin, logLogout } from "@/lib/auditLogger"; // Now these functions exist
+import { logLogin, logLogout } from "@/lib/auditLogger";
 
 export interface Staff {
   id: number;
@@ -11,9 +11,14 @@ export interface Staff {
   role: "staff" | "manager" | "owner";
   permissions: {
     pos: boolean;
+    transactions: boolean;
+    customers: boolean;
+    display: boolean;
     inventory: boolean;
     reports: boolean;
     settings: boolean;
+    hardware: boolean;
+    card_terminal: boolean;
   };
 }
 
@@ -90,17 +95,23 @@ export function useStaffAuth() {
         return { success: false, error: "Invalid PIN" };
       }
 
+      // Ensure permissions object has all required fields with defaults
       const staffMember: Staff = {
         id: staffData.id,
         name: staffData.name,
         email: staffData.email,
         pin: staffData.pin,
         role: staffData.role || "staff",
-        permissions: staffData.permissions || {
-          pos: true,
-          inventory: false,
-          reports: false,
-          settings: false,
+        permissions: {
+          pos: staffData.permissions?.pos !== false,
+          transactions: staffData.permissions?.transactions !== false,
+          customers: staffData.permissions?.customers !== false,
+          display: staffData.permissions?.display !== false,
+          inventory: staffData.permissions?.inventory || false,
+          reports: staffData.permissions?.reports || false,
+          settings: staffData.permissions?.settings || false,
+          hardware: staffData.permissions?.hardware || false,
+          card_terminal: staffData.permissions?.card_terminal || false,
         },
       };
 
@@ -142,9 +153,22 @@ export function useStaffAuth() {
 
   const hasPermission = (permission: keyof Staff["permissions"]): boolean => {
     if (!staff) return false;
-    if (staff.role === "owner") return true; // Owner has all permissions
-    if (staff.role === "manager" && permission !== "settings") return true;
-    return staff.permissions[permission] === true;
+    
+    // Owners have all permissions by default
+    if (staff.role === "owner") return true;
+    
+    // Managers have most permissions, but check specific ones
+    if (staff.role === "manager") {
+      // Managers can't access settings unless explicitly granted
+      if (permission === "settings") {
+        return staff.permissions.settings || false;
+      }
+      // For other permissions, use their individual setting
+      return staff.permissions[permission] !== false;
+    }
+    
+    // Staff members: check specific permission
+    return staff.permissions[permission] || false;
   };
 
   const refreshAuth = () => {
