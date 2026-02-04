@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useStaffAuth } from "@/hooks/useStaffAuth";
+import { useStaffAuth, Staff } from "@/hooks/useStaffAuth";
 import { Loader2 } from "lucide-react";
 
+// Define the permission keys from the Staff interface
+type StaffPermissionKey = keyof Staff["permissions"];
+
 // Map old permission names to new functional permission names
-const permissionMap: Record<string, keyof ReturnType<typeof useStaffAuth>['staff']['permissions']> = {
+const permissionMap: Record<string, StaffPermissionKey> = {
   // Map page-based permissions to functional permissions
   pos: "access_pos",
   transactions: "process_transactions", 
