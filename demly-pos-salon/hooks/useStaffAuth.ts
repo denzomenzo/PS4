@@ -276,3 +276,4 @@ export function isAuthenticated(): boolean {
   return globalStaff !== null;
 }
 
+
