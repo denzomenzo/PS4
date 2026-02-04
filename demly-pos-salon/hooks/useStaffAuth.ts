@@ -10,15 +10,21 @@ export interface Staff {
   pin: string | null;
   role: "staff" | "manager" | "owner";
   permissions: {
-    pos: boolean;
-    transactions: boolean;
-    customers: boolean;
-    display: boolean;
-    inventory: boolean;
-    reports: boolean;
-    settings: boolean;
-    hardware: boolean;
-    card_terminal: boolean;
+    // Core POS Operations
+    access_pos: boolean;          // Access Point of Sale system
+    process_transactions: boolean; // Process sales & returns
+    manage_customers: boolean;    // Manage customer database
+    access_display: boolean;      // Access customer display
+    
+    // Management Operations
+    manage_inventory: boolean;    // Manage products & stock
+    view_reports: boolean;        // View analytics & reports
+    manage_hardware: boolean;     // Manage printers & hardware
+    manage_card_terminal: boolean; // Manage card payments
+    
+    // Administrative Operations
+    manage_settings: boolean;     // Access business settings
+    manage_staff: boolean;        // Manage staff members
   };
 }
 
@@ -95,24 +101,87 @@ export function useStaffAuth() {
         return { success: false, error: "Invalid PIN" };
       }
 
-      // Ensure permissions object has all required fields with defaults
+      // Get base permissions from database
+      const dbPermissions = staffData.permissions || {};
+      
+      // Apply role-based permission presets
+      let finalPermissions: Staff["permissions"];
+      
+      if (staffData.role === "staff") {
+        // Staff presets: Core POS access only
+        finalPermissions = {
+          // Core POS Operations - Always enabled for staff
+          access_pos: true,
+          process_transactions: true,
+          manage_customers: true,
+          access_display: true,
+          
+          // Management Operations - Disabled for staff
+          manage_inventory: false,
+          view_reports: false,
+          manage_hardware: false,
+          manage_card_terminal: false,
+          
+          // Administrative Operations - Never for staff
+          manage_settings: false,
+          manage_staff: false,
+        };
+      } else if (staffData.role === "manager") {
+        // Manager presets: Core POS + Management access
+        finalPermissions = {
+          // Core POS Operations - Always enabled
+          access_pos: true,
+          process_transactions: true,
+          manage_customers: true,
+          access_display: true,
+          
+          // Management Operations - Enabled by default for managers
+          manage_inventory: true,
+          view_reports: true,
+          manage_hardware: true,
+          manage_card_terminal: true,
+          
+          // Administrative Operations - Use database values or default to false
+          manage_settings: dbPermissions.manage_settings || false,
+          manage_staff: dbPermissions.manage_staff || false,
+        };
+      } else if (staffData.role === "owner") {
+        // Owner presets: Everything enabled
+        finalPermissions = {
+          access_pos: true,
+          process_transactions: true,
+          manage_customers: true,
+          access_display: true,
+          manage_inventory: true,
+          view_reports: true,
+          manage_hardware: true,
+          manage_card_terminal: true,
+          manage_settings: true,
+          manage_staff: true,
+        };
+      } else {
+        // Fallback: use database values with defaults
+        finalPermissions = {
+          access_pos: dbPermissions.access_pos !== false,
+          process_transactions: dbPermissions.process_transactions !== false,
+          manage_customers: dbPermissions.manage_customers !== false,
+          access_display: dbPermissions.access_display !== false,
+          manage_inventory: dbPermissions.manage_inventory || false,
+          view_reports: dbPermissions.view_reports || false,
+          manage_hardware: dbPermissions.manage_hardware || false,
+          manage_card_terminal: dbPermissions.manage_card_terminal || false,
+          manage_settings: dbPermissions.manage_settings || false,
+          manage_staff: dbPermissions.manage_staff || false,
+        };
+      }
+
       const staffMember: Staff = {
         id: staffData.id,
         name: staffData.name,
         email: staffData.email,
         pin: staffData.pin,
         role: staffData.role || "staff",
-        permissions: {
-          pos: staffData.permissions?.pos !== false,
-          transactions: staffData.permissions?.transactions !== false,
-          customers: staffData.permissions?.customers !== false,
-          display: staffData.permissions?.display !== false,
-          inventory: staffData.permissions?.inventory || false,
-          reports: staffData.permissions?.reports || false,
-          settings: staffData.permissions?.settings || false,
-          hardware: staffData.permissions?.hardware || false,
-          card_terminal: staffData.permissions?.card_terminal || false,
-        },
+        permissions: finalPermissions,
       };
 
       // Store in localStorage with expiration
@@ -157,18 +226,20 @@ export function useStaffAuth() {
     // Owners have all permissions by default
     if (staff.role === "owner") return true;
     
-    // Managers have most permissions, but check specific ones
+    // Get the actual permission value
+    const hasPerm = staff.permissions[permission];
+    
+    // For managers, check special cases
     if (staff.role === "manager") {
       // Managers can't access settings unless explicitly granted
-      if (permission === "settings") {
-        return staff.permissions.settings || false;
+      if (permission === "manage_settings" || permission === "manage_staff") {
+        return staff.permissions[permission] || false;
       }
-      // For other permissions, use their individual setting
-      return staff.permissions[permission] !== false;
+      return hasPerm;
     }
     
     // Staff members: check specific permission
-    return staff.permissions[permission] || false;
+    return hasPerm || false;
   };
 
   const refreshAuth = () => {
@@ -204,3 +275,4 @@ export function getCurrentStaff(): Staff | null {
 export function isAuthenticated(): boolean {
   return globalStaff !== null;
 }
+
