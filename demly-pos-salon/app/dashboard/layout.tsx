@@ -13,7 +13,7 @@ import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, RotateCcw, Printer, Loader2, 
   Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight,
-  Menu, X, ChevronDown, ChevronUp, User
+  Menu, X, ChevronDown, ChevronUp, User, Receipt
 } from "lucide-react";
 
 const navigation = [
@@ -21,6 +21,7 @@ const navigation = [
   { name: "Customers", href: "/dashboard/customers", icon: Users, permission: "pos" as const },
   { name: "Appointments", href: "/dashboard/appointments", icon: Calendar, permission: "pos" as const },
   { name: "Inventory", href: "/dashboard/inventory", icon: Package, permission: "inventory" as const },
+  { name: "Transactions", href: "/dashboard/transactions", icon: Receipt, permission: "transactions" as const },
   { name: "Returns", href: "/dashboard/returns", icon: RotateCcw, permission: "pos" as const },
   { name: "Reports", href: "/dashboard/reports", icon: TrendingUp, permission: "reports" as const },
   { name: "Display", href: "/dashboard/display", icon: Monitor, permission: "pos" as const },
@@ -727,3 +728,4 @@ export default function DashboardLayout({
     </div>
   );
 }
+
