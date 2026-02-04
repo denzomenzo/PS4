@@ -1,6 +1,6 @@
-// proxy.ts (in project root) - Updated with permission protection
+// proxy.ts
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next-server';
+import type { NextRequest } from 'next/server'; // ✅ Correct import
 
 // Define protected routes and required permissions
 const protectedRoutes = {
@@ -76,3 +76,4 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
+
