@@ -1,151 +1,127 @@
-// components/ProtectedRoute.tsx - Updated version
-"use client";
-
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
-import { Loader2, Lock, Home } from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+// Map old permission names to new functional permission names
+const permissionMap: Record<string, keyof ReturnType<typeof useStaffAuth>['staff']['permissions']> = {
+  // Map page-based permissions to functional permissions
+  pos: "access_pos",
+  transactions: "process_transactions", 
+  customers: "manage_customers",
+  display: "access_display",
+  inventory: "manage_inventory",
+  reports: "view_reports",
+  hardware: "manage_hardware",
+  card_terminal: "manage_card_terminal",
+  settings: "manage_settings",
+  // Note: manage_staff doesn't have a direct page mapping
+};
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredPermission?: 
-    "pos" | "transactions" | "customers" | "display" | 
-    "inventory" | "reports" | "settings" | "hardware" | "card_terminal";
-  requireOwner?: boolean;
-  requireManager?: boolean;
+  requiredPermission?: keyof typeof permissionMap;
+  ownerOnly?: boolean;
+  managerOnly?: boolean;
+  staffOnly?: boolean;
 }
 
 export default function ProtectedRoute({ 
   children, 
   requiredPermission,
-  requireOwner = false,
-  requireManager = false
+  ownerOnly = false,
+  managerOnly = false,
+  staffOnly = false
 }: ProtectedRouteProps) {
   const router = useRouter();
   const { staff, loading, hasPermission, isOwner, isManager } = useStaffAuth();
-  const [checking, setChecking] = useState(true);
-  const [accessDenied, setAccessDenied] = useState(false);
+  const [accessGranted, setAccessGranted] = useState(false);
 
   useEffect(() => {
-    if (!loading && staff !== undefined) {
+    if (!loading) {
       let hasAccess = false;
-      
-      if (!staff) {
-        // No staff logged in - redirect to dashboard (which will show PIN modal)
-        router.push("/dashboard");
-        return;
-      }
 
-      // Check role requirements
-      if (requireOwner) {
+      // If no staff is logged in, deny access
+      if (!staff) {
+        hasAccess = false;
+      }
+      // Check role-specific requirements
+      else if (ownerOnly) {
         hasAccess = isOwner();
-      } else if (requireManager) {
+      }
+      else if (managerOnly) {
         hasAccess = isManager();
+      }
+      else if (staffOnly) {
+        // Staff only means any authenticated staff (not owner/manager specific)
+        hasAccess = true;
       }
       // Check permission requirement
       else if (requiredPermission) {
-        hasAccess = hasPermission(requiredPermission);
+        // Map old permission name to new functional permission
+        const functionalPermission = permissionMap[requiredPermission];
+        if (functionalPermission) {
+          hasAccess = hasPermission(functionalPermission);
+        } else {
+          // If no mapping found, deny access
+          console.warn(`No permission mapping found for: ${requiredPermission}`);
+          hasAccess = false;
+        }
       } else {
         // No specific requirements - just need to be logged in
         hasAccess = true;
       }
 
-      if (!hasAccess) {
-        setAccessDenied(true);
-      }
-      
-      setChecking(false);
-    }
-  }, [staff, loading, requiredPermission, requireOwner, requireManager, router, hasPermission, isOwner, isManager]);
+      setAccessGranted(hasAccess);
 
-  if (loading || checking) {
+      // If access denied and user is logged in, redirect to dashboard
+      if (!hasAccess && staff) {
+        router.push("/dashboard");
+      }
+    }
+  }, [staff, loading, requiredPermission, ownerOnly, managerOnly, staffOnly, router, hasPermission, isOwner, isManager]);
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-muted to-card flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted to-card">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-xl text-muted-foreground">Verifying access...</p>
+          <p className="text-foreground text-xl font-semibold">Loading...</p>
         </div>
       </div>
     );
   }
 
-  if (accessDenied) {
-    const getDeniedMessage = () => {
-      if (requireOwner) {
-        return "This page is only accessible by business owners.";
-      }
-      if (requireManager) {
-        return "This page requires manager or owner access.";
-      }
-      if (requiredPermission) {
-        const permissionNames = {
-          pos: "Point of Sale",
-          transactions: "Transactions",
-          customers: "Customers",
-          display: "Display",
-          inventory: "Inventory",
-          reports: "Reports",
-          settings: "Settings",
-          hardware: "Hardware",
-          card_terminal: "Card Terminal"
-        };
-        return `You need "${permissionNames[requiredPermission]}" permission to access this page.`;
-      }
-      return "You don't have permission to access this page.";
-    };
+  if (!staff) {
+    // This will be caught by the PIN modal in dashboard layout
+    return null;
+  }
 
-    const getCurrentStaffRole = () => {
-      if (!staff) return "Not logged in";
-      return staff.role.charAt(0).toUpperCase() + staff.role.slice(1);
-    };
-
+  if (!accessGranted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-muted to-card flex items-center justify-center p-8">
-        <div className="bg-card/80 backdrop-blur-xl rounded-2xl p-8 max-w-md w-full border border-destructive/30 shadow-2xl">
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
+        <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
           <div className="text-center">
-            <div className="w-16 h-16 bg-destructive/20 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Lock className="w-8 h-8 text-destructive" />
+            <div className="w-12 h-12 bg-destructive/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-destructive" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.928-.833-2.698 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
             </div>
-            <h1 className="text-2xl font-bold text-foreground mb-3">Access Denied</h1>
-            <p className="text-muted-foreground mb-6">
-              {getDeniedMessage()}
+            <h1 className="text-xl font-bold text-foreground mb-2">Access Denied</h1>
+            <p className="text-muted-foreground mb-4">
+              You don't have permission to access this page.
             </p>
-            
-            {staff && (
-              <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary to-primary/80 flex items-center justify-center text-white font-bold">
-                    {staff.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="text-left">
-                    <p className="font-medium text-foreground">{staff.name}</p>
-                    <p className="text-sm text-muted-foreground">Role: {getCurrentStaffRole()}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => router.push("/dashboard")}
-                className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
-              >
-                <Home className="w-4 h-4" />
-                Go to POS Dashboard
-              </button>
-              
-              {staff?.role === "staff" && (
-                <p className="text-xs text-muted-foreground">
-                  Contact a manager or owner to request access
-                </p>
-              )}
-            </div>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              Back to Dashboard
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // If we get here, user has access
   return <>{children}</>;
 }
