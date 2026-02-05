@@ -1,3 +1,6 @@
+// components/ProtectedRoute.tsx - UPDATED
+"use client";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStaffAuth, Staff } from "@/hooks/useStaffAuth";
@@ -7,7 +10,7 @@ import { Loader2 } from "lucide-react";
 type StaffPermissionKey = keyof Staff["permissions"];
 
 // Map old permission names to new functional permission names
-const permissionMap: Record<string, keyof Staff["permissions"]> = {
+const permissionMap: Record<string, StaffPermissionKey> = {
   // Map page-based permissions to functional permissions
   pos: "access_pos",
   transactions: "process_transactions", 
@@ -18,7 +21,6 @@ const permissionMap: Record<string, keyof Staff["permissions"]> = {
   hardware: "manage_hardware",
   card_terminal: "manage_card_terminal",
   settings: "manage_settings",
-
   // Note: manage_staff doesn't have a direct page mapping
 };
 
@@ -40,25 +42,40 @@ export default function ProtectedRoute({
   const router = useRouter();
   const { staff, loading, hasPermission, isOwner, isManager } = useStaffAuth();
   const [accessGranted, setAccessGranted] = useState(false);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && !checked) {
+      console.log("[ProtectedRoute] Checking access:", {
+        hasStaff: !!staff,
+        staffName: staff?.name,
+        staffRole: staff?.role,
+        requiredPermission,
+        ownerOnly,
+        managerOnly,
+        staffOnly
+      });
+
       let hasAccess = false;
 
       // If no staff is logged in, deny access
       if (!staff) {
+        console.log("[ProtectedRoute] No staff logged in - denying access");
         hasAccess = false;
       }
       // Check role-specific requirements
       else if (ownerOnly) {
         hasAccess = isOwner();
+        console.log(`[ProtectedRoute] ownerOnly check: ${hasAccess}`);
       }
       else if (managerOnly) {
         hasAccess = isManager();
+        console.log(`[ProtectedRoute] managerOnly check: ${hasAccess}`);
       }
       else if (staffOnly) {
         // Staff only means any authenticated staff (not owner/manager specific)
         hasAccess = true;
+        console.log("[ProtectedRoute] staffOnly check: true");
       }
       // Check permission requirement
       else if (requiredPermission) {
@@ -66,24 +83,29 @@ export default function ProtectedRoute({
         const functionalPermission = permissionMap[requiredPermission];
         if (functionalPermission) {
           hasAccess = hasPermission(functionalPermission);
+          console.log(`[ProtectedRoute] Checking permission "${requiredPermission}" -> "${functionalPermission}": ${hasAccess}`);
         } else {
           // If no mapping found, deny access
-          console.warn(`No permission mapping found for: ${requiredPermission}`);
+          console.warn(`[ProtectedRoute] No permission mapping found for: ${requiredPermission}`);
           hasAccess = false;
         }
       } else {
         // No specific requirements - just need to be logged in
         hasAccess = true;
+        console.log("[ProtectedRoute] No requirements, access granted");
       }
 
+      console.log(`[ProtectedRoute] Final access decision: ${hasAccess ? 'GRANTED' : 'DENIED'}`);
       setAccessGranted(hasAccess);
+      setChecked(true);
 
       // If access denied and user is logged in, redirect to dashboard
       if (!hasAccess && staff) {
+        console.log("[ProtectedRoute] Access denied, redirecting to dashboard");
         router.push("/dashboard");
       }
     }
-  }, [staff, loading, requiredPermission, ownerOnly, managerOnly, staffOnly, router, hasPermission, isOwner, isManager]);
+  }, [staff, loading, requiredPermission, ownerOnly, managerOnly, staffOnly, router, hasPermission, isOwner, isManager, checked]);
 
   if (loading) {
     return (
@@ -98,10 +120,12 @@ export default function ProtectedRoute({
 
   if (!staff) {
     // This will be caught by the PIN modal in dashboard layout
+    console.log("[ProtectedRoute] No staff, returning null");
     return null;
   }
 
   if (!accessGranted) {
+    console.log("[ProtectedRoute] Rendering access denied screen");
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
         <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
@@ -127,6 +151,6 @@ export default function ProtectedRoute({
     );
   }
 
+  console.log("[ProtectedRoute] Access granted, rendering children");
   return <>{children}</>;
 }
-
