@@ -668,18 +668,21 @@ export default function DashboardLayout({
             )}
           </div>
 
-          {/* Navigation */}
+          {/* Navigation - TEMPORARILY BYPASSING PERMISSION CHECKS */}
           <nav className="flex-1 p-1 space-y-0.5 overflow-y-auto">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               
+              // TEMPORARY FIX: Show ALL navigation items regardless of permissions
+              const hasAccess = true; // TEMPORARILY GRANT ACCESS TO EVERYTHING
+              
+              // If you want to re-enable permission checks later, uncomment this:
+              /*
               let hasAccess = true;
-              if (staff) {
-                // Check if user has the required functional permission
-                if (item.requiredPermission) {
-                  hasAccess = hasPermission(item.requiredPermission);
-                }
+              if (staff && item.requiredPermission) {
+                hasAccess = hasPermission(item.requiredPermission);
               }
+              */
 
               if (!hasAccess) return null;
 
