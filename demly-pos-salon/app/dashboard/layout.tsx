@@ -15,7 +15,7 @@ import {
   Menu, X, ChevronDown, ChevronUp, User, Receipt
 } from "lucide-react";
 
-// Map pages to functional permissions
+// Map pages to NEW functional permissions
 const navigation = [
   { 
     name: "POS", 
@@ -115,17 +115,6 @@ export default function DashboardLayout({
   const [showStaffDropdown, setShowStaffDropdown] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  // Debug: Log current staff and permissions
-  useEffect(() => {
-    if (staff) {
-      console.log("Current Staff:", {
-        name: staff.name,
-        role: staff.role,
-        permissions: staff.permissions
-      });
-    }
-  }, [staff]);
 
   useEffect(() => {
     if (userId && !authLoading) {
@@ -362,18 +351,6 @@ export default function DashboardLayout({
   const getSelectedStaffName = () => {
     const staff = staffList.find(s => s.id === selectedStaffId);
     return staff ? staff.name : "Select Staff";
-  };
-
-  // Function to check if a staff member should see a navigation item
-  const checkNavAccess = (requiredPermission?: string) => {
-    if (!staff) return false;
-    
-    if (!requiredPermission) return true;
-    
-    const hasAccess = hasPermission(requiredPermission as any);
-    console.log(`Nav Access Check: ${requiredPermission} - ${hasAccess ? 'GRANTED' : 'DENIED'}`);
-    
-    return hasAccess;
   };
 
   if (authLoading || loading) {
@@ -696,13 +673,15 @@ export default function DashboardLayout({
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               
-              // Check if user has access to this navigation item
-              const hasAccess = checkNavAccess(item.requiredPermission);
-
-              if (!hasAccess) {
-                console.log(`Hiding navigation: ${item.name} - No permission for ${item.requiredPermission}`);
-                return null;
+              let hasAccess = true;
+              if (staff) {
+                // Check if user has the required functional permission
+                if (item.requiredPermission) {
+                  hasAccess = hasPermission(item.requiredPermission);
+                }
               }
+
+              if (!hasAccess) return null;
 
               const Icon = item.icon;
               return (
