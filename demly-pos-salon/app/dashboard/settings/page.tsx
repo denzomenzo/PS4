@@ -1,4 +1,3 @@
-// app/dashboard/settings/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -70,19 +69,19 @@ export default function Settings() {
   const [staffPin, setStaffPin] = useState("");
   const [staffRole, setStaffRole] = useState<"staff" | "manager" | "owner">("staff");
   const [staffPermissions, setStaffPermissions] = useState({
-    // Core POS Operations - Default enabled for all roles
+    // Core POS Operations
     access_pos: true,
     process_transactions: true,
     manage_customers: true,
     access_display: true,
     
-    // Management Operations - Default disabled, enabled based on role
+    // Management Operations
     manage_inventory: false,
     view_reports: false,
     manage_hardware: false,
     manage_card_terminal: false,
     
-    // Administrative Operations - Default disabled, only for managers/owners
+    // Administrative Operations
     manage_settings: false,
     manage_staff: false,
   });
@@ -119,23 +118,23 @@ export default function Settings() {
         manage_staff: false,
       });
     } else if (role === "manager") {
-      setStaffPermissions(prev => ({
+      setStaffPermissions({
         // Core POS Operations - Required for managers
         access_pos: true,
         process_transactions: true,
         manage_customers: true,
         access_display: true,
         
-        // Management Operations - Enabled by default for managers
+        // Management Operations - Enabled for managers
         manage_inventory: true,
         view_reports: true,
         manage_hardware: true,
         manage_card_terminal: true,
         
-        // Administrative Operations - Keep existing or default to false
-        manage_settings: prev.manage_settings,
-        manage_staff: prev.manage_staff,
-      }));
+        // Administrative Operations - Default false for managers
+        manage_settings: false,
+        manage_staff: false,
+      });
     } else if (role === "owner") {
       // Owners have everything enabled
       setStaffPermissions({
@@ -201,27 +200,42 @@ export default function Settings() {
         .order("name");
       
       if (staffData) {
-        // Normalize staff data with new permission structure
-        const normalizedStaffData = staffData.map((member: any) => ({
-          ...member,
-          permissions: {
-            // Core POS Operations
-            access_pos: member.permissions?.access_pos !== false,
-            process_transactions: member.permissions?.process_transactions !== false,
-            manage_customers: member.permissions?.manage_customers !== false,
-            access_display: member.permissions?.access_display !== false,
-            
-            // Management Operations
-            manage_inventory: member.permissions?.manage_inventory || false,
-            view_reports: member.permissions?.view_reports || false,
-            manage_hardware: member.permissions?.manage_hardware || false,
-            manage_card_terminal: member.permissions?.manage_card_terminal || false,
-            
-            // Administrative Operations
-            manage_settings: member.permissions?.manage_settings || false,
-            manage_staff: member.permissions?.manage_staff || false,
-          },
-        }));
+        // Convert any old format permissions to new format for display
+        const normalizedStaffData = staffData.map((member: any) => {
+          const dbPermissions = member.permissions || {};
+          
+          // Helper to get permission value (handles both old and new names)
+          const getPermission = (oldName: string, newName: string, defaultValue: boolean = false) => {
+            if (dbPermissions[newName] !== undefined) return Boolean(dbPermissions[newName]);
+            if (dbPermissions[oldName] !== undefined) return Boolean(dbPermissions[oldName]);
+            return defaultValue;
+          };
+
+          // Determine defaults based on role
+          const isOwner = member.role === "owner";
+          const isManager = member.role === "manager";
+          
+          return {
+            ...member,
+            permissions: {
+              // Core POS Operations
+              access_pos: getPermission('pos', 'access_pos', true),
+              process_transactions: getPermission('transactions', 'process_transactions', true),
+              manage_customers: getPermission('customers', 'manage_customers', true),
+              access_display: getPermission('display', 'access_display', true),
+              
+              // Management Operations
+              manage_inventory: getPermission('inventory', 'manage_inventory', isManager || isOwner),
+              view_reports: getPermission('reports', 'view_reports', isManager || isOwner),
+              manage_hardware: getPermission('hardware', 'manage_hardware', isManager || isOwner),
+              manage_card_terminal: getPermission('card_terminal', 'manage_card_terminal', isManager || isOwner),
+              
+              // Administrative Operations
+              manage_settings: getPermission('settings', 'manage_settings', isOwner),
+              manage_staff: dbPermissions.manage_staff || isOwner,
+            },
+          };
+        });
         setStaff(normalizedStaffData);
       }
 
@@ -311,18 +325,18 @@ export default function Settings() {
     setStaffPin("");
     setStaffRole(member.role);
     
-    // Apply the member's permissions
+    // Use the member's permissions directly (already normalized)
     setStaffPermissions({
-      access_pos: member.permissions.access_pos !== false,
-      process_transactions: member.permissions.process_transactions !== false,
-      manage_customers: member.permissions.manage_customers !== false,
-      access_display: member.permissions.access_display !== false,
-      manage_inventory: member.permissions.manage_inventory || false,
-      view_reports: member.permissions.view_reports || false,
-      manage_hardware: member.permissions.manage_hardware || false,
-      manage_card_terminal: member.permissions.manage_card_terminal || false,
-      manage_settings: member.permissions.manage_settings || false,
-      manage_staff: member.permissions.manage_staff || false,
+      access_pos: member.permissions.access_pos,
+      process_transactions: member.permissions.process_transactions,
+      manage_customers: member.permissions.manage_customers,
+      access_display: member.permissions.access_display,
+      manage_inventory: member.permissions.manage_inventory,
+      view_reports: member.permissions.view_reports,
+      manage_hardware: member.permissions.manage_hardware,
+      manage_card_terminal: member.permissions.manage_card_terminal,
+      manage_settings: member.permissions.manage_settings,
+      manage_staff: member.permissions.manage_staff,
     });
     
     setShowStaffModal(true);
@@ -434,12 +448,31 @@ export default function Settings() {
     }
 
     try {
+      // Save permissions in NEW format only
+      const permissions = {
+        // Core POS Operations
+        access_pos: staffPermissions.access_pos,
+        process_transactions: staffPermissions.process_transactions,
+        manage_customers: staffPermissions.manage_customers,
+        access_display: staffPermissions.access_display,
+        
+        // Management Operations
+        manage_inventory: staffPermissions.manage_inventory,
+        view_reports: staffPermissions.view_reports,
+        manage_hardware: staffPermissions.manage_hardware,
+        manage_card_terminal: staffPermissions.manage_card_terminal,
+        
+        // Administrative Operations
+        manage_settings: staffPermissions.manage_settings,
+        manage_staff: staffPermissions.manage_staff,
+      };
+
       const staffData: any = {
         user_id: userId,
         name: staffName.trim(),
         email: staffEmail.trim(),
         role: staffRole,
-        permissions: staffPermissions,
+        permissions: permissions, // NEW format only
       };
       
       if (staffPin && staffPin.length >= 4) {
@@ -875,7 +908,7 @@ export default function Settings() {
                   
                   <div className="flex flex-wrap gap-1 mb-2">
                     {Object.entries({
-                      access_pos: "POS Access",
+                      access_pos: "POS",
                       process_transactions: "Transactions",
                       manage_customers: "Customers",
                       access_display: "Display",
