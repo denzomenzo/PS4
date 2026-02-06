@@ -8,7 +8,7 @@ const protectedRoutes = {
   '/dashboard/customers': 'manage_customers',
   '/dashboard/display': 'access_display',
   '/dashboard/inventory': 'manage_inventory',
-  '/dashboard/transactions': 'manage_transactions',
+  '/dashboard/transactions': 'manage_transactions',  // FIXED: Changed from process_transactions
   '/dashboard/reports': 'view_reports',
   '/dashboard/settings': 'manage_settings',
   '/dashboard/hardware': 'manage_hardware',
