@@ -8,24 +8,9 @@ import { Loader2 } from "lucide-react";
 // Define the permission keys from the Staff interface
 type StaffPermissionKey = keyof Staff["permissions"];
 
-// Map old permission names to new functional permission names
-const permissionMap: Record<string, StaffPermissionKey> = {
-  // Map old page-based permissions to new functional permissions
-  pos: "access_pos",
-  transactions: "process_transactions", 
-  customers: "manage_customers",
-  display: "access_display",
-  inventory: "manage_inventory",
-  reports: "view_reports",
-  hardware: "manage_hardware",
-  card_terminal: "manage_card_terminal",
-  settings: "manage_settings",
-  // Add any other mappings if needed
-};
-
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredPermission?: keyof typeof permissionMap;
+  requiredPermission?: StaffPermissionKey;
   ownerOnly?: boolean;
   managerOnly?: boolean;
   staffOnly?: boolean;
@@ -49,32 +34,32 @@ export default function ProtectedRoute({
 
       // If no staff is logged in, deny access
       if (!staff) {
+        console.log("❌ No staff logged in");
         hasAccess = false;
       }
       // Check role-specific requirements
       else if (ownerOnly) {
         hasAccess = isOwner();
+        console.log("🔐 Owner check:", hasAccess);
       }
       else if (managerOnly) {
         hasAccess = isManager();
+        console.log("🔐 Manager check:", hasAccess);
       }
       else if (staffOnly) {
         // Staff only means any authenticated staff (not owner/manager specific)
         hasAccess = true;
+        console.log("✅ Staff authenticated");
       }
       // Check permission requirement
       else if (requiredPermission) {
-        // Map old permission name to new functional permission
-        const functionalPermission = permissionMap[requiredPermission];
-        if (functionalPermission) {
-          hasAccess = hasPermission(functionalPermission);
-        } else {
-          // If no mapping found, try using it directly
-          hasAccess = hasPermission(requiredPermission as StaffPermissionKey);
-        }
+        hasAccess = hasPermission(requiredPermission);
+        console.log(`🔐 Permission check for "${requiredPermission}":`, hasAccess);
+        console.log("Staff permissions:", staff.permissions);
       } else {
         // No specific requirements - just need to be logged in
         hasAccess = true;
+        console.log("✅ No specific permission required, staff logged in");
       }
 
       setAccessGranted(hasAccess);
@@ -82,6 +67,7 @@ export default function ProtectedRoute({
 
       // If access denied and user is logged in, redirect to dashboard
       if (!hasAccess && staff) {
+        console.log("❌ Access denied, redirecting to dashboard");
         router.push("/dashboard");
       }
     }
