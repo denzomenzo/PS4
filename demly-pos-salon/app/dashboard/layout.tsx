@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { useStaffAuth } from "@/hooks/useStaffAuth";
+import { useStaffAuth, Staff } from "@/hooks/useStaffAuth";
 import { useResponsive } from "@/hooks/useResponsive";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
@@ -15,73 +15,81 @@ import {
   Menu, X, ChevronDown, ChevronUp, User, Receipt
 } from "lucide-react";
 
+// Define permission type based on Staff interface
+type StaffPermission = keyof Staff["permissions"];
+
 // Map pages to NEW functional permissions
-const navigation = [
+const navigation: Array<{
+  name: string;
+  href: string;
+  icon: any;
+  requiredPermission: StaffPermission;
+}> = [
   { 
     name: "POS", 
     href: "/dashboard", 
     icon: Home, 
-    requiredPermission: "access_pos" as const 
+    requiredPermission: "access_pos"
   },
   { 
     name: "Customers", 
     href: "/dashboard/customers", 
     icon: Users, 
-    requiredPermission: "manage_customers" as const 
+    requiredPermission: "manage_customers"
   },
   { 
     name: "Appointments", 
     href: "/dashboard/appointments", 
     icon: Calendar, 
-    requiredPermission: "access_pos" as const // Appointments part of POS
+    requiredPermission: "access_pos" // Appointments part of POS
   },
   { 
     name: "Inventory", 
     href: "/dashboard/inventory", 
     icon: Package, 
-    requiredPermission: "manage_inventory" as const 
+    requiredPermission: "manage_inventory"
   },
   { 
     name: "Transactions", 
     href: "/dashboard/transactions", 
     icon: Receipt, 
-    requiredPermission: "process_transactions" as const 
+    requiredPermission: "process_transactions"
   },
   { 
     name: "Reports", 
     href: "/dashboard/reports", 
     icon: TrendingUp, 
-    requiredPermission: "view_reports" as const 
+    requiredPermission: "view_reports"
   },
   { 
     name: "Display", 
     href: "/dashboard/display", 
     icon: Monitor, 
-    requiredPermission: "access_display" as const 
+    requiredPermission: "access_display"
   },
   { 
     name: "Apps", 
     href: "/dashboard/apps", 
     icon: Zap, 
-    requiredPermission: "view_reports" as const // Apps requires reports permission
+    requiredPermission: "view_reports" // Apps requires reports permission
   },
   { 
     name: "Settings", 
     href: "/dashboard/settings", 
     icon: Settings, 
-    requiredPermission: "manage_settings" as const 
+    requiredPermission: "manage_settings"
   },
   { 
     name: "Hardware", 
     href: "/dashboard/hardware", 
     icon: Printer, 
-    requiredPermission: "manage_hardware" as const 
+    requiredPermission: "manage_hardware"
   },
   { 
     name: "Card Terminal", 
     href: "/dashboard/card-terminal", 
     icon: CreditCard, 
-    requiredPermission: "manage_card_terminal" as const 
+    requiredPermission: "manage_card_terminal"
   },
 ];
 
@@ -668,21 +676,16 @@ export default function DashboardLayout({
             )}
           </div>
 
-          {/* Navigation - TEMPORARILY BYPASSING PERMISSION CHECKS */}
+          {/* Navigation - FIXED PERMISSION CHECKING */}
           <nav className="flex-1 p-1 space-y-0.5 overflow-y-auto">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               
-              // TEMPORARY FIX: Show ALL navigation items regardless of permissions
-              const hasAccess = true; // TEMPORARILY GRANT ACCESS TO EVERYTHING
-              
-              // If you want to re-enable permission checks later, uncomment this:
-              /*
+              // FIXED: Properly check permissions using the typed permission key
               let hasAccess = true;
               if (staff && item.requiredPermission) {
                 hasAccess = hasPermission(item.requiredPermission);
               }
-              */
 
               if (!hasAccess) return null;
 
@@ -712,7 +715,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main Content - FIXED: Removed margin classes that caused the gap */}
+      {/* Main Content */}
       <main className="flex-1 overflow-auto min-w-0 w-full">
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border">
