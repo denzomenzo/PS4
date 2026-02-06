@@ -1,3 +1,4 @@
+// app/dashboard/layout.tsx - UPDATED VERSION
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,7 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { useStaffAuth, Staff } from "@/hooks/useStaffAuth";
+import { useStaffAuth, Staff } from "@/hooks/useStaffAuth"; // Import Staff type from useStaffAuth
 import { useResponsive } from "@/hooks/useResponsive";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
@@ -15,10 +16,10 @@ import {
   Menu, X, ChevronDown, ChevronUp, User, Receipt
 } from "lucide-react";
 
-// Define permission type based on Staff interface
+// Use the Staff type from useStaffAuth to ensure consistency
 type StaffPermission = keyof Staff["permissions"];
 
-// Map pages to NEW functional permissions
+// Map pages to NEW functional permissions - UPDATED to match useStaffAuth permissions
 const navigation: Array<{
   name: string;
   href: string;
@@ -53,7 +54,7 @@ const navigation: Array<{
     name: "Transactions", 
     href: "/dashboard/transactions", 
     icon: Receipt, 
-    requiredPermission: "manage_transactions"
+    requiredPermission: "manage_transactions" // FIXED: Changed to manage_transactions
   },
   { 
     name: "Reports", 
@@ -676,15 +677,21 @@ export default function DashboardLayout({
             )}
           </div>
 
-          {/* Navigation - FIXED PERMISSION CHECKING */}
+          {/* Navigation - DEBUG: Add console logs for permission checking */}
           <nav className="flex-1 p-1 space-y-0.5 overflow-y-auto">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               
-              // FIXED: Properly check permissions using the typed permission key
+              // DEBUG: Log permission checking
               let hasAccess = true;
               if (staff && item.requiredPermission) {
                 hasAccess = hasPermission(item.requiredPermission);
+                console.log(`🔐 Layout Permission Check: ${item.name} (${item.requiredPermission})`, {
+                  hasAccess,
+                  staffRole: staff.role,
+                  permissionValue: staff.permissions[item.requiredPermission],
+                  allPermissions: staff.permissions
+                });
               }
 
               if (!hasAccess) return null;
@@ -787,4 +794,3 @@ export default function DashboardLayout({
     </div>
   );
 }
-
