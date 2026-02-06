@@ -11,7 +11,7 @@ export interface Staff {
   permissions: {
     // Core POS Operations
     access_pos: boolean;
-    process_transactions: boolean;
+    manage_transactions: boolean;  // FIXED: Changed from process_transactions
     manage_customers: boolean;
     access_display: boolean;
     
@@ -41,7 +41,7 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
   // Default permissions based on role
   const defaultPermissions: Staff["permissions"] = {
     access_pos: true,
-    process_transactions: true,
+    manage_transactions: true,  // FIXED: Changed from process_transactions
     manage_customers: true,
     access_display: true,
     manage_inventory: role === "staff" ? false : true,
@@ -63,7 +63,8 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
   // Mapping from old names to new names
   const oldToNewMap = {
     'pos': 'access_pos',
-    'transactions': 'process_transactions',
+    'transactions': 'manage_transactions',  // FIXED: Changed from process_transactions
+    'process_transactions': 'manage_transactions',  // FIXED: Also map old process_transactions
     'customers': 'manage_customers',
     'display': 'access_display',
     'inventory': 'manage_inventory',
@@ -95,7 +96,7 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
     
     // Staff core permissions are always true
     permissionValues.access_pos = true;
-    permissionValues.process_transactions = true;
+    permissionValues.manage_transactions = true;  // FIXED: Changed from process_transactions
     permissionValues.manage_customers = true;
     permissionValues.access_display = true;
   } else if (role === "manager") {
@@ -105,7 +106,7 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
     
     // Manager core permissions are always true
     permissionValues.access_pos = true;
-    permissionValues.process_transactions = true;
+    permissionValues.manage_transactions = true;  // FIXED: Changed from process_transactions
     permissionValues.manage_customers = true;
     permissionValues.access_display = true;
   }
