@@ -7,6 +7,9 @@ import { useStaffAuth } from "@/hooks/useStaffAuth";
 import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save, Lock, Shield, AlertCircle, Mail } from "lucide-react";
 import Link from "next/link";
 
+// Import Staff type from useStaffAuth to ensure consistency
+import type { Staff as StaffType } from "@/hooks/useStaffAuth";
+
 interface Staff {
   id: number;
   name: string;
@@ -16,7 +19,7 @@ interface Staff {
   permissions: {
     // Core POS Operations
     access_pos: boolean;
-    process_transactions: boolean;
+    manage_transactions: boolean; // FIXED: Changed from process_transactions
     manage_customers: boolean;
     access_display: boolean;
     
@@ -34,7 +37,7 @@ interface Staff {
 
 export default function Settings() {
   const userId = useUserId();
-  const { staff: currentStaff, isOwner, isManager, hasPermission } = useStaffAuth();
+  const { staff: currentStaff, isOwner, isManager } = useStaffAuth();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -71,7 +74,7 @@ export default function Settings() {
   const [staffPermissions, setStaffPermissions] = useState({
     // Core POS Operations
     access_pos: true,
-    process_transactions: true,
+    manage_transactions: true, // FIXED: Changed from process_transactions
     manage_customers: true,
     access_display: true,
     
@@ -97,21 +100,28 @@ export default function Settings() {
   // Username field for staff
   const [staffUsername, setStaffUsername] = useState("");
 
-  // FIXED: Better permission checking with debug logging
+  // FIXED: Simplified permission checking
   useEffect(() => {
+    console.log("🔄 Settings page useEffect triggered", { userId, currentStaff });
+    
     if (userId && currentStaff) {
-      // Check if staff has manage_settings permission OR is owner/manager
-      const canAccessSettings = isOwner() || isManager() || hasPermission('manage_settings');
+      console.log("👤 Current staff:", {
+        id: currentStaff.id,
+        name: currentStaff.name,
+        role: currentStaff.role,
+        permissions: currentStaff.permissions
+      });
+      
+      // SIMPLIFIED: Direct permission check
+      const canAccessSettings = 
+        currentStaff.role === "owner" || 
+        currentStaff.role === "manager" || 
+        currentStaff.permissions.manage_settings === true;
       
       console.log("🔐 Settings access check:", {
-        userId,
-        staffId: currentStaff.id,
         role: currentStaff.role,
-        isOwner: isOwner(),
-        isManager: isManager(),
-        hasManageSettings: hasPermission('manage_settings'),
-        canAccessSettings,
-        permissions: currentStaff.permissions
+        manage_settings: currentStaff.permissions.manage_settings,
+        canAccessSettings
       });
       
       if (!canAccessSettings) {
@@ -121,18 +131,23 @@ export default function Settings() {
         return;
       }
       
-      console.log("✅ Access granted to settings");
+      console.log("✅ Access granted to settings, loading data...");
       loadData();
+    } else if (!currentStaff) {
+      console.log("❌ No staff logged in");
+      setLoading(false);
     }
-  }, [userId, currentStaff, isOwner, isManager, hasPermission]);
+  }, [userId, currentStaff]);
 
   // Function to apply role-based permission presets
   const applyRolePreset = (role: "staff" | "manager" | "owner") => {
+    console.log("🎭 Applying role preset:", role);
+    
     if (role === "staff") {
       setStaffPermissions({
         // Core POS Operations - Required for staff
         access_pos: true,
-        process_transactions: true,
+        manage_transactions: true, // FIXED: Changed from process_transactions
         manage_customers: true,
         access_display: true,
         
@@ -150,7 +165,7 @@ export default function Settings() {
       setStaffPermissions({
         // Core POS Operations - Required for managers
         access_pos: true,
-        process_transactions: true,
+        manage_transactions: true, // FIXED: Changed from process_transactions
         manage_customers: true,
         access_display: true,
         
@@ -168,7 +183,7 @@ export default function Settings() {
       // Owners have everything enabled
       setStaffPermissions({
         access_pos: true,
-        process_transactions: true,
+        manage_transactions: true, // FIXED: Changed from process_transactions
         manage_customers: true,
         access_display: true,
         manage_inventory: true,
@@ -182,16 +197,26 @@ export default function Settings() {
   };
 
   const loadData = async () => {
+    console.log("🔄 Starting loadData...");
     setLoading(true);
 
     try {
-      const { data: settingsData } = await supabase
+      console.log("📊 Loading settings data for user:", userId);
+      
+      const { data: settingsData, error: settingsError } = await supabase
         .from("settings")
         .select("*")
         .eq("user_id", userId)
         .maybeSingle();
       
+      console.log("Settings query result:", { settingsData, settingsError });
+      
+      if (settingsError) {
+        console.error("Error loading settings:", settingsError);
+      }
+      
       if (settingsData) {
+        console.log("✅ Settings data loaded:", settingsData);
         setShopName(settingsData.shop_name || settingsData.business_name || "");
         setBusinessLogoUrl(settingsData.business_logo_url || "");
         setVatEnabled(settingsData.vat_enabled !== false);
@@ -209,13 +234,22 @@ export default function Settings() {
         setReceiptFontSize(settingsData.receipt_font_size?.toString() || "12");
         setBarcodeType(settingsData.barcode_type || "code128");
         setShowBarcodeOnReceipt(settingsData.show_barcode_on_receipt !== false);
+      } else {
+        console.log("ℹ️ No settings data found, using defaults");
       }
 
-      const { data: staffData } = await supabase
+      console.log("👥 Loading staff data...");
+      const { data: staffData, error: staffError } = await supabase
         .from("staff")
         .select("*")
         .eq("user_id", userId)
         .order("name");
+      
+      console.log("Staff query result:", { staffData: staffData?.length, staffError });
+      
+      if (staffError) {
+        console.error("Error loading staff:", staffError);
+      }
       
       if (staffData) {
         // Convert any old format permissions to new format for display
@@ -238,7 +272,7 @@ export default function Settings() {
             permissions: {
               // Core POS Operations
               access_pos: getPermission('pos', 'access_pos', true),
-              process_transactions: getPermission('transactions', 'process_transactions', true),
+              manage_transactions: getPermission('transactions', 'manage_transactions', true) || getPermission('process_transactions', 'manage_transactions', true), // FIXED
               manage_customers: getPermission('customers', 'manage_customers', true),
               access_display: getPermission('display', 'access_display', true),
               
@@ -254,17 +288,20 @@ export default function Settings() {
             },
           };
         });
+        console.log(`✅ Loaded ${normalizedStaffData.length} staff members`);
         setStaff(normalizedStaffData);
       }
 
     } catch (error) {
-      console.error("Error loading settings:", error);
+      console.error("❌ Error loading settings:", error);
     } finally {
+      console.log("🏁 loadData completed");
       setLoading(false);
     }
   };
 
   const saveAllSettings = async () => {
+    console.log("💾 Saving all settings...");
     setSaving(true);
     try {
       const { error } = await supabase
@@ -294,11 +331,14 @@ export default function Settings() {
         );
 
       if (error) {
+        console.error("❌ Error saving settings:", error);
         alert("❌ Error saving settings: " + error.message);
       } else {
+        console.log("✅ Settings saved successfully");
         alert("✅ All settings saved successfully!");
       }
     } catch (err) {
+      console.error("❌ Unexpected error saving settings:", err);
       alert("❌ An unexpected error occurred");
     } finally {
       setSaving(false);
@@ -313,7 +353,7 @@ export default function Settings() {
     setStaffRole("staff");
     setStaffPermissions({
       access_pos: true,
-      process_transactions: true,
+      manage_transactions: true, // FIXED: Changed from process_transactions
       manage_customers: true,
       access_display: true,
       manage_inventory: false,
@@ -331,11 +371,13 @@ export default function Settings() {
   };
 
   const openAddStaffModal = () => {
+    console.log("➕ Opening add staff modal");
     resetModalStates();
     setShowStaffModal(true);
   };
 
   const openEditStaffModal = (member: Staff) => {
+    console.log("✏️ Opening edit staff modal for:", member.name);
     setEditingStaff(member);
     setStaffName(member.name);
     setStaffEmail(member.email || "");
@@ -346,7 +388,7 @@ export default function Settings() {
     // Use the member's permissions directly (already normalized)
     setStaffPermissions({
       access_pos: member.permissions.access_pos,
-      process_transactions: member.permissions.process_transactions,
+      manage_transactions: member.permissions.manage_transactions, // FIXED
       manage_customers: member.permissions.manage_customers,
       access_display: member.permissions.access_display,
       manage_inventory: member.permissions.manage_inventory,
@@ -361,6 +403,7 @@ export default function Settings() {
   };
 
   const openPinChangeModal = (member: Staff) => {
+    console.log("🔒 Opening PIN change modal for:", member.name);
     setPinChangeStaff(member);
     setStaffEmail(member.email || "");
     setStaffPin("");
@@ -371,6 +414,7 @@ export default function Settings() {
   };
 
   const sendVerificationCode = async () => {
+    console.log("📧 Sending verification code to:", staffEmail);
     if (!staffEmail || !staffEmail.includes('@')) {
       alert("Please enter a valid email address");
       return;
@@ -392,6 +436,7 @@ export default function Settings() {
       );
 
       if (functionError) {
+        console.error("❌ Failed to send verification email:", functionError);
         alert("❌ Failed to send verification email. Please try again.");
         setCodeSent(false);
         setSentCode("");
@@ -401,6 +446,7 @@ export default function Settings() {
       setCodeSent(true);
       alert(`✅ Verification code sent to ${staffEmail}`);
     } catch (error) {
+      console.error("❌ Failed to send verification email:", error);
       alert("❌ Failed to send verification email. Please check your connection.");
       setCodeSent(false);
       setSentCode("");
@@ -408,6 +454,7 @@ export default function Settings() {
   };
 
   const verifyAndSavePin = async () => {
+    console.log("✅ Verifying and saving PIN");
     if (verificationCode !== sentCode) {
       alert("❌ Invalid verification code");
       return;
@@ -436,6 +483,7 @@ export default function Settings() {
       resetModalStates();
       loadData();
     } catch (error: any) {
+      console.error("❌ Error updating PIN:", error);
       alert("❌ Error updating PIN: " + error.message);
     } finally {
       setVerifying(false);
@@ -443,6 +491,7 @@ export default function Settings() {
   };
 
   const saveStaffMember = async () => {
+    console.log("💾 Saving staff member...");
     if (!staffName.trim()) {
       alert("Name is required");
       return;
@@ -470,7 +519,7 @@ export default function Settings() {
       const permissions = {
         // Core POS Operations
         access_pos: staffPermissions.access_pos,
-        process_transactions: staffPermissions.process_transactions,
+        manage_transactions: staffPermissions.manage_transactions, // FIXED
         manage_customers: staffPermissions.manage_customers,
         access_display: staffPermissions.access_display,
         
@@ -498,6 +547,7 @@ export default function Settings() {
       }
       
       if (editingStaff) {
+        console.log("✏️ Updating existing staff member:", editingStaff.id);
         const { error } = await supabase
           .from("staff")
           .update(staffData)
@@ -506,6 +556,7 @@ export default function Settings() {
         
         if (error) throw error;
       } else {
+        console.log("➕ Adding new staff member");
         const { error } = await supabase
           .from("staff")
           .insert(staffData);
@@ -518,11 +569,13 @@ export default function Settings() {
       loadData();
       alert("✅ Staff member saved successfully!");
     } catch (error: any) {
+      console.error("❌ Error saving staff member:", error);
       alert("Error saving staff member: " + error.message);
     }
   };
 
   const deleteStaffMember = async (id: number) => {
+    console.log("🗑️ Deleting staff member:", id);
     if (!confirm("Are you sure you want to delete this staff member?")) return;
     
     try {
@@ -536,13 +589,18 @@ export default function Settings() {
       
       loadData();
     } catch (error: any) {
+      console.error("❌ Error deleting staff member:", error);
       alert("Error deleting staff member: " + error.message);
     }
   };
 
-  if (!userId || !currentStaff) return null;
+  if (!userId || !currentStaff) {
+    console.log("⏳ Waiting for user ID or current staff...");
+    return null;
+  }
 
   if (loading) {
+    console.log("⏳ Loading settings page...");
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
@@ -554,6 +612,7 @@ export default function Settings() {
   }
 
   if (accessDenied) {
+    console.log("🚫 Access denied to settings page");
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
         <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
@@ -927,7 +986,7 @@ export default function Settings() {
                   <div className="flex flex-wrap gap-1 mb-2">
                     {Object.entries({
                       access_pos: "POS",
-                      process_transactions: "Transactions",
+                      manage_transactions: "Transactions", // FIXED: Changed from process_transactions
                       manage_customers: "Customers",
                       access_display: "Display",
                       manage_inventory: "Inventory",
@@ -1069,7 +1128,7 @@ export default function Settings() {
                     <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
                     {Object.entries({
                       access_pos: "Access Point of Sale",
-                      process_transactions: "Process Sales & Returns",
+                      manage_transactions: "Process Sales & Returns", // FIXED: Changed from process_transactions
                       manage_customers: "Manage Customers",
                       access_display: "Access Customer Display",
                     }).map(([key, label]) => (
