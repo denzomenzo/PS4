@@ -53,7 +53,7 @@ const navigation: Array<{
     name: "Transactions", 
     href: "/dashboard/transactions", 
     icon: Receipt, 
-    requiredPermission: "process_transactions"
+    requiredPermission: "manage_transactions"
   },
   { 
     name: "Reports", 
@@ -787,3 +787,4 @@ export default function DashboardLayout({
     </div>
   );
 }
+
