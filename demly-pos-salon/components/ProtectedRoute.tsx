@@ -1,3 +1,4 @@
+// components/ProtectedRoute.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -5,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useStaffAuth, Staff } from "@/hooks/useStaffAuth";
 import { Loader2 } from "lucide-react";
 
-// Define the permission keys from the Staff interface
+// Define the permission keys from the Staff interface - FIXED with correct permission names
 type StaffPermissionKey = keyof Staff["permissions"];
 
 interface ProtectedRouteProps {
@@ -40,11 +41,11 @@ export default function ProtectedRoute({
       // Check role-specific requirements
       else if (ownerOnly) {
         hasAccess = isOwner();
-        console.log("🔐 Owner check:", hasAccess);
+        console.log("🔐 Owner check:", hasAccess, "Staff role:", staff.role);
       }
       else if (managerOnly) {
         hasAccess = isManager();
-        console.log("🔐 Manager check:", hasAccess);
+        console.log("🔐 Manager check:", hasAccess, "Staff role:", staff.role);
       }
       else if (staffOnly) {
         // Staff only means any authenticated staff (not owner/manager specific)
@@ -68,6 +69,9 @@ export default function ProtectedRoute({
       // If access denied and user is logged in, redirect to dashboard
       if (!hasAccess && staff) {
         console.log("❌ Access denied, redirecting to dashboard");
+        console.log("Required permission:", requiredPermission);
+        console.log("Owner only:", ownerOnly);
+        console.log("Manager only:", managerOnly);
         router.push("/dashboard");
       }
     }
