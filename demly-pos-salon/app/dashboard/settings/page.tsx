@@ -34,7 +34,7 @@ interface Staff {
 
 export default function Settings() {
   const userId = useUserId();
-  const { staff: currentStaff, isOwner, isManager } = useStaffAuth();
+  const { staff: currentStaff, isOwner, isManager, hasPermission } = useStaffAuth();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,6 +97,35 @@ export default function Settings() {
   // Username field for staff
   const [staffUsername, setStaffUsername] = useState("");
 
+  // FIXED: Better permission checking with debug logging
+  useEffect(() => {
+    if (userId && currentStaff) {
+      // Check if staff has manage_settings permission OR is owner/manager
+      const canAccessSettings = isOwner() || isManager() || hasPermission('manage_settings');
+      
+      console.log("🔐 Settings access check:", {
+        userId,
+        staffId: currentStaff.id,
+        role: currentStaff.role,
+        isOwner: isOwner(),
+        isManager: isManager(),
+        hasManageSettings: hasPermission('manage_settings'),
+        canAccessSettings,
+        permissions: currentStaff.permissions
+      });
+      
+      if (!canAccessSettings) {
+        console.log("❌ Access denied to settings");
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
+      
+      console.log("✅ Access granted to settings");
+      loadData();
+    }
+  }, [userId, currentStaff, isOwner, isManager, hasPermission]);
+
   // Function to apply role-based permission presets
   const applyRolePreset = (role: "staff" | "manager" | "owner") => {
     if (role === "staff") {
@@ -151,17 +180,6 @@ export default function Settings() {
       });
     }
   };
-
-  useEffect(() => {
-    if (userId && currentStaff) {
-      if (!isOwner() && !isManager()) {
-        setAccessDenied(true);
-        setLoading(false);
-        return;
-      }
-      loadData();
-    }
-  }, [userId, currentStaff]);
 
   const loadData = async () => {
     setLoading(true);
