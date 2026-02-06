@@ -1,17 +1,20 @@
 // proxy.ts
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server'; // ✅ Correct import
+import type { NextRequest } from 'next/server';
 
-// Define protected routes and required permissions
+// Define protected routes and required permissions - UPDATED to match new permission system
 const protectedRoutes = {
-  '/dashboard/transactions': 'transactions',
-  '/dashboard/customers': 'customers',
-  '/dashboard/display': 'display',
-  '/dashboard/inventory': 'inventory',
-  '/dashboard/reports': 'reports',
-  '/dashboard/settings': 'settings',
-  '/dashboard/hardware': 'hardware',
-  '/dashboard/card-terminal': 'card_terminal',
+  '/dashboard': 'access_pos',
+  '/dashboard/customers': 'manage_customers',
+  '/dashboard/display': 'access_display',
+  '/dashboard/inventory': 'manage_inventory',
+  '/dashboard/transactions': 'manage_transactions',
+  '/dashboard/reports': 'view_reports',
+  '/dashboard/settings': 'manage_settings',
+  '/dashboard/hardware': 'manage_hardware',
+  '/dashboard/card-terminal': 'manage_card_terminal',
+  '/dashboard/appointments': 'access_pos', // Appointments uses POS access
+  '/dashboard/apps': 'view_reports', // Apps uses reports permission
 };
 
 export function proxy(request: NextRequest) {
@@ -34,20 +37,30 @@ export function proxy(request: NextRequest) {
 
   // Check if current path is protected
   for (const [route, requiredPermission] of Object.entries(protectedRoutes)) {
-    if (pathname.startsWith(route)) {
+    if (pathname === route || (route !== '/dashboard' && pathname.startsWith(route))) {
       // Get staff session from cookies
       const staffCookie = request.cookies.get('current_staff')?.value;
       
       // No staff session = redirect to dashboard
       if (!staffCookie) {
+        console.log(`🚫 No staff session for ${pathname}, redirecting to dashboard`);
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
 
       try {
         const staff = JSON.parse(staffCookie);
         
+        // Debug logging
+        console.log(`🔐 Proxy checking ${pathname}`, {
+          requiredPermission,
+          staffRole: staff.role,
+          hasPermission: staff.permissions?.[requiredPermission],
+          allPermissions: staff.permissions
+        });
+        
         // Owners can access everything
         if (staff.role === 'owner') {
+          console.log(`✅ Owner access granted to ${pathname}`);
           return NextResponse.next();
         }
 
@@ -55,18 +68,33 @@ export function proxy(request: NextRequest) {
         if (requiredPermission) {
           const hasPerm = staff.permissions?.[requiredPermission];
           if (!hasPerm) {
+            console.log(`❌ Permission denied for ${pathname}: missing ${requiredPermission}`);
             return NextResponse.redirect(new URL('/dashboard', request.url));
           }
+          
+          console.log(`✅ Permission granted for ${pathname}: has ${requiredPermission}`);
+          return NextResponse.next();
         }
 
       } catch (error) {
+        console.error(`❌ Invalid session for ${pathname}:`, error);
         // Invalid session
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
     }
   }
 
+  // For dashboard root, just check if staff is logged in
+  if (pathname === '/dashboard') {
+    const staffCookie = request.cookies.get('current_staff')?.value;
+    if (!staffCookie) {
+      console.log('🚫 No staff session for dashboard root');
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
   // For all other routes, continue normally
+  console.log(`➡️ No specific protection for ${pathname}, allowing access`);
   return NextResponse.next();
 }
 
@@ -76,4 +104,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
-
