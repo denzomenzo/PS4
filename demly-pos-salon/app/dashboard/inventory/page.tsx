@@ -4,14 +4,41 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { 
-  Plus, Edit2, Trash2, X, Loader2, ArrowLeft, Package, 
-  Search, Upload, Download, TrendingUp, TrendingDown, 
-  Tag, Coffee, ShoppingBag, Pizza, Utensils, Package2,
-  Filter, Grid, List, Hash, DollarSign, BarChart3,
-  Clock, MapPin, Home, Truck
-} from "lucide-react";
 import Link from "next/link";
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  X,
+  Loader2,
+  ArrowLeft,
+  Package,
+  Search,
+  Upload,
+  Download,
+  TrendingUp,
+  TrendingDown,
+  Tag,
+  Filter,
+  Grid,
+  List,
+  DollarSign,
+  BarChart3,
+  Check,
+  AlertCircle,
+  Hash,
+  Box,
+  Coffee,
+  Image as ImageIcon,
+  MoreVertical,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  Copy,
+  Zap,
+  ChevronDown,
+  ChevronUp
+} from "lucide-react";
 
 interface Product {
   id: number;
@@ -47,18 +74,24 @@ export default function Inventory() {
   const [products, setProducts] = useState<Product[]>([]);
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showStockModal, setShowStockModal] = useState(false);
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingService, setEditingService] = useState<ServiceType | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<string>("all");
+  
+  // UI State
+  const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [sortBy, setSortBy] = useState<"name" | "price" | "stock">("name");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  
   // Stock adjustment
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
   const [stockAdjustment, setStockAdjustment] = useState("");
@@ -83,17 +116,30 @@ export default function Inventory() {
 
   // Service form states
   const [serviceName, setServiceName] = useState("");
-  const [serviceIcon, setServiceIcon] = useState("🍽️");
+  const [serviceIcon, setServiceIcon] = useState("");
   const [serviceColor, setServiceColor] = useState("#3B82F6");
   const [servicePrice, setServicePrice] = useState("");
 
-  // Default service types
+  // File upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Stats
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    totalServices: 0,
+    lowStock: 0,
+    outOfStock: 0,
+    totalValue: 0,
+    categories: 0
+  });
+
+  // Default service types (no emojis)
   const defaultServices = [
     { name: "Eat In", icon: "🏠", color: "#10B981", price: 0 },
-    { name: "Takeaway", icon: "🥡", color: "#F59E0B", price: 0 },
+    { name: "Takeaway", icon: "📦", color: "#F59E0B", price: 0 },
     { name: "Delivery", icon: "🚚", color: "#8B5CF6", price: 2.99 },
     { name: "Dine In", icon: "🍽️", color: "#EF4444", price: 0 },
-    { name: "Collection", icon: "📦", color: "#06B6D4", price: 0 },
+    { name: "Collection", icon: "📥", color: "#06B6D4", price: 0 },
   ];
 
   useEffect(() => {
@@ -102,32 +148,44 @@ export default function Inventory() {
     }
   }, [userId]);
 
+  useEffect(() => {
+    calculateStats();
+  }, [products]);
+
   const loadData = async () => {
     if (!userId) return;
     
     setLoading(true);
+    setError(null);
     
-    // Load products
-    const { data: productsData } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
-    
-    if (productsData) setProducts(productsData);
+    try {
+      // Load products
+      const { data: productsData, error: productsError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name");
+      
+      if (productsError) throw productsError;
+      if (productsData) setProducts(productsData);
 
-    // Load service types
-    const { data: servicesData } = await supabase
-      .from("service_types")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
+      // Load service types
+      const { data: servicesData } = await supabase
+        .from("service_types")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name");
 
-    if (servicesData) {
-      setServiceTypes(servicesData);
-    } else {
-      // Create default services if none exist
-      await createDefaultServices();
+      if (servicesData) {
+        setServiceTypes(servicesData);
+      } else {
+        // Create default services if none exist
+        await createDefaultServices();
+      }
+      
+    } catch (error) {
+      console.error("Error loading inventory:", error);
+      setError("Failed to load inventory data");
     }
     
     setLoading(false);
@@ -149,6 +207,32 @@ export default function Inventory() {
 
     await Promise.all(defaultServicePromises);
     loadData();
+  };
+
+  const calculateStats = () => {
+    const totalProducts = products.filter(p => !p.is_service).length;
+    const totalServices = products.filter(p => p.is_service).length;
+    const lowStock = products.filter(p => 
+      p.track_inventory && 
+      p.stock_quantity <= p.low_stock_threshold && 
+      p.stock_quantity > 0
+    ).length;
+    const outOfStock = products.filter(p => 
+      p.track_inventory && p.stock_quantity === 0
+    ).length;
+    const totalValue = products.reduce((sum, p) => 
+      sum + (p.cost * p.stock_quantity), 0
+    );
+    const categories = [...new Set(products.map(p => p.category).filter(Boolean))].length;
+
+    setStats({
+      totalProducts,
+      totalServices,
+      lowStock,
+      outOfStock,
+      totalValue,
+      categories
+    });
   };
 
   const getCategories = () => {
@@ -226,40 +310,9 @@ export default function Inventory() {
       return;
     }
 
-    const { error } = await supabase.from("products").insert({
-      user_id: userId,
-      name: formName,
-      description: formDescription || null,
-      sku: formSKU || null,
-      barcode: formBarcode || null,
-      category: formCategory || null,
-      price: parseFloat(formPrice),
-      cost: parseFloat(formCost) || 0,
-      stock_quantity: formIsService ? 0 : (parseInt(formStock) || 0),
-      low_stock_threshold: formIsService ? 0 : parseInt(formThreshold),
-      track_inventory: formIsService ? false : formTrackInventory,
-      is_service: formIsService,
-      icon: formIcon || null,
-      supplier: formSupplier || null,
-      image_url: formImageUrl || null,
-      service_type: formIsService && formServiceType ? formServiceType : null,
-    });
-
-    if (error) {
-      alert("Error adding product: " + error.message);
-      return;
-    }
-
-    setShowAddModal(false);
-    loadData();
-  };
-
-  const updateProduct = async () => {
-    if (!editingProduct) return;
-
-    const { error } = await supabase
-      .from("products")
-      .update({
+    try {
+      const { error } = await supabase.from("products").insert({
+        user_id: userId,
         name: formName,
         description: formDescription || null,
         sku: formSKU || null,
@@ -275,16 +328,51 @@ export default function Inventory() {
         supplier: formSupplier || null,
         image_url: formImageUrl || null,
         service_type: formIsService && formServiceType ? formServiceType : null,
-      })
-      .eq("id", editingProduct.id);
+      });
 
-    if (error) {
-      alert("Error updating product");
-      return;
+      if (error) throw error;
+
+      setShowAddModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error adding product:", error);
+      alert("Error adding product");
     }
+  };
 
-    setShowEditModal(false);
-    loadData();
+  const updateProduct = async () => {
+    if (!editingProduct) return;
+
+    try {
+      const { error } = await supabase
+        .from("products")
+        .update({
+          name: formName,
+          description: formDescription || null,
+          sku: formSKU || null,
+          barcode: formBarcode || null,
+          category: formCategory || null,
+          price: parseFloat(formPrice),
+          cost: parseFloat(formCost) || 0,
+          stock_quantity: formIsService ? 0 : (parseInt(formStock) || 0),
+          low_stock_threshold: formIsService ? 0 : parseInt(formThreshold),
+          track_inventory: formIsService ? false : formTrackInventory,
+          is_service: formIsService,
+          icon: formIcon || null,
+          supplier: formSupplier || null,
+          image_url: formImageUrl || null,
+          service_type: formIsService && formServiceType ? formServiceType : null,
+        })
+        .eq("id", editingProduct.id);
+
+      if (error) throw error;
+
+      setShowEditModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error updating product:", error);
+      alert("Error updating product");
+    }
   };
 
   const addServiceType = async () => {
@@ -293,79 +381,84 @@ export default function Inventory() {
       return;
     }
 
-    const { error } = await supabase.from("service_types").insert({
-      user_id: userId,
-      name: serviceName,
-      icon: serviceIcon,
-      color: serviceColor,
-      default_price: parseFloat(servicePrice) || 0,
-      is_active: true,
-    });
+    try {
+      const { error } = await supabase.from("service_types").insert({
+        user_id: userId,
+        name: serviceName,
+        icon: serviceIcon,
+        color: serviceColor,
+        default_price: parseFloat(servicePrice) || 0,
+        is_active: true,
+      });
 
-    if (error) {
-      alert("Error adding service: " + error.message);
-      return;
+      if (error) throw error;
+
+      setServiceName("");
+      setServiceIcon("");
+      setServiceColor("#3B82F6");
+      setServicePrice("");
+      setEditingService(null);
+      loadData();
+    } catch (error) {
+      console.error("Error adding service:", error);
+      alert("Error adding service");
     }
-
-    setServiceName("");
-    setServiceIcon("🍽️");
-    setServiceColor("#3B82F6");
-    setServicePrice("");
-    setEditingService(null);
-    loadData();
   };
 
   const updateServiceType = async () => {
     if (!editingService) return;
 
-    const { error } = await supabase
-      .from("service_types")
-      .update({
-        name: serviceName,
-        icon: serviceIcon,
-        color: serviceColor,
-        default_price: parseFloat(servicePrice) || 0,
-      })
-      .eq("id", editingService.id);
+    try {
+      const { error } = await supabase
+        .from("service_types")
+        .update({
+          name: serviceName,
+          icon: serviceIcon,
+          color: serviceColor,
+          default_price: parseFloat(servicePrice) || 0,
+        })
+        .eq("id", editingService.id);
 
-    if (error) {
+      if (error) throw error;
+
+      setEditingService(null);
+      setServiceName("");
+      setServiceIcon("");
+      setServiceColor("#3B82F6");
+      setServicePrice("");
+      loadData();
+    } catch (error) {
+      console.error("Error updating service:", error);
       alert("Error updating service");
-      return;
     }
-
-    setEditingService(null);
-    setServiceName("");
-    setServiceIcon("🍽️");
-    setServiceColor("#3B82F6");
-    setServicePrice("");
-    loadData();
   };
 
   const toggleServiceActive = async (service: ServiceType) => {
-    const { error } = await supabase
-      .from("service_types")
-      .update({ is_active: !service.is_active })
-      .eq("id", service.id);
+    try {
+      const { error } = await supabase
+        .from("service_types")
+        .update({ is_active: !service.is_active })
+        .eq("id", service.id);
 
-    if (error) {
+      if (error) throw error;
+      loadData();
+    } catch (error) {
+      console.error("Error updating service:", error);
       alert("Error updating service");
-      return;
     }
-
-    loadData();
   };
 
   const deleteServiceType = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this service type? Products using this service will keep it as their type.")) return;
+    if (!confirm("Are you sure you want to delete this service type?")) return;
 
-    const { error } = await supabase.from("service_types").delete().eq("id", id);
-
-    if (error) {
+    try {
+      const { error } = await supabase.from("service_types").delete().eq("id", id);
+      if (error) throw error;
+      loadData();
+    } catch (error) {
+      console.error("Error deleting service:", error);
       alert("Error deleting service");
-      return;
     }
-
-    loadData();
   };
 
   const adjustStock = async () => {
@@ -379,45 +472,47 @@ export default function Inventory() {
       return;
     }
 
-    const { error } = await supabase
-      .from("products")
-      .update({ stock_quantity: newStock })
-      .eq("id", stockProduct.id);
+    try {
+      const { error } = await supabase
+        .from("products")
+        .update({ stock_quantity: newStock })
+        .eq("id", stockProduct.id);
 
-    if (error) {
+      if (error) throw error;
+
+      // Log the adjustment
+      await supabase.from("stock_adjustments").insert({
+        user_id: userId,
+        product_id: stockProduct.id,
+        adjustment: adjustment,
+        reason: stockReason || "Manual adjustment",
+        previous_quantity: stockProduct.stock_quantity,
+        new_quantity: newStock,
+      });
+
+      setShowStockModal(false);
+      loadData();
+    } catch (error) {
+      console.error("Error adjusting stock:", error);
       alert("Error adjusting stock");
-      return;
     }
-
-    // Log the adjustment
-    await supabase.from("stock_adjustments").insert({
-      user_id: userId,
-      product_id: stockProduct.id,
-      adjustment: adjustment,
-      reason: stockReason || "Manual adjustment",
-      previous_quantity: stockProduct.stock_quantity,
-      new_quantity: newStock,
-    });
-
-    setShowStockModal(false);
-    loadData();
   };
 
   const deleteProduct = async (id: number) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
 
-    const { error } = await supabase.from("products").delete().eq("id", id);
-
-    if (error) {
+    try {
+      const { error } = await supabase.from("products").delete().eq("id", id);
+      if (error) throw error;
+      loadData();
+    } catch (error) {
+      console.error("Error deleting product:", error);
       alert("Error deleting product");
-      return;
     }
-
-    loadData();
   };
 
   const exportToCSV = () => {
-    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Is Service", "Service Type", "Icon", "Supplier"];
+    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Is Service", "Service Type", "Image URL", "Supplier"];
     
     const rows = products.map(p => [
       p.name,
@@ -432,7 +527,7 @@ export default function Inventory() {
       p.track_inventory,
       p.is_service,
       p.service_type || "",
-      p.icon || "",
+      p.image_url || "",
       p.supplier || ""
     ]);
 
@@ -458,7 +553,7 @@ export default function Inventory() {
     const lines = text.split("\n");
     const headers = lines[0].split(",").map(h => h.trim().replace(/"/g, ""));
 
-    const products = [];
+    const productsToImport = [];
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       
@@ -477,69 +572,80 @@ export default function Inventory() {
         track_inventory: values[9] === "true" || values[9] === "TRUE",
         is_service: values[10] === "true" || values[10] === "TRUE",
         service_type: values[11] || null,
-        icon: values[12] || null,
+        image_url: values[12] || null,
         supplier: values[13] || null,
       };
-      products.push(product);
+      productsToImport.push(product);
     }
 
-    if (products.length === 0) {
+    if (productsToImport.length === 0) {
       alert("No valid products found in CSV");
       return;
     }
 
-    const { error } = await supabase.from("products").insert(products);
-
-    if (error) {
-      alert("Error importing products: " + error.message);
-      return;
+    try {
+      const { error } = await supabase.from("products").insert(productsToImport);
+      if (error) throw error;
+      
+      alert(`Successfully imported ${productsToImport.length} products!`);
+      loadData();
+    } catch (error) {
+      console.error("Error importing products:", error);
+      alert("Error importing products");
     }
-
-    alert(`Successfully imported ${products.length} products!`);
-    loadData();
     
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const filteredProducts = products
-    .filter(p => {
-      if (activeCategory !== "all" && p.category !== activeCategory) return false;
-      if (p.is_service && activeCategory === "products") return false;
-      if (!p.is_service && activeCategory === "services") return false;
-      
-      return (
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "price":
-          return b.price - a.price;
-        case "stock":
-          return b.stock_quantity - a.stock_quantity;
-        default:
-          return a.name.localeCompare(b.name);
+  const filteredProducts = products.filter(product => {
+    // Search filter
+    const searchMatch = 
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.sku?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.category?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    // Type filter
+    const typeMatch = 
+      typeFilter === "all" ||
+      (typeFilter === "products" && !product.is_service) ||
+      (typeFilter === "services" && product.is_service);
+
+    // Category filter
+    const categoryMatch = 
+      categoryFilter === "all" || product.category === categoryFilter;
+
+    // Status filter
+    let statusMatch = true;
+    if (statusFilter !== "all") {
+      if (!product.track_inventory) {
+        statusMatch = statusFilter === "no_track";
+      } else {
+        switch (statusFilter) {
+          case "in_stock":
+            statusMatch = product.stock_quantity > product.low_stock_threshold;
+            break;
+          case "low_stock":
+            statusMatch = product.stock_quantity <= product.low_stock_threshold && product.stock_quantity > 0;
+            break;
+          case "out_of_stock":
+            statusMatch = product.stock_quantity === 0;
+            break;
+        }
       }
-    });
+    }
 
-  const getStats = () => {
-    const totalProducts = products.filter(p => !p.is_service).length;
-    const totalServices = products.filter(p => p.is_service).length;
-    const lowStock = products.filter(p => 
-      p.track_inventory && p.stock_quantity <= p.low_stock_threshold
-    ).length;
-    const totalValue = products.reduce((sum, p) => 
-      sum + (p.cost * p.stock_quantity), 0
-    );
+    return searchMatch && typeMatch && categoryMatch && statusMatch;
+  });
 
-    return { totalProducts, totalServices, lowStock, totalValue };
+  const getStockStatus = (product: Product) => {
+    if (!product.track_inventory) return { text: "No Track", color: "bg-gray-100 text-gray-800 border-gray-200" };
+    if (product.stock_quantity === 0) return { text: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+    if (product.stock_quantity <= product.low_stock_threshold) return { text: "Low Stock", color: "bg-orange-100 text-orange-800 border-orange-200" };
+    return { text: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
   };
-
-  const stats = getStats();
 
   if (!userId) {
     return null;
@@ -547,141 +653,171 @@ export default function Inventory() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center">
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Loading inventory...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-foreground">Loading inventory...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
+        <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-foreground mb-2">Error Loading Inventory</h1>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <button
+              onClick={loadData}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white">
-      <div className="p-8 max-w-7xl mx-auto">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
-              Inventory
-            </h1>
-            <p className="text-slate-400 text-lg mt-2">Manage products, services, and stock levels</p>
-          </div>
-          <Link href="/" className="flex items-center gap-2 text-xl text-slate-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-6 h-6" />
-            Back to POS
+    <div className="max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+          <p className="text-muted-foreground">Manage your products and services</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link 
+            href="/dashboard" 
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
           </Link>
+          <button
+            onClick={openAddModal}
+            className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Item
+          </button>
         </div>
+      </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Total Products</p>
-                <p className="text-3xl font-bold text-white">{stats.totalProducts}</p>
-              </div>
-              <div className="p-3 bg-cyan-500/20 rounded-xl">
-                <Package2 className="w-8 h-8 text-cyan-400" />
-              </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Total Products</p>
+              <p className="text-2xl font-bold text-foreground">{stats.totalProducts}</p>
             </div>
-          </div>
-          
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Services</p>
-                <p className="text-3xl font-bold text-white">{stats.totalServices}</p>
-              </div>
-              <div className="p-3 bg-emerald-500/20 rounded-xl">
-                <Coffee className="w-8 h-8 text-emerald-400" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Low Stock</p>
-                <p className="text-3xl font-bold text-white">{stats.lowStock}</p>
-              </div>
-              <div className="p-3 bg-red-500/20 rounded-xl">
-                <TrendingDown className="w-8 h-8 text-red-400" />
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-sm">Total Value</p>
-                <p className="text-3xl font-bold text-white">£{stats.totalValue.toFixed(2)}</p>
-              </div>
-              <div className="p-3 bg-purple-500/20 rounded-xl">
-                <DollarSign className="w-8 h-8 text-purple-400" />
-              </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
+              <Box className="w-5 h-5 text-white" />
             </div>
           </div>
         </div>
 
-        {/* Action Bar */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-8">
-          <div className="flex-1 flex flex-col md:flex-row gap-4">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Services</p>
+              <p className="text-2xl font-bold text-foreground">{stats.totalServices}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg flex items-center justify-center">
+              <Coffee className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Low Stock</p>
+              <p className="text-2xl font-bold text-foreground">{stats.lowStock}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
+              <TrendingDown className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Out of Stock</p>
+              <p className="text-2xl font-bold text-foreground">{stats.outOfStock}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-red-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Total Value</p>
+              <p className="text-2xl font-bold text-foreground">£{stats.totalValue.toFixed(2)}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Categories</p>
+              <p className="text-2xl font-bold text-foreground">{stats.categories}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-rose-500 rounded-lg flex items-center justify-center">
+              <Tag className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="bg-card border border-border rounded-xl p-4 mb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search products, services, SKU..."
-                className="w-full bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 pl-12 pr-4 py-3 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                placeholder="Search by name, SKU, category, or description..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-
-            {/* Category Filter */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveCategory("all")}
-                className={`px-4 py-3 rounded-xl font-medium transition-all ${activeCategory === "all" ? "bg-cyan-500 text-white" : "bg-slate-800/50 text-slate-400 hover:text-white"}`}
-              >
-                All Items
-              </button>
-              <button
-                onClick={() => setActiveCategory("products")}
-                className={`px-4 py-3 rounded-xl font-medium transition-all ${activeCategory === "products" ? "bg-emerald-500 text-white" : "bg-slate-800/50 text-slate-400 hover:text-white"}`}
-              >
-                Products
-              </button>
-              <button
-                onClick={() => setActiveCategory("services")}
-                className={`px-4 py-3 rounded-xl font-medium transition-all ${activeCategory === "services" ? "bg-blue-500 text-white" : "bg-slate-800/50 text-slate-400 hover:text-white"}`}
-              >
-                Services
-              </button>
-            </div>
           </div>
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            <button
+              onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {viewMode === "grid" ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
+              {viewMode === "grid" ? "List View" : "Grid View"}
+            </button>
 
-          {/* Right Side Actions */}
-          <div className="flex gap-4">
-            {/* View Toggle */}
-            <div className="flex bg-slate-800/50 rounded-xl p-1">
-              <button
-                onClick={() => setViewMode("grid")}
-                className={`p-2 rounded-lg transition-all ${viewMode === "grid" ? "bg-slate-700/50 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                <Grid className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-slate-700/50 text-white" : "text-slate-400 hover:text-white"}`}
-              >
-                <List className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Import/Export */}
             <input
               ref={fileInputRef}
               type="file"
@@ -692,477 +828,540 @@ export default function Inventory() {
             
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 px-4 py-3 rounded-xl font-medium text-slate-300 hover:text-white transition-all"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4" />
               Import
             </button>
             
             <button
               onClick={exportToCSV}
-              className="flex items-center gap-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 px-4 py-3 rounded-xl font-medium text-slate-300 hover:text-white transition-all"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              <Download className="w-5 h-5" />
+              <Download className="w-4 h-4" />
               Export
             </button>
-
-            {/* Service Types Button */}
+            
             <button
-              onClick={openServicesModal}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 px-6 py-3 rounded-xl font-bold text-white transition-all"
+              onClick={loadData}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              <Tag className="w-5 h-5" />
-              Service Types
+              <RefreshCw className="w-4 h-4" />
+              Refresh
             </button>
 
-            {/* Add Product Button */}
             <button
-              onClick={openAddModal}
-              className="flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-6 py-3 rounded-xl font-bold text-white transition-all shadow-xl shadow-cyan-500/20"
+              onClick={openServicesModal}
+              className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
             >
-              <Plus className="w-5 h-5" />
-              Add Item
+              <Tag className="w-4 h-4" />
+              Service Types
             </button>
           </div>
         </div>
 
-        {/* Content Area */}
-        {viewMode === "grid" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredProducts.map((product) => (
-              <div 
-                key={product.id}
-                className="bg-slate-800/30 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50 hover:border-slate-600/50 transition-all group"
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Item Type</label>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                {/* Product Header */}
-                <div className="flex items-start justify-between mb-4">
+                <option value="all">All Items</option>
+                <option value="products">Products Only</option>
+                <option value="services">Services Only</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Stock Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">All Status</option>
+                <option value="in_stock">In Stock</option>
+                <option value="low_stock">Low Stock</option>
+                <option value="out_of_stock">Out of Stock</option>
+                <option value="no_track">No Tracking</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Category</label>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">All Categories</option>
+                {getCategories().map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Inventory Content */}
+      {viewMode === "grid" ? (
+        /* Grid View */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredProducts.map((product) => {
+            const stockStatus = getStockStatus(product);
+            return (
+              <div
+                key={product.id}
+                className="bg-card border border-border rounded-xl p-4 hover:border-primary/50 transition-colors group"
+              >
+                {/* Item Header */}
+                <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="text-3xl">{product.icon || (product.is_service ? "🎯" : "📦")}</div>
+                    {/* Product Image */}
+                    <div className="relative">
+                      {product.image_url ? (
+                        <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                          <img 
+                            src={product.image_url} 
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                          {product.is_service ? (
+                            <Coffee className="w-6 h-6 text-primary" />
+                          ) : (
+                            <Box className="w-6 h-6 text-primary" />
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div>
-                      <h3 className="font-bold text-white text-lg line-clamp-1">{product.name}</h3>
-                      <p className="text-sm text-slate-400">{product.category || "Uncategorized"}</p>
+                      <h3 className="font-semibold text-foreground line-clamp-1">{product.name}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${stockStatus.color}`}>
+                          {stockStatus.text}
+                        </span>
+                        {product.is_service && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                            Service
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => openEditModal(product)}
-                      className="p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30"
+                      className="p-1 text-muted-foreground hover:text-foreground"
+                      title="Edit"
                     >
                       <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteProduct(product.id)}
-                      className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-                    >
-                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                {/* Description */}
-                {product.description && (
-                  <p className="text-slate-400 text-sm mb-4 line-clamp-2">{product.description}</p>
-                )}
-
-                {/* Service Type Badge */}
-                {product.is_service && product.service_type && (
-                  <div className="mb-4">
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                      <Tag className="w-3 h-3" />
-                      {product.service_type}
-                    </span>
-                  </div>
-                )}
-
-                {/* Price & Stock */}
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
-                      £{product.price.toFixed(2)}
-                    </p>
-                    {product.cost > 0 && (
-                      <p className="text-sm text-slate-500">Cost: £{product.cost.toFixed(2)}</p>
+                {/* Item Details */}
+                <div className="space-y-2 mb-4">
+                  {product.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">{product.description}</p>
+                  )}
+                  
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium text-foreground">Price</p>
+                      <p className="text-emerald-500 font-bold">£{product.price.toFixed(2)}</p>
+                    </div>
+                    {product.track_inventory && !product.is_service && (
+                      <div className="text-right">
+                        <p className="font-medium text-foreground">Stock</p>
+                        <p className="font-bold text-foreground">{product.stock_quantity}</p>
+                      </div>
                     )}
                   </div>
-                  
-                  {product.track_inventory && !product.is_service && (
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${product.stock_quantity <= product.low_stock_threshold ? "text-red-400" : "text-emerald-400"}`}>
-                        {product.stock_quantity} units
-                      </div>
-                      <button
-                        onClick={() => openStockModal(product)}
-                        className="text-sm text-cyan-400 hover:text-cyan-300 underline"
-                      >
-                        Adjust
-                      </button>
+
+                  {product.category && (
+                    <div className="text-sm">
+                      <p className="font-medium text-foreground">Category</p>
+                      <p className="text-muted-foreground">{product.category}</p>
+                    </div>
+                  )}
+
+                  {product.is_service && product.service_type && (
+                    <div className="text-sm">
+                      <p className="font-medium text-foreground">Service Type</p>
+                      <p className="text-muted-foreground">{product.service_type}</p>
                     </div>
                   )}
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-3 border-t border-border">
+                  <button
+                    onClick={() => openEditModal(product)}
+                    className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
+                  >
+                    Edit
+                  </button>
                   {!product.is_service && product.track_inventory && (
                     <button
                       onClick={() => openStockModal(product)}
-                      className="flex-1 bg-slate-700/50 hover:bg-slate-600/50 text-white py-2 rounded-lg text-sm font-medium transition-all"
+                      className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
                     >
                       Stock
                     </button>
                   )}
-                  <button
-                    onClick={() => openEditModal(product)}
-                    className="flex-1 bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 hover:from-cyan-500/30 hover:to-emerald-500/30 text-cyan-400 py-2 rounded-lg text-sm font-medium transition-all border border-cyan-500/20"
-                  >
-                    Edit
-                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          /* List View */
-          <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700/50">
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Item</th>
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Category</th>
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Price</th>
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Stock</th>
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Type</th>
-                    <th className="text-left py-4 px-4 font-bold text-slate-300">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.map((product) => (
-                    <tr key={product.id} className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors">
+            );
+          })}
+        </div>
+      ) : (
+        /* List View */
+        <div className="bg-card border border-border rounded-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Item</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Category</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Price</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Stock</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Status</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map((product) => {
+                  const stockStatus = getStockStatus(product);
+                  return (
+                    <tr key={product.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="text-2xl">{product.icon || (product.is_service ? "🎯" : "📦")}</div>
-                          <div>
-                            <div className="font-bold text-white">{product.name}</div>
-                            {product.description && (
-                              <div className="text-sm text-slate-400 line-clamp-1">{product.description}</div>
-                            )}
-                            <div className="text-xs text-slate-500 font-mono mt-1">
-                              {product.sku && <span>SKU: {product.sku}</span>}
-                              {product.barcode && <span className="ml-3">{product.barcode}</span>}
+                          {product.image_url ? (
+                            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                              <img 
+                                src={product.image_url} 
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                              />
                             </div>
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                              {product.is_service ? (
+                                <Coffee className="w-5 h-5 text-primary" />
+                              ) : (
+                                <Box className="w-5 h-5 text-primary" />
+                              )}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-medium text-foreground">{product.name}</div>
+                            {product.description && (
+                              <div className="text-sm text-muted-foreground line-clamp-1">{product.description}</div>
+                            )}
+                            {product.sku && (
+                              <div className="text-xs text-muted-foreground font-mono mt-1">SKU: {product.sku}</div>
+                            )}
                           </div>
                         </div>
                       </td>
-                      <td className="py-4 px-4 text-slate-300">{product.category || "-"}</td>
+                      <td className="py-4 px-4 text-foreground">{product.category || "-"}</td>
                       <td className="py-4 px-4">
-                        <div className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
-                          £{product.price.toFixed(2)}
-                        </div>
+                        <div className="font-bold text-emerald-500">£{product.price.toFixed(2)}</div>
                         {product.cost > 0 && (
-                          <div className="text-xs text-slate-500">Cost: £{product.cost.toFixed(2)}</div>
+                          <div className="text-xs text-muted-foreground">Cost: £{product.cost.toFixed(2)}</div>
                         )}
                       </td>
                       <td className="py-4 px-4">
                         {product.track_inventory && !product.is_service ? (
                           <div>
-                            <div className={`font-bold ${product.stock_quantity <= product.low_stock_threshold ? "text-red-400" : "text-emerald-400"}`}>
-                              {product.stock_quantity}
-                            </div>
-                            <div className="text-xs text-slate-500">Min: {product.low_stock_threshold}</div>
-                            <button
-                              onClick={() => openStockModal(product)}
-                              className="text-xs text-cyan-400 hover:text-cyan-300 underline mt-1"
-                            >
-                              Adjust
-                            </button>
+                            <div className="font-bold text-foreground">{product.stock_quantity}</div>
+                            <div className="text-xs text-muted-foreground">Min: {product.low_stock_threshold}</div>
                           </div>
                         ) : (
-                          <span className="text-slate-500">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </td>
                       <td className="py-4 px-4">
-                        <div className="flex flex-col gap-1">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 w-fit ${
-                            product.is_service 
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" 
-                              : "bg-purple-500/20 text-purple-400 border border-purple-500/30"
-                          }`}>
-                            {product.is_service ? (
-                              <>
-                                <Coffee className="w-3 h-3" />
-                                Service
-                              </>
-                            ) : (
-                              <>
-                                <Package2 className="w-3 h-3" />
-                                Product
-                              </>
-                            )}
-                          </span>
-                          {product.is_service && product.service_type && (
-                            <span className="text-xs text-slate-400">{product.service_type}</span>
-                          )}
-                        </div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${stockStatus.color}`}>
+                          {stockStatus.text}
+                        </span>
+                        {product.is_service && (
+                          <div className="text-xs text-blue-500 mt-1">Service</div>
+                        )}
                       </td>
                       <td className="py-4 px-4">
-                        <div className="flex gap-2">
+                        <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditModal(product)}
-                            className="p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
+                            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                            title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
+                          {!product.is_service && product.track_inventory && (
+                            <button
+                              onClick={() => openStockModal(product)}
+                              className="p-2 text-muted-foreground hover:text-primary transition-colors"
+                              title="Adjust Stock"
+                            >
+                              <BarChart3 className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => deleteProduct(product.id)}
-                            className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
+                            className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                            title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+      )}
 
-        {filteredProducts.length === 0 && (
-          <div className="text-center py-20 text-slate-400">
-            <Package className="w-24 h-24 mx-auto mb-6 opacity-30" />
-            <p className="text-2xl mb-2">No items found</p>
-            <p className="text-slate-500 mb-6">Try changing your filters or add a new item</p>
+      {filteredProducts.length === 0 && (
+        <div className="text-center py-12 bg-muted/30 rounded-lg border-2 border-dashed border-border">
+          <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+          <p className="text-muted-foreground mb-3">No items found</p>
+          {products.length > 0 ? (
+            <p className="text-sm text-muted-foreground mb-3">Try adjusting your filters</p>
+          ) : (
             <button
               onClick={openAddModal}
-              className="bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-xl"
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
             >
               Add Your First Item
             </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Add/Edit Modal - SAME AS BEFORE BUT UPDATED WITH SERVICE TYPE SELECTOR */}
+      {/* Add/Edit Product Modal */}
       {(showAddModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-4xl w-full border border-slate-700/50 max-h-[90vh] overflow-y-auto shadow-2xl my-8">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-bold text-white">
-                {showAddModal ? "Add Item" : "Edit Item"}
-              </h2>
-              <button
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                {showAddModal ? "Add New Item" : "Edit Item"}
+              </h3>
+              <button 
                 onClick={() => {
                   setShowAddModal(false);
                   setShowEditModal(false);
-                }}
-                className="text-slate-400 hover:text-white transition-colors"
+                }} 
+                className="text-muted-foreground hover:text-foreground"
               >
-                <X className="w-8 h-8" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
-              {/* Basic Info */}
-              <div className="col-span-2">
-                <label className="block text-lg mb-2 font-medium text-slate-300">Name *</label>
-                <input
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="Product/Service name"
-                />
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-lg mb-2 font-medium text-slate-300">Description</label>
-                <textarea
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  rows={2}
-                  placeholder="Optional description"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Category</label>
-                <input
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="e.g., Hair Care, Food, etc."
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Icon/Emoji</label>
-                <input
-                  value={formIcon}
-                  onChange={(e) => setFormIcon(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="📦 or ✂️ or 🍽️"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Price * (£)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formPrice}
-                  onChange={(e) => setFormPrice(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="19.99"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Cost (£)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formCost}
-                  onChange={(e) => setFormCost(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="10.00"
-                />
-              </div>
-
-              {/* Service Type Selector (only when is_service is true) */}
-              {formIsService && (
-                <div className="col-span-2">
-                  <label className="block text-lg mb-2 font-medium text-slate-300">Service Type</label>
-                  <select
-                    value={formServiceType}
-                    onChange={(e) => setFormServiceType(e.target.value)}
-                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  >
-                    <option value="">Select Service Type (Optional)</option>
-                    {serviceTypes
-                      .filter(service => service.is_active)
-                      .map(service => (
-                        <option key={service.id} value={service.name}>
-                          {service.icon} {service.name}
-                        </option>
-                      ))}
-                  </select>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
+                  <input
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Item name"
+                  />
                 </div>
-              )}
 
-              {/* Inventory Settings (only for products) */}
-              {!formIsService && (
-                <>
-                  <div>
-                    <label className="block text-lg mb-2 font-medium text-slate-300">Initial Stock</label>
-                    <input
-                      type="number"
-                      value={formStock}
-                      onChange={(e) => setFormStock(e.target.value)}
-                      className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                      placeholder="100"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-lg mb-2 font-medium text-slate-300">Low Stock Alert</label>
-                    <input
-                      type="number"
-                      value={formThreshold}
-                      onChange={(e) => setFormThreshold(e.target.value)}
-                      className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                      placeholder="10"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Additional Fields */}
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">SKU</label>
-                <input
-                  value={formSKU}
-                  onChange={(e) => setFormSKU(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="SKU-001"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Barcode</label>
-                <input
-                  value={formBarcode}
-                  onChange={(e) => setFormBarcode(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="1234567890123"
-                />
-              </div>
-
-              <div>
-                <label className="block text-lg mb-2 font-medium text-slate-300">Supplier</label>
-                <input
-                  value={formSupplier}
-                  onChange={(e) => setFormSupplier(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="Supplier name"
-                />
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-lg mb-2 font-medium text-slate-300">Product Image URL</label>
-                <input
-                  value={formImageUrl}
-                  onChange={(e) => setFormImageUrl(e.target.value)}
-                  className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-4 rounded-xl text-lg text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                  placeholder="https://example.com/image.jpg"
-                />
-              </div>
-
-              {/* Toggles */}
-              <div className="col-span-2 flex items-center gap-6 bg-slate-800/30 p-4 rounded-xl">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formTrackInventory}
-                    onChange={(e) => setFormTrackInventory(e.target.checked)}
-                    disabled={formIsService}
-                    className="w-6 h-6 accent-cyan-500"
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-foreground mb-1">Description</label>
+                  <textarea
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    rows={2}
+                    placeholder="Item description"
                   />
-                  <span className="text-lg text-slate-300">Track Inventory</span>
-                </label>
+                </div>
 
-                <label className="flex items-center gap-3 cursor-pointer">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Category</label>
                   <input
-                    type="checkbox"
-                    checked={formIsService}
-                    onChange={(e) => {
-                      setFormIsService(e.target.checked);
-                      if (e.target.checked) {
-                        setFormTrackInventory(false);
-                        setFormStock("0");
-                        setFormThreshold("0");
-                      }
-                    }}
-                    className="w-6 h-6 accent-cyan-500"
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="e.g., Food, Beverages, etc."
                   />
-                  <span className="text-lg text-slate-300">Is Service</span>
-                </label>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">SKU</label>
+                  <input
+                    value={formSKU}
+                    onChange={(e) => setFormSKU(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="SKU-001"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Price * (£)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formPrice}
+                    onChange={(e) => setFormPrice(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="19.99"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Cost (£)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formCost}
+                    onChange={(e) => setFormCost(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="10.00"
+                  />
+                </div>
+
+                {/* Image URL */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-foreground mb-1">Image URL</label>
+                  <input
+                    value={formImageUrl}
+                    onChange={(e) => setFormImageUrl(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="https://example.com/image.jpg"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Add a product image URL to display in POS</p>
+                </div>
+
+                {/* Service Type Selector */}
+                {formIsService && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-foreground mb-1">Service Type</label>
+                    <select
+                      value={formServiceType}
+                      onChange={(e) => setFormServiceType(e.target.value)}
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="">No Service Type</option>
+                      {serviceTypes
+                        .filter(service => service.is_active)
+                        .map(service => (
+                          <option key={service.id} value={service.name}>
+                            {service.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Inventory Settings */}
+                {!formIsService && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Initial Stock</label>
+                      <input
+                        type="number"
+                        value={formStock}
+                        onChange={(e) => setFormStock(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Low Stock Alert</label>
+                      <input
+                        type="number"
+                        value={formThreshold}
+                        onChange={(e) => setFormThreshold(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="10"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Barcode</label>
+                  <input
+                    value={formBarcode}
+                    onChange={(e) => setFormBarcode(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="1234567890123"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Supplier</label>
+                  <input
+                    value={formSupplier}
+                    onChange={(e) => setFormSupplier(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Supplier name"
+                  />
+                </div>
+
+                {/* Toggles */}
+                <div className="md:col-span-2 flex items-center gap-6 p-4 bg-muted/30 rounded-lg border border-border">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTrackInventory}
+                      onChange={(e) => setFormTrackInventory(e.target.checked)}
+                      disabled={formIsService}
+                      className="w-4 h-4 accent-primary"
+                    />
+                    <span className="text-sm text-foreground">Track Inventory</span>
+                  </label>
+
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formIsService}
+                      onChange={(e) => {
+                        setFormIsService(e.target.checked);
+                        if (e.target.checked) {
+                          setFormTrackInventory(false);
+                          setFormStock("0");
+                          setFormThreshold("0");
+                        }
+                      }}
+                      className="w-4 h-4 accent-primary"
+                    />
+                    <span className="text-sm text-foreground">Is Service</span>
+                  </label>
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-4 mt-8">
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   setShowEditModal(false);
                 }}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold text-white transition-all"
+                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Cancel
               </button>
               <button
                 onClick={showAddModal ? addProduct : updateProduct}
-                className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 py-4 rounded-xl text-lg font-bold text-white transition-all shadow-xl shadow-cyan-500/20"
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 {showAddModal ? "Add Item" : "Save Changes"}
               </button>
@@ -1171,133 +1370,231 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Service Types Modal */}
-      {showServicesModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-4xl w-full border border-slate-700/50 max-h-[90vh] overflow-y-auto shadow-2xl my-8">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-bold text-white">Service Types</h2>
-              <button
-                onClick={() => {
-                  setShowServicesModal(false);
-                  setEditingService(null);
-                }}
-                className="text-slate-400 hover:text-white transition-colors"
+      {/* Stock Adjustment Modal */}
+      {showStockModal && stockProduct && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Adjust Stock</h3>
+              <button 
+                onClick={() => setShowStockModal(false)} 
+                className="text-muted-foreground hover:text-foreground"
               >
-                <X className="w-8 h-8" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-slate-400 mb-6">
+            <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border">
+              <div className="flex items-center gap-3 mb-2">
+                {stockProduct.image_url ? (
+                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                    <img 
+                      src={stockProduct.image_url} 
+                      alt={stockProduct.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                    <Box className="w-5 h-5 text-primary" />
+                  </div>
+                )}
+                <div>
+                  <p className="font-medium text-foreground">{stockProduct.name}</p>
+                  <p className="text-sm text-muted-foreground">Current Stock: {stockProduct.stock_quantity}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Adjustment Amount
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setStockAdjustment("-10")}
+                    className="flex-1 bg-red-500/10 text-red-600 border border-red-200 py-2 rounded-lg font-medium hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <TrendingDown className="w-4 h-4" />
+                    -10
+                  </button>
+                  <button
+                    onClick={() => setStockAdjustment("+10")}
+                    className="flex-1 bg-emerald-500/10 text-emerald-600 border border-emerald-200 py-2 rounded-lg font-medium hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    +10
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Manual Adjustment</label>
+                <input
+                  type="number"
+                  value={stockAdjustment}
+                  onChange={(e) => setStockAdjustment(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-center font-bold"
+                  placeholder="0"
+                />
+                {stockAdjustment && (
+                  <p className="mt-2 text-center text-sm text-muted-foreground">
+                    New stock: <span className="font-bold text-foreground">
+                      {stockProduct.stock_quantity + parseInt(stockAdjustment || "0")}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Reason</label>
+                <input
+                  value={stockReason}
+                  onChange={(e) => setStockReason(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="e.g., Restock, Damaged, Sold"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowStockModal(false)}
+                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={adjustStock}
+                disabled={!stockAdjustment}
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                Adjust Stock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Types Modal - Similar style to appointments modals */}
+      {showServicesModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Service Types</h3>
+              <button 
+                onClick={() => {
+                  setShowServicesModal(false);
+                  setEditingService(null);
+                }} 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-muted-foreground mb-6">
               Manage service types like "Eat In", "Takeaway", "Delivery". These can be added as buttons in the POS.
             </p>
 
             {/* Add/Edit Service Form */}
-            <div className="bg-slate-800/30 rounded-2xl p-6 mb-8 border border-slate-700/50">
-              <h3 className="text-xl font-bold text-white mb-4">
+            <div className="bg-muted/30 rounded-lg p-4 mb-6 border border-border">
+              <h4 className="font-medium text-foreground mb-3">
                 {editingService ? "Edit Service Type" : "Add New Service Type"}
-              </h3>
+              </h4>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Name *</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
                   <input
                     value={serviceName}
                     onChange={(e) => setServiceName(e.target.value)}
-                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="e.g., Eat In, Takeaway"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Icon</label>
-                  <input
-                    value={serviceIcon}
-                    onChange={(e) => setServiceIcon(e.target.value)}
-                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
-                    placeholder="🍽️, 🚚, etc."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Color</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Color</label>
                   <div className="flex gap-2">
                     <input
                       type="color"
                       value={serviceColor}
                       onChange={(e) => setServiceColor(e.target.value)}
-                      className="w-12 h-12 rounded-lg cursor-pointer"
+                      className="w-10 h-10 rounded-lg cursor-pointer"
                     />
                     <input
                       value={serviceColor}
                       onChange={(e) => setServiceColor(e.target.value)}
-                      className="flex-1 bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-3 rounded-xl text-white font-mono text-sm"
+                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm"
                       placeholder="#3B82F6"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Default Price (£)</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Default Price (£)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={servicePrice}
                     onChange={(e) => setServicePrice(e.target.value)}
-                    className="w-full bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="0.00"
                   />
                 </div>
+
+                <div className="flex items-end">
+                  <button
+                    onClick={editingService ? updateServiceType : addServiceType}
+                    disabled={!serviceName}
+                    className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {editingService ? "Update Service" : "Add Service"}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex gap-4 mt-6">
-                {editingService && (
-                  <button
-                    onClick={() => {
-                      setEditingService(null);
-                      setServiceName("");
-                      setServiceIcon("🍽️");
-                      setServiceColor("#3B82F6");
-                      setServicePrice("");
-                    }}
-                    className="flex-1 bg-slate-700 hover:bg-slate-600 py-3 rounded-xl font-bold text-white transition-all"
-                  >
-                    Cancel Edit
-                  </button>
-                )}
+              {editingService && (
                 <button
-                  onClick={editingService ? updateServiceType : addServiceType}
-                  disabled={!serviceName}
-                  className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 py-3 rounded-xl font-bold text-white transition-all disabled:opacity-50"
+                  onClick={() => {
+                    setEditingService(null);
+                    setServiceName("");
+                    setServiceIcon("");
+                    setServiceColor("#3B82F6");
+                    setServicePrice("");
+                  }}
+                  className="w-full bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity mt-3 text-sm"
                 >
-                  {editingService ? "Update Service" : "Add Service"}
+                  Cancel Edit
                 </button>
-              </div>
+              )}
             </div>
 
             {/* Services List */}
-            <div className="space-y-4">
-              <h3 className="text-xl font-bold text-white">Active Service Types</h3>
+            <div className="space-y-3">
+              <h4 className="font-medium text-foreground">Active Service Types</h4>
               
               {serviceTypes
                 .filter(service => service.is_active)
                 .map(service => (
                   <div 
                     key={service.id}
-                    className="bg-slate-800/30 rounded-2xl p-4 border border-slate-700/50 flex items-center justify-between"
+                    className="bg-background border border-border rounded-lg p-4 flex items-center justify-between"
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                       <div 
-                        className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-                        style={{ backgroundColor: `${service.color}20`, border: `1px solid ${service.color}30` }}
+                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: serviceColor + '20', border: `1px solid ${serviceColor}30` }}
                       >
-                        {service.icon}
+                        <Tag className="w-5 h-5" style={{ color: serviceColor }} />
                       </div>
                       <div>
-                        <h4 className="font-bold text-white text-lg">{service.name}</h4>
-                        <div className="flex items-center gap-4 text-sm text-slate-400">
-                          <span>Color: <span className="font-mono">{service.color}</span></span>
-                          <span>Default Price: £{service.default_price.toFixed(2)}</span>
+                        <h5 className="font-medium text-foreground">{service.name}</h5>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          <span>Price: £{service.default_price.toFixed(2)}</span>
+                          <span className="font-mono text-xs">{service.color}</span>
                         </div>
                       </div>
                     </div>
@@ -1305,19 +1602,19 @@ export default function Inventory() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => toggleServiceActive(service)}
-                        className="px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-all font-medium"
+                        className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-lg text-sm font-medium hover:bg-emerald-500/20 transition-all"
                       >
                         Active
                       </button>
                       <button
                         onClick={() => openEditServiceModal(service)}
-                        className="px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
+                        className="px-3 py-1 bg-blue-500/10 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-500/20 transition-all"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => deleteServiceType(service.id)}
-                        className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
+                        className="px-3 py-1 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all"
                       >
                         Delete
                       </button>
@@ -1325,45 +1622,42 @@ export default function Inventory() {
                   </div>
                 ))}
               
-              {/* Inactive Services */}
               {serviceTypes.filter(service => !service.is_active).length > 0 && (
                 <>
-                  <h3 className="text-xl font-bold text-white mt-8">Inactive Service Types</h3>
+                  <h4 className="font-medium text-foreground mt-6">Inactive Service Types</h4>
                   {serviceTypes
                     .filter(service => !service.is_active)
                     .map(service => (
                       <div 
                         key={service.id}
-                        className="bg-slate-800/20 rounded-2xl p-4 border border-slate-700/30 flex items-center justify-between opacity-60"
+                        className="bg-background border border-border rounded-lg p-4 flex items-center justify-between opacity-60"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-slate-700/50">
-                            {service.icon}
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                            <Tag className="w-5 h-5 text-muted-foreground" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-white text-lg">{service.name}</h4>
-                            <p className="text-sm text-slate-400">Inactive</p>
+                            <h5 className="font-medium text-foreground">{service.name}</h5>
+                            <p className="text-sm text-muted-foreground">Inactive</p>
                           </div>
                         </div>
                         
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => toggleServiceActive(service)}
-                            className="px-4 py-2 bg-slate-700/50 text-slate-400 rounded-lg hover:bg-slate-600/50 transition-all font-medium"
-                          >
-                            Activate
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => toggleServiceActive(service)}
+                          className="px-3 py-1 bg-muted text-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+                        >
+                          Activate
+                        </button>
                       </div>
                     ))}
                 </>
               )}
             </div>
 
-            <div className="mt-8 pt-6 border-t border-slate-700/50">
+            <div className="mt-6 pt-4 border-t border-border">
               <button
                 onClick={() => setShowServicesModal(false)}
-                className="w-full bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold text-white transition-all"
+                className="w-full bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Close
               </button>
@@ -1371,9 +1665,6 @@ export default function Inventory() {
           </div>
         </div>
       )}
-
-      {/* Stock Adjustment Modal - SAME AS BEFORE */}
-      {/* ... (Stock modal code remains the same) ... */}
     </div>
   );
 }
