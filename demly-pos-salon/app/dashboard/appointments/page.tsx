@@ -17,6 +17,24 @@ import {
   Calendar as CalendarIcon,
   Edit2,
   Trash2,
+  Search,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Phone,
+  Mail,
+  MapPin,
+  MoreVertical,
+  CheckCircle,
+  Ban,
+  CalendarDays,
+  UserCircle,
+  Scissors,
+  Sparkles,
+  TrendingUp,
+  Eye,
+  EyeOff,
+  RefreshCw
 } from "lucide-react";
 
 interface Appointment {
@@ -28,7 +46,7 @@ interface Appointment {
   appointment_time: string;
   status: "scheduled" | "completed" | "cancelled" | "no_show";
   notes: string | null;
-  customers: { name: string; phone: string | null } | null;
+  customers: { name: string; phone: string | null; email: string | null } | null;
   staff: { name: string } | null;
   products: { name: string; price: number; icon: string } | null;
 }
@@ -36,6 +54,8 @@ interface Appointment {
 interface Customer {
   id: number;
   name: string;
+  phone: string | null;
+  email: string | null;
 }
 
 interface Staff {
@@ -48,12 +68,14 @@ interface Service {
   name: string;
   price: number;
   icon: string;
+  duration: number;
 }
 
 export default function Appointments() {
   const userId = useUserId();
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -71,19 +93,66 @@ export default function Appointments() {
   const [formTime, setFormTime] = useState("09:00");
   const [formNotes, setFormNotes] = useState("");
 
+  // Filters
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [dateFilter, setDateFilter] = useState<string>("all");
+  const [showFilters, setShowFilters] = useState(false);
+  const [stats, setStats] = useState({
+    scheduled: 0,
+    completed: 0,
+    cancelled: 0,
+    no_show: 0,
+    today: 0,
+    upcoming: 0
+  });
+
+  // Realtime subscription
+  const [subscription, setSubscription] = useState<any>(null);
+
   useEffect(() => {
     loadData();
+    setupRealtimeSubscription();
+
+    return () => {
+      if (subscription) {
+        supabase.removeChannel(subscription);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    filterAppointments();
+    calculateStats();
+  }, [appointments, searchTerm, statusFilter, dateFilter]);
+
+  const setupRealtimeSubscription = () => {
+    const channel = supabase
+      .channel('appointments-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Realtime update:', payload);
+          loadData(); // Reload data on any change
+        }
+      )
+      .subscribe();
+
+    setSubscription(channel);
+  };
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // First, get the current user
       const { data: { user } } = await supabase.auth.getUser();
-      console.log("Current user:", user?.id);
-
       if (!user) {
         setError("Not authenticated");
         setLoading(false);
@@ -91,12 +160,13 @@ export default function Appointments() {
       }
 
       const currentUserId = user.id;
+      const today = new Date().toISOString().split('T')[0];
 
-      // Load all data with better error handling
+      // Load all data
       const [customersRes, staffRes, servicesRes, appointmentsRes] = await Promise.all([
         supabase
           .from("customers")
-          .select("id, name")
+          .select("id, name, phone, email")
           .eq("user_id", currentUserId)
           .order("name"),
         supabase
@@ -106,60 +176,34 @@ export default function Appointments() {
           .order("name"),
         supabase
           .from("products")
-          .select("id, name, price, icon")
+          .select("id, name, price, icon, duration")
           .eq("user_id", currentUserId)
           .eq("is_service", true)
           .order("name"),
         supabase
           .from("appointments")
-          .select("*")
+          .select(`
+            *,
+            customers!inner(name, phone, email),
+            staff!inner(name),
+            products!inner(name, price, icon, duration)
+          `)
           .eq("user_id", currentUserId)
-          .order("appointment_date", { ascending: false })
-          .order("appointment_time", { ascending: false })
+          .order("appointment_date", { ascending: true })
+          .order("appointment_time", { ascending: true })
       ]);
 
-      // Log any errors
       if (customersRes.error) console.error("Customers error:", customersRes.error);
       if (staffRes.error) console.error("Staff error:", staffRes.error);
       if (servicesRes.error) console.error("Services error:", servicesRes.error);
       if (appointmentsRes.error) console.error("Appointments error:", appointmentsRes.error);
 
-      // Set data
-      if (customersRes.data) {
-        console.log("Customers loaded:", customersRes.data.length);
-        setCustomers(customersRes.data);
-      }
-      if (staffRes.data) {
-        console.log("Staff loaded:", staffRes.data.length);
-        setStaff(staffRes.data);
-      }
-      if (servicesRes.data) {
-        console.log("Services loaded:", servicesRes.data.length);
-        setServices(servicesRes.data);
-      }
+      if (customersRes.data) setCustomers(customersRes.data);
+      if (staffRes.data) setStaff(staffRes.data);
+      if (servicesRes.data) setServices(servicesRes.data);
       if (appointmentsRes.data) {
         console.log("Appointments loaded:", appointmentsRes.data.length);
-        
-        // Manually fetch related data for each appointment
-        const enrichedAppointments = await Promise.all(
-          appointmentsRes.data.map(async (apt) => {
-            const [customerRes, staffRes, serviceRes] = await Promise.all([
-              apt.customer_id ? supabase.from("customers").select("name, phone").eq("id", apt.customer_id).single() : null,
-              apt.staff_id ? supabase.from("staff").select("name").eq("id", apt.staff_id).single() : null,
-              apt.service_id ? supabase.from("products").select("name, price, icon").eq("id", apt.service_id).single() : null,
-            ]);
-
-            return {
-              ...apt,
-              customers: customerRes?.data || null,
-              staff: staffRes?.data || null,
-              products: serviceRes?.data || null,
-            };
-          })
-        );
-
-        console.log("Enriched appointments:", enrichedAppointments);
-        setAppointments(enrichedAppointments as any);
+        setAppointments(appointmentsRes.data as any);
       }
 
     } catch (error) {
@@ -168,6 +212,73 @@ export default function Appointments() {
     }
 
     setLoading(false);
+  };
+
+  const filterAppointments = () => {
+    let filtered = [...appointments];
+
+    // Apply search filter
+    if (searchTerm) {
+      filtered = filtered.filter(apt =>
+        apt.customers?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        apt.staff?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        apt.products?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        apt.notes?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(apt => apt.status === statusFilter);
+    }
+
+    // Apply date filter
+    if (dateFilter !== "all") {
+      const today = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+      switch (dateFilter) {
+        case "today":
+          filtered = filtered.filter(apt => apt.appointment_date === today);
+          break;
+        case "tomorrow":
+          filtered = filtered.filter(apt => apt.appointment_date === tomorrowStr);
+          break;
+        case "this_week":
+          const weekStart = new Date();
+          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          filtered = filtered.filter(apt => {
+            const aptDate = new Date(apt.appointment_date);
+            return aptDate >= weekStart && aptDate <= weekEnd;
+          });
+          break;
+        case "past":
+          filtered = filtered.filter(apt => apt.appointment_date < today);
+          break;
+        case "future":
+          filtered = filtered.filter(apt => apt.appointment_date > today);
+          break;
+      }
+    }
+
+    setFilteredAppointments(filtered);
+  };
+
+  const calculateStats = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const stats = {
+      scheduled: appointments.filter(a => a.status === "scheduled").length,
+      completed: appointments.filter(a => a.status === "completed").length,
+      cancelled: appointments.filter(a => a.status === "cancelled").length,
+      no_show: appointments.filter(a => a.status === "no_show").length,
+      today: appointments.filter(a => a.appointment_date === today).length,
+      upcoming: appointments.filter(a => a.appointment_date > today && a.status === "scheduled").length
+    };
+    setStats(stats);
   };
 
   const openAddModal = () => {
@@ -216,27 +327,21 @@ export default function Appointments() {
         status: "scheduled",
       };
 
-      console.log("Creating appointment with data:", appointmentData);
-      console.log("Service ID type:", typeof appointmentData.service_id, "Value:", appointmentData.service_id);
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("appointments")
-        .insert(appointmentData)
-        .select();
+        .insert(appointmentData);
 
       if (error) {
         console.error("Error creating appointment:", error);
-        alert("Error creating appointment: " + error.message);
+        alert("❌ Error creating appointment: " + error.message);
         return;
       }
 
-      console.log("Appointment created successfully:", data);
       alert("✅ Appointment created successfully!");
       setShowAddModal(false);
-      loadData();
     } catch (error) {
       console.error("Error:", error);
-      alert("Error creating appointment");
+      alert("❌ Error creating appointment");
     }
   };
 
@@ -258,16 +363,15 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error updating appointment:", error);
-        alert("Error updating appointment: " + error.message);
+        alert("❌ Error updating appointment: " + error.message);
         return;
       }
 
       alert("✅ Appointment updated successfully!");
       setShowEditModal(false);
-      loadData();
     } catch (error) {
       console.error("Error:", error);
-      alert("Error updating appointment");
+      alert("❌ Error updating appointment");
     }
   };
 
@@ -280,14 +384,14 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error updating status:", error);
-        alert("Error updating status: " + error.message);
+        alert("❌ Error updating status: " + error.message);
         return;
       }
 
-      loadData();
+      alert("✅ Status updated successfully!");
     } catch (error) {
       console.error("Error:", error);
-      alert("Error updating status");
+      alert("❌ Error updating status");
     }
   };
 
@@ -299,45 +403,78 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error deleting appointment:", error);
-        alert("Error deleting appointment: " + error.message);
+        alert("❌ Error deleting appointment: " + error.message);
         return;
       }
 
       alert("✅ Appointment deleted successfully!");
       setShowEditModal(false);
-      loadData();
     } catch (error) {
       console.error("Error:", error);
-      alert("Error deleting appointment");
+      alert("❌ Error deleting appointment");
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "scheduled": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      case "completed": return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "cancelled": return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "no_show": return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-      default: return "bg-gray-500/20 text-gray-400 border-gray-500/30";
+      case "scheduled": return "bg-blue-100 text-blue-800 border-blue-200";
+      case "completed": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+      case "cancelled": return "bg-red-100 text-red-800 border-red-200";
+      case "no_show": return "bg-orange-100 text-orange-800 border-orange-200";
+      default: return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "scheduled": return <Clock className="w-4 h-4" />;
-      case "completed": return <Check className="w-4 h-4" />;
-      case "cancelled": return <XCircle className="w-4 h-4" />;
+      case "completed": return <CheckCircle className="w-4 h-4" />;
+      case "cancelled": return <Ban className="w-4 h-4" />;
       case "no_show": return <AlertCircle className="w-4 h-4" />;
       default: return null;
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short',
+      month: 'short', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatTime = (timeString: string) => {
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const getServiceIcon = (icon: string | undefined) => {
+    if (!icon) return "💇";
+    const icons: Record<string, string> = {
+      "✂️": "✂️",
+      "💇": "💇",
+      "💅": "💅",
+      "🧴": "🧴",
+      "💈": "💈",
+      "👨‍🎨": "👨‍🎨",
+      "💆": "💆",
+      "🧖": "🧖",
+      "default": "💇"
+    };
+    return icons[icon] || icon;
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-16 h-16 animate-spin text-cyan-400 mx-auto mb-4" />
-          <p className="text-xl text-slate-400">Loading appointments...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-foreground">Loading appointments...</p>
         </div>
       </div>
     );
@@ -345,203 +482,400 @@ export default function Appointments() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <p className="text-xl text-red-400 mb-4">{error}</p>
-          <button onClick={loadData} className="px-6 py-3 bg-cyan-500 rounded-lg">
-            Retry
-          </button>
+      <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
+        <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-foreground mb-2">Error Loading Appointments</h1>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <button
+              onClick={loadData}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white p-8">
-      <div className="max-w-7xl mx-auto">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
-            Appointments
-          </h1>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={openAddModal}
-              className="px-8 py-3 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 rounded-xl font-bold flex items-center gap-2 shadow-xl shadow-cyan-500/20"
-            >
-              <Plus className="w-5 h-5" />
-              New Appointment
-            </button>
-            <Link href="/" className="flex items-center gap-2 text-xl text-slate-400 hover:text-white transition-colors">
-              <ArrowLeft className="w-6 h-6" />
-              Back to POS
-            </Link>
-          </div>
+    <div className="max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Appointments</h1>
+          <p className="text-muted-foreground">Manage your appointments and schedules</p>
         </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-8">
-          {[
-            { status: "scheduled", label: "Scheduled", color: "blue" },
-            { status: "completed", label: "Completed", color: "green" },
-            { status: "cancelled", label: "Cancelled", color: "red" },
-            { status: "no_show", label: "No Show", color: "orange" },
-          ].map((item) => {
-            const count = appointments.filter((a) => a.status === item.status).length;
-            return (
-              <div key={item.status} className={`bg-${item.color}-500/20 backdrop-blur-lg border border-${item.color}-500/30 rounded-2xl p-6 shadow-lg`}>
-                <p className={`text-${item.color}-400 font-bold mb-2`}>{item.label}</p>
-                <p className="text-4xl font-black">{count}</p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Appointments List */}
-        <div className="bg-slate-800/30 backdrop-blur-xl rounded-3xl p-8 border border-slate-700/50 shadow-2xl">
-          <h2 className="text-2xl font-bold mb-6">
-            {appointments.length} Total Appointments
-          </h2>
-
-          {appointments.length === 0 ? (
-            <div className="text-center py-20">
-              <CalendarIcon className="w-24 h-24 mx-auto mb-6 text-slate-600 opacity-30" />
-              <p className="text-2xl text-slate-400 mb-6">No appointments yet</p>
-              <button
-                onClick={openAddModal}
-                className="bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 px-8 py-4 rounded-xl font-bold text-lg shadow-xl"
-              >
-                Create Your First Appointment
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {appointments.map((appointment) => (
-                <div
-                  key={appointment.id}
-                  className="bg-slate-900/50 backdrop-blur-lg border border-slate-700/50 rounded-xl p-6 hover:border-cyan-500/50 transition-all group"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-3">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(appointment.status)} flex items-center gap-1`}>
-                          {getStatusIcon(appointment.status)}
-                          {appointment.status.toUpperCase()}
-                        </span>
-                        <span className="text-sm text-slate-400">
-                          {new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                          {' at '}
-                          {appointment.appointment_time}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <p className="text-xs text-slate-500 mb-1">Customer</p>
-                          <p className="font-bold">{appointment.customers?.name || 'N/A'}</p>
-                          {appointment.customers?.phone && (
-                            <p className="text-sm text-slate-400">{appointment.customers.phone}</p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500 mb-1">Staff</p>
-                          <p className="font-bold">{appointment.staff?.name || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500 mb-1">Service</p>
-                          <p className="font-bold">
-                            {appointment.products?.icon} {appointment.products?.name || 'N/A'}
-                          </p>
-                          {appointment.products?.price && (
-                            <p className="text-emerald-400 font-bold">£{appointment.products.price.toFixed(2)}</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {appointment.notes && (
-                        <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
-                          <p className="text-sm text-slate-300">{appointment.notes}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
-                      <button
-                        onClick={() => openEditModal(appointment)}
-                        className="p-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => deleteAppointment(appointment.id)}
-                        className="p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-all"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="flex items-center gap-3">
+          <Link 
+            href="/dashboard" 
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </Link>
+          <button
+            onClick={openAddModal}
+            className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Appointment
+          </button>
         </div>
       </div>
 
-      {/* Add Modal */}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Today</p>
+              <p className="text-2xl font-bold text-foreground">{stats.today}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
+              <CalendarDays className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Upcoming</p>
+              <p className="text-2xl font-bold text-foreground">{stats.upcoming}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg flex items-center justify-center">
+              <TrendingUp className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Scheduled</p>
+              <p className="text-2xl font-bold text-foreground">{stats.scheduled}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
+              <Clock className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Completed</p>
+              <p className="text-2xl font-bold text-foreground">{stats.completed}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Cancelled</p>
+              <p className="text-2xl font-bold text-foreground">{stats.cancelled}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-red-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <Ban className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">No Show</p>
+              <p className="text-2xl font-bold text-foreground">{stats.no_show}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
+              <AlertCircle className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="bg-card border border-border rounded-xl p-4 mb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search appointments by customer, staff, service..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            <button
+              onClick={loadData}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">All Statuses</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="no_show">No Show</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Date Range</label>
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="tomorrow">Tomorrow</option>
+                <option value="this_week">This Week</option>
+                <option value="past">Past Appointments</option>
+                <option value="future">Future Appointments</option>
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={() => {
+                  setSearchTerm("");
+                  setStatusFilter("all");
+                  setDateFilter("all");
+                }}
+                className="w-full bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Appointments List */}
+      <div className="bg-card border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">All Appointments</h2>
+            <p className="text-sm text-muted-foreground">
+              {filteredAppointments.length} appointment{filteredAppointments.length !== 1 ? 's' : ''} found
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Real-time updates active</span>
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+          </div>
+        </div>
+
+        {filteredAppointments.length === 0 ? (
+          <div className="text-center py-12 bg-muted/30 rounded-lg border-2 border-dashed border-border">
+            <CalendarIcon className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-muted-foreground mb-3">No appointments found</p>
+            {appointments.length > 0 ? (
+              <p className="text-sm text-muted-foreground mb-3">Try adjusting your filters</p>
+            ) : (
+              <button
+                onClick={openAddModal}
+                className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
+              >
+                Create Your First Appointment
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredAppointments.map((appointment) => (
+              <div
+                key={appointment.id}
+                className="bg-background border border-border rounded-lg p-4 hover:border-primary/50 transition-colors group"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(appointment.status)} flex items-center gap-1`}>
+                        {getStatusIcon(appointment.status)}
+                        {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(appointment.appointment_date)} • {formatTime(appointment.appointment_time)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Customer Info */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                          <UserCircle className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{appointment.customers?.name || 'N/A'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {appointment.customers?.phone && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Phone className="w-3 h-3" />
+                                {appointment.customers.phone}
+                              </span>
+                            )}
+                            {appointment.customers?.email && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Mail className="w-3 h-3" />
+                                {appointment.customers.email}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Staff Info */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                          <User className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">Assigned Staff</p>
+                          <p className="font-medium text-foreground">{appointment.staff?.name || 'N/A'}</p>
+                        </div>
+                      </div>
+
+                      {/* Service Info */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
+                          <span className="text-lg">{getServiceIcon(appointment.products?.icon)}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">Service</p>
+                          <p className="font-medium text-foreground">{appointment.products?.name || 'N/A'}</p>
+                          {appointment.products?.price && (
+                            <p className="text-emerald-500 font-bold">£{appointment.products.price.toFixed(2)}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {appointment.notes && (
+                      <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                        <p className="text-sm text-foreground">{appointment.notes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 ml-4">
+                    <button
+                      onClick={() => openEditModal(appointment)}
+                      className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                      title="Edit"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteAppointment(appointment.id)}
+                      className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add Appointment Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-2xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-bold">New Appointment</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-8 h-8" />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">New Appointment</h3>
+              <button 
+                onClick={() => setShowAddModal(false)} 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-lg mb-2">Date *</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Date *</label>
                   <input
                     type="date"
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-lg mb-2">Time *</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Time *</label>
                   <input
                     type="time"
                     value={formTime}
                     onChange={(e) => setFormTime(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Customer *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Customer *</label>
                 <select
                   value={formCustomerId}
                   onChange={(e) => setFormCustomerId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">Select customer</option>
                   {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>{customer.name}</option>
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} {customer.phone && `(${customer.phone})`}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Staff *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Staff *</label>
                 <select
                   value={formStaffId}
                   onChange={(e) => setFormStaffId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">Select staff</option>
                   {staff.map((member) => (
@@ -551,43 +885,43 @@ export default function Appointments() {
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Service *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Service *</label>
                 <select
                   value={formServiceId}
                   onChange={(e) => setFormServiceId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">Select service</option>
                   {services.map((service) => (
                     <option key={service.id} value={service.id}>
-                      {service.icon} {service.name} - £{service.price}
+                      {getServiceIcon(service.icon)} {service.name} - £{service.price}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Notes</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="Any special requests..."
+                  placeholder="Any special requests or notes..."
                   rows={3}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
             </div>
 
-            <div className="flex gap-4 mt-8">
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-xl text-lg font-bold"
+                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Cancel
               </button>
               <button
                 onClick={addAppointment}
-                className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 py-4 rounded-xl text-lg font-bold shadow-xl"
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Create Appointment
               </button>
@@ -596,58 +930,63 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Edit Appointment Modal */}
       {showEditModal && selectedAppointment && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 max-w-2xl w-full border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-bold">Edit Appointment</h2>
-              <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-8 h-8" />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Edit Appointment</h3>
+              <button 
+                onClick={() => setShowEditModal(false)} 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4 mb-6">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-lg mb-2">Date *</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Date *</label>
                   <input
                     type="date"
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-lg mb-2">Time *</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Time *</label>
                   <input
                     type="time"
                     value={formTime}
                     onChange={(e) => setFormTime(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Customer *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Customer *</label>
                 <select
                   value={formCustomerId}
                   onChange={(e) => setFormCustomerId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>{customer.name}</option>
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} {customer.phone && `(${customer.phone})`}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Staff *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Staff *</label>
                 <select
                   value={formStaffId}
                   onChange={(e) => setFormStaffId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {staff.map((member) => (
                     <option key={member.id} value={member.id}>{member.name}</option>
@@ -656,67 +995,68 @@ export default function Appointments() {
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Service *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Service *</label>
                 <select
                   value={formServiceId}
                   onChange={(e) => setFormServiceId(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   {services.map((service) => (
                     <option key={service.id} value={service.id}>
-                      {service.icon} {service.name} - £{service.price}
+                      {getServiceIcon(service.icon)} {service.name} - £{service.price}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-lg mb-2">Notes</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={3}
-                  className="w-full bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl text-lg"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-            </div>
 
-            {/* Status Buttons */}
-            <div className="mb-6">
-              <label className="block text-lg mb-3">Status</label>
-              <div className="grid grid-cols-4 gap-3">
-                {[
-                  { status: "scheduled", label: "Scheduled" },
-                  { status: "completed", label: "Completed" },
-                  { status: "cancelled", label: "Cancelled" },
-                  { status: "no_show", label: "No Show" },
-                ].map((item) => (
-                  <button
-                    key={item.status}
-                    type="button"
-                    onClick={() => updateAppointmentStatus(selectedAppointment.id, item.status)}
-                    className={`py-3 rounded-xl text-sm font-bold border ${
-                      selectedAppointment.status === item.status
-                        ? getStatusColor(item.status)
-                        : "bg-slate-800/50 border-slate-700/50 text-slate-300"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              {/* Status Buttons */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Status</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { status: "scheduled", label: "Scheduled", icon: <Clock className="w-4 h-4" /> },
+                    { status: "completed", label: "Completed", icon: <CheckCircle className="w-4 h-4" /> },
+                    { status: "cancelled", label: "Cancelled", icon: <Ban className="w-4 h-4" /> },
+                    { status: "no_show", label: "No Show", icon: <AlertCircle className="w-4 h-4" /> },
+                  ].map((item) => (
+                    <button
+                      key={item.status}
+                      type="button"
+                      onClick={() => updateAppointmentStatus(selectedAppointment.id, item.status)}
+                      className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium border transition-all ${
+                        selectedAppointment.status === item.status
+                          ? getStatusColor(item.status)
+                          : "bg-background border-border text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {item.icon}
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={() => deleteAppointment(selectedAppointment.id)}
-                className="flex-1 bg-red-500 hover:bg-red-600 py-4 rounded-xl text-lg font-bold"
+                className="flex-1 bg-destructive text-destructive-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Delete
               </button>
               <button
                 onClick={updateAppointment}
-                className="flex-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 py-4 rounded-xl text-lg font-bold shadow-xl"
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 Save Changes
               </button>
