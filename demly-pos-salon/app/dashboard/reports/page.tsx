@@ -323,7 +323,7 @@ export default function Reports() {
     const badges: any = {
       cash: { icon: DollarSign, color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
       card: { icon: DollarSign, color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
-      balance: { icon: User, color: 'bg-purple-500/10 text-purple-600 border-purple-500/20' },
+      balance: { icon: Users, color: 'bg-purple-500/10 text-purple-600 border-purple-500/20' },
       split: { icon: DollarSign, color: 'bg-orange-500/10 text-orange-600 border-orange-500/20' }
     };
 
@@ -783,4 +783,5 @@ export default function Reports() {
     </div>
   );
 }
+
 
