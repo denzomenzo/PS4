@@ -13,7 +13,7 @@ import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
   Monitor, Package, CreditCard, Printer, Loader2, 
   Lock, Check, Key, Mail, Shield, Zap, ChevronLeft, ChevronRight,
-  Menu, X, ChevronDown, ChevronUp, User, Receipt
+  Menu, X, ChevronDown, ChevronUp, User, Receipt, Logs
 } from "lucide-react";
 
 // Use the Staff type from useStaffAuth to ensure consistency
@@ -37,6 +37,12 @@ const navigation: Array<{
     href: "/dashboard/customers", 
     icon: Users, 
     requiredPermission: "manage_customers"
+  },
+  { 
+    name: "Orders", 
+    href: "/dashboard/orders", 
+    icon: Logs, 
+    requiredPermission: "manage_orders"
   },
   { 
     name: "Appointments", 
@@ -794,3 +800,4 @@ export default function DashboardLayout({
     </div>
   );
 }
+
