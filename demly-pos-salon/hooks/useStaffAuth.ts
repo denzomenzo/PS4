@@ -15,6 +15,7 @@ export interface Staff {
     manage_transactions: boolean;
     manage_customers: boolean;
     access_display: boolean;
+    manage_orders: boolean;
     
     // Management Operations
     manage_inventory: boolean;
@@ -45,6 +46,7 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
     manage_transactions: true,
     manage_customers: true,
     access_display: true,
+    manage_orders: true,
     manage_inventory: role === "staff" ? false : true,
     view_reports: role === "staff" ? false : true,
     manage_hardware: role === "staff" ? false : true,
@@ -406,3 +408,4 @@ export function getCurrentStaff(): Staff | null {
 export function isAuthenticated(): boolean {
   return globalStaff !== null;
 }
+
