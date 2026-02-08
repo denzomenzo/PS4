@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ReceiptPrint, ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
+import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import {
   ArrowLeft,
   TrendingUp,
@@ -783,3 +783,4 @@ export default function Reports() {
     </div>
   );
 }
+
