@@ -1,10 +1,11 @@
-// app/dashboard/apps/page.tsx
+// app/dashboard/apps/page.tsx - IMPROVED VERSION
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ShoppingBag,
   Truck,
@@ -23,7 +24,8 @@ import {
   Key,
   Server,
   Database,
-  TrendingUp
+  TrendingUp,
+  Info
 } from "lucide-react";
 
 interface Integration {
@@ -45,17 +47,17 @@ const availableIntegrations = [
     icon: ShoppingBag,
     category: "ecommerce",
     features: [
-      "Sync products & inventory",
-      "Import Shopify orders",
-      "Real-time stock updates",
-      "Customer data sync"
+      "Real-time order sync",
+      "Automatic inventory updates",
+      "Customer data sync",
+      "Product catalog sync"
     ],
     requirements: [
-      "Shopify Store URL",
-      "API Access Token",
-      "Products in Shopify"
+      "Active Shopify store",
+      "Admin access to your store",
+      "Custom app installed"
     ],
-    setupSteps: 3
+    setupType: 'oauth' // Will use OAuth flow
   },
   {
     id: "deliveroo",
@@ -74,7 +76,8 @@ const availableIntegrations = [
       "API credentials",
       "Approved menu items"
     ],
-    setupSteps: 4
+    setupType: 'coming_soon',
+    comingSoon: true
   },
   {
     id: "justeat",
@@ -93,22 +96,61 @@ const availableIntegrations = [
       "API access",
       "Valid menu setup"
     ],
-    setupSteps: 4
+    setupType: 'coming_soon',
+    comingSoon: true
   }
 ];
 
 export default function AppsPage() {
   const userId = useUserId();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [activeIntegration, setActiveIntegration] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    // Check for success/error in URL params
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+
+    if (success === 'shopify_connected') {
+      setNotification({
+        type: 'success',
+        message: 'Shopify connected successfully! Your orders will now sync automatically.'
+      });
+      // Clean URL
+      router.replace('/dashboard/apps');
+    } else if (error) {
+      setNotification({
+        type: 'error',
+        message: decodeURIComponent(error)
+      });
+      // Clean URL
+      router.replace('/dashboard/apps');
+    }
+  }, [searchParams, router]);
 
   useEffect(() => {
     if (userId) {
       loadIntegrations();
     }
   }, [userId]);
+
+  // Auto-dismiss notifications
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   const loadIntegrations = async () => {
     setLoading(true);
@@ -122,6 +164,10 @@ export default function AppsPage() {
       setIntegrations(data || []);
     } catch (error) {
       console.error("Error loading integrations:", error);
+      setNotification({
+        type: 'error',
+        message: 'Failed to load integrations'
+      });
     } finally {
       setLoading(false);
     }
@@ -134,11 +180,25 @@ export default function AppsPage() {
   };
 
   const handleConnect = async (appSlug: string) => {
-    setActiveIntegration(appSlug);
+    const app = availableIntegrations.find(a => a.id === appSlug);
+    
+    if (app?.comingSoon) {
+      setNotification({
+        type: 'info',
+        message: `${app.name} integration is coming soon!`
+      });
+      return;
+    }
+
+    if (appSlug === 'shopify') {
+      setActiveIntegration(appSlug);
+    } else {
+      setActiveIntegration(appSlug);
+    }
   };
 
   const handleDisconnect = async (appSlug: string) => {
-    if (!confirm(`Are you sure you want to disconnect ${appSlug}?`)) return;
+    if (!confirm(`Are you sure you want to disconnect ${appSlug}? This will stop syncing orders.`)) return;
     
     try {
       await supabase
@@ -148,18 +208,33 @@ export default function AppsPage() {
         .eq("app_slug", appSlug);
       
       await loadIntegrations();
+      
+      setNotification({
+        type: 'success',
+        message: `${appSlug} disconnected successfully`
+      });
     } catch (error) {
       console.error("Error disconnecting integration:", error);
+      setNotification({
+        type: 'error',
+        message: `Failed to disconnect ${appSlug}`
+      });
     }
   };
 
   const handleSync = async (appSlug: string) => {
     setSyncing(appSlug);
     try {
-      // Simulate sync process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Update last sync time
+      const response = await fetch(`/api/integrations/${appSlug}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error('Sync failed');
+      }
+
       await supabase
         .from("integrations")
         .update({ last_sync: new Date().toISOString() })
@@ -168,65 +243,39 @@ export default function AppsPage() {
       
       await loadIntegrations();
       
-      alert(`Synced ${appSlug} successfully!`);
+      setNotification({
+        type: 'success',
+        message: `${appSlug} synced successfully!`
+      });
     } catch (error) {
       console.error("Error syncing:", error);
-      alert(`Error syncing ${appSlug}`);
+      setNotification({
+        type: 'error',
+        message: `Failed to sync ${appSlug}`
+      });
     } finally {
       setSyncing(null);
     }
   };
 
-  const saveIntegrationSettings = async (appSlug: string, settings: any) => {
-    try {
-      const integration = integrations.find(i => i.app_slug === appSlug);
-      
-      if (integration) {
-        // Update existing
-        await supabase
-          .from("integrations")
-          .update({
-            settings,
-            status: "connected",
-            connected_at: new Date().toISOString()
-          })
-          .eq("id", integration.id);
-      } else {
-        // Create new
-        const app = availableIntegrations.find(a => a.id === appSlug);
-        await supabase
-          .from("integrations")
-          .insert({
-            user_id: userId,
-            app_slug: appSlug,
-            app_name: app?.name || appSlug,
-            status: "connected",
-            settings,
-            connected_at: new Date().toISOString()
-          });
-      }
-      
-      setActiveIntegration(null);
-      await loadIntegrations();
-      alert(`${appSlug} connected successfully!`);
-    } catch (error) {
-      console.error("Error saving settings:", error);
-      alert(`Error connecting ${appSlug}`);
-    }
-  };
-
-  const IntegrationSetupModal = ({ appSlug }: { appSlug: string }) => {
-    const app = availableIntegrations.find(a => a.id === appSlug);
+  const ShopifySetupModal = () => {
     const [step, setStep] = useState(1);
-    const [settings, setSettings] = useState({
-      apiKey: "",
-      storeUrl: "",
-      webhookUrl: "",
-      syncInventory: true,
-      syncOrders: true
-    });
+    const [shopDomain, setShopDomain] = useState("");
+    const [connecting, setConnecting] = useState(false);
 
-    if (!app) return null;
+    const handleShopifyConnect = () => {
+      if (!shopDomain) {
+        setNotification({
+          type: 'error',
+          message: 'Please enter your Shopify store domain'
+        });
+        return;
+      }
+
+      setConnecting(true);
+      // Redirect to Shopify OAuth
+      window.location.href = `/api/integrations/shopify/connect?userId=${userId}&shop=${encodeURIComponent(shopDomain)}`;
+    };
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -234,12 +283,13 @@ export default function AppsPage() {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-xl font-bold text-foreground">Connect {app.name}</h3>
-                <p className="text-muted-foreground">Step {step} of {app.setupSteps}</p>
+                <h3 className="text-xl font-bold text-foreground">Connect Shopify</h3>
+                <p className="text-muted-foreground">Step {step} of 3</p>
               </div>
               <button
                 onClick={() => setActiveIntegration(null)}
-                className="text-muted-foreground hover:text-foreground"
+                disabled={connecting}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <XCircle className="w-6 h-6" />
               </button>
@@ -264,22 +314,24 @@ export default function AppsPage() {
 
             {step === 1 && (
               <div className="space-y-6">
-                <div>
-                  <h4 className="font-medium text-foreground mb-4">Requirements</h4>
-                  <ul className="space-y-2">
-                    {app.requirements.map((req, index) => (
-                      <li key={index} className="flex items-center gap-2 text-muted-foreground">
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />
-                        {req}
-                      </li>
-                    ))}
-                  </ul>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                  <div className="flex gap-3">
+                    <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-foreground">
+                      <p className="font-medium mb-2">Before you begin:</p>
+                      <ul className="space-y-1 text-muted-foreground">
+                        <li>• You need admin access to your Shopify store</li>
+                        <li>• The connection uses OAuth for secure authentication</li>
+                        <li>• You'll be redirected to Shopify to authorize the app</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
-                
+
                 <div>
-                  <h4 className="font-medium text-foreground mb-4">Features</h4>
+                  <h4 className="font-medium text-foreground mb-4">What you'll get:</h4>
                   <ul className="space-y-2">
-                    {app.features.map((feature, index) => (
+                    {availableIntegrations.find(a => a.id === 'shopify')?.features.map((feature, index) => (
                       <li key={index} className="flex items-center gap-2 text-muted-foreground">
                         <Zap className="w-4 h-4 text-primary" />
                         {feature}
@@ -294,103 +346,100 @@ export default function AppsPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
-                    {app.id === 'shopify' ? 'Shopify Store URL' : 'API Key'}
+                    Shopify Store Domain
                   </label>
                   <input
                     type="text"
-                    value={app.id === 'shopify' ? settings.storeUrl : settings.apiKey}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      [app.id === 'shopify' ? 'storeUrl' : 'apiKey']: e.target.value
-                    })}
-                    placeholder={app.id === 'shopify' ? 'https://your-store.myshopify.com' : 'Enter API key'}
+                    value={shopDomain}
+                    onChange={(e) => setShopDomain(e.target.value)}
+                    placeholder="mystore or mystore.myshopify.com"
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    autoFocus
                   />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Enter your Shopify store name (e.g., "mystore" or "mystore.myshopify.com")
+                  </p>
                 </div>
 
-                {app.id === 'shopify' && (
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-2">
-                      Admin API Access Token
-                    </label>
-                    <input
-                      type="password"
-                      value={settings.apiKey}
-                      onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-                      placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxx"
-                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                )}
-
-                <div className="text-sm text-muted-foreground">
-                  <p className="flex items-center gap-2 mb-2">
+                <div className="bg-muted/30 rounded-lg p-4">
+                  <h4 className="font-medium text-foreground mb-2 flex items-center gap-2">
                     <Key className="w-4 h-4" />
-                    {app.id === 'shopify' 
-                      ? 'Get your API credentials from Shopify Admin → Settings → Apps → Develop apps'
-                      : 'Contact your account manager for API credentials'}
-                  </p>
+                    How it works
+                  </h4>
+                  <ol className="text-sm text-muted-foreground space-y-2 ml-6 list-decimal">
+                    <li>You'll be redirected to Shopify</li>
+                    <li>Log in to your Shopify admin</li>
+                    <li>Review and approve the permissions</li>
+                    <li>You'll be redirected back here automatically</li>
+                  </ol>
                 </div>
               </div>
             )}
 
             {step === 3 && (
               <div className="space-y-4">
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.syncInventory}
-                      onChange={(e) => setSettings({ ...settings, syncInventory: e.target.checked })}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <span className="text-sm text-foreground">Sync inventory automatically</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.syncOrders}
-                      onChange={(e) => setSettings({ ...settings, syncOrders: e.target.checked })}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <span className="text-sm text-foreground">Import new orders automatically</span>
-                  </label>
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8 text-emerald-500" />
+                  </div>
+                  <h4 className="text-lg font-bold text-foreground mb-2">Ready to Connect!</h4>
+                  <p className="text-muted-foreground">
+                    Click the button below to securely connect your Shopify store
+                  </p>
                 </div>
 
                 <div className="bg-muted/30 rounded-lg p-4">
-                  <h4 className="font-medium text-foreground mb-2">Webhook URL</h4>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Set this as your webhook URL in {app.name} settings:
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Store:</strong> {shopDomain || 'Not specified'}
                   </p>
-                  <code className="block bg-background border border-border rounded-lg p-3 text-sm font-mono text-foreground break-all">
-                    https://api.demlypos.com/webhooks/{app.id}/{userId}
-                  </code>
                 </div>
               </div>
             )}
 
             <div className="flex gap-3 mt-8">
-              {step > 1 && (
+              {step > 1 && step < 3 && (
                 <button
                   onClick={() => setStep(step - 1)}
-                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                  disabled={connecting}
+                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   Back
                 </button>
               )}
-              {step < app.setupSteps ? (
+              {step < 2 && (
                 <button
-                  onClick={() => setStep(step + 1)}
+                  onClick={() => setStep(2)}
                   className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
                 >
                   Continue
                 </button>
-              ) : (
+              )}
+              {step === 2 && (
                 <button
-                  onClick={() => saveIntegrationSettings(appSlug, settings)}
-                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                  onClick={() => setStep(3)}
+                  disabled={!shopDomain}
+                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  Connect {app.name}
+                  Continue
+                </button>
+              )}
+              {step === 3 && (
+                <button
+                  onClick={handleShopifyConnect}
+                  disabled={connecting}
+                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {connecting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      Connect to Shopify
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               )}
             </div>
@@ -413,6 +462,36 @@ export default function AppsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Notification */}
+      {notification && (
+        <div className={`mb-6 p-4 rounded-xl border ${
+          notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' :
+          notification.type === 'error' ? 'bg-red-500/10 border-red-500/20' :
+          'bg-blue-500/10 border-blue-500/20'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-500" />}
+              {notification.type === 'error' && <XCircle className="w-5 h-5 text-red-500" />}
+              {notification.type === 'info' && <Info className="w-5 h-5 text-blue-500" />}
+              <p className={`font-medium ${
+                notification.type === 'success' ? 'text-emerald-600' :
+                notification.type === 'error' ? 'text-red-600' :
+                'text-blue-600'
+              }`}>
+                {notification.message}
+              </p>
+            </div>
+            <button
+              onClick={() => setNotification(null)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -493,12 +572,6 @@ export default function AppsPage() {
                             </>
                           )}
                         </button>
-                        <button
-                          onClick={() => handleConnect(integration.app_slug)}
-                          className="px-3 py-1.5 border border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
                       </div>
 
                       {app.id === 'shopify' && (
@@ -541,6 +614,10 @@ export default function AppsPage() {
                             <CheckCircle className="w-3 h-3" />
                             Connected
                           </span>
+                        ) : app.comingSoon ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 text-orange-600 text-xs font-medium rounded-full border border-orange-500/20">
+                            Coming Soon
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 text-blue-600 text-xs font-medium rounded-full border border-blue-500/20">
                             Available
@@ -564,14 +641,16 @@ export default function AppsPage() {
 
                 <button
                   onClick={() => handleConnect(app.id)}
-                  disabled={isConnected}
+                  disabled={isConnected && !app.comingSoon}
                   className={`w-full py-2 rounded-lg font-medium transition-opacity ${
-                    isConnected
-                      ? 'bg-muted text-foreground'
+                    isConnected && !app.comingSoon
+                      ? 'bg-muted text-foreground cursor-not-allowed'
+                      : app.comingSoon 
+                      ? 'bg-muted text-foreground hover:opacity-90'
                       : 'bg-primary text-primary-foreground hover:opacity-90'
                   }`}
                 >
-                  {isConnected ? 'Configure' : 'Connect'}
+                  {isConnected ? 'Connected' : app.comingSoon ? 'Coming Soon' : 'Connect'}
                 </button>
               </div>
             );
@@ -609,7 +688,7 @@ export default function AppsPage() {
       </div>
 
       {/* Setup Modal */}
-      {activeIntegration && <IntegrationSetupModal appSlug={activeIntegration} />}
+      {activeIntegration === 'shopify' && <ShopifySetupModal />}
     </div>
   );
 }
