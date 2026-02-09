@@ -1,4 +1,4 @@
-// lib/integrations/shopify.ts - UPDATED VERSION
+// lib/integrations/shopify.ts - FULLY FIXED VERSION
 import { supabase } from "@/lib/supabaseClient";
 
 export interface ShopifyOrder {
@@ -35,20 +35,31 @@ export interface ShopifyOrder {
 
 export async function syncShopifyOrders(userId: string, settings: any) {
   try {
-    const { api_key, shopify_domain } = settings;
+    const access_token = settings.access_token;
+    const shopify_domain = settings.shopify_domain;
     
-    if (!api_key || !shopify_domain) {
-      throw new Error('Shopify not configured for this user');
+    if (!access_token || !shopify_domain) {
+      throw new Error('Shopify not configured properly');
     }
+
+    // Get integration ID
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('app_slug', 'shopify')
+      .single();
+
+    const integrationId = integration?.id;
 
     // Get orders from last sync or last 24 hours
     const lastSync = settings.last_sync_at || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     
     const response = await fetch(
-      `https://${shopify_domain}/admin/api/2023-10/orders.json?status=any&created_at_min=${lastSync}&limit=250`,
+      `https://${shopify_domain}/admin/api/2024-01/orders.json?status=any&created_at_min=${lastSync}&limit=250`,
       {
         headers: {
-          'X-Shopify-Access-Token': api_key,
+          'X-Shopify-Access-Token': access_token,
           'Content-Type': 'application/json',
         },
       }
@@ -59,7 +70,7 @@ export async function syncShopifyOrders(userId: string, settings: any) {
         // Token expired, mark as disconnected
         await supabase
           .from('integrations')
-          .update({ status: 'disconnected' })
+          .update({ status: 'error' })
           .eq('user_id', userId)
           .eq('app_slug', 'shopify');
         throw new Error('Shopify token expired, please reconnect');
@@ -93,25 +104,39 @@ export async function syncShopifyOrders(userId: string, settings: any) {
       else if (order.fulfillment_status === 'partial') status = 'preparing';
       else if (order.financial_status === 'paid') status = 'confirmed';
 
+      // Build shipping address
+      let customerAddress = null;
+      if (order.shipping_address) {
+        const addr = order.shipping_address;
+        customerAddress = [addr.address1, addr.city, addr.country, addr.zip]
+          .filter(Boolean)
+          .join(', ');
+      }
+
       const newOrder = {
         user_id: userId,
         external_order_id: order.id.toString(),
         source: 'shopify',
         status,
-        customer_name: order.name,
+        customer_name: order.name || order.email?.split('@')[0] || 'Customer',
         customer_email: order.email,
         customer_phone: order.phone,
-        customer_address: order.shipping_address 
-          ? `${order.shipping_address.address1}, ${order.shipping_address.city}, ${order.shipping_address.country} ${order.shipping_address.zip}`
-          : null,
+        customer_address: customerAddress,
         items,
         subtotal: parseFloat(order.subtotal_price),
         vat: parseFloat(order.total_tax),
+        delivery_fee: 0,
+        service_fee: 0,
+        tip: 0,
         total: parseFloat(order.total_price),
-        notes: order.note,
+        notes: order.note || null,
         external_created_at: order.created_at,
-        external_updated_at: order.updated_at,
-        metadata: order,
+        metadata: {
+          shopify_order_id: order.id,
+          financial_status: order.financial_status,
+          fulfillment_status: order.fulfillment_status,
+          order_url: `https://${shopify_domain}/admin/orders/${order.id}`
+        },
       };
 
       // Upsert order (update if exists, insert if new)
@@ -138,26 +163,31 @@ export async function syncShopifyOrders(userId: string, settings: any) {
     await supabase
       .from('integrations')
       .update({ 
-        last_sync_at: new Date().toISOString(),
-        settings: { ...settings, last_sync_at: new Date().toISOString() }
+        last_sync: new Date().toISOString(),
+        settings: { 
+          ...settings, 
+          last_sync_at: new Date().toISOString() 
+        }
       })
       .eq('user_id', userId)
       .eq('app_slug', 'shopify');
 
     // Log sync
-    await supabase
-      .from('integration_sync_logs')
-      .insert({
-        user_id: userId,
-        integration_id: settings.id,
-        action: 'sync_orders',
-        status: 'success',
-        orders_synced: savedOrders.length,
-        details: { 
-          synced_order_ids: savedOrders.map(o => o.id),
-          shopify_domain
-        }
-      });
+    if (integrationId) {
+      await supabase
+        .from('integration_sync_logs')
+        .insert({
+          user_id: userId,
+          integration_id: integrationId,
+          action: 'sync_orders',
+          status: 'success',
+          orders_synced: savedOrders.length,
+          details: { 
+            synced_order_ids: savedOrders.map(o => o.id),
+            shopify_domain
+          }
+        });
+    }
 
     return {
       success: true,
@@ -166,17 +196,27 @@ export async function syncShopifyOrders(userId: string, settings: any) {
     };
 
   } catch (error: any) {
+    // Get integration ID for error logging
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('app_slug', 'shopify')
+      .single();
+
     // Log error
-    await supabase
-      .from('integration_sync_logs')
-      .insert({
-        user_id: userId,
-        integration_id: settings.id,
-        action: 'sync_orders',
-        status: 'error',
-        error_message: error.message,
-        details: { error: error.toString(), settings }
-      });
+    if (integration?.id) {
+      await supabase
+        .from('integration_sync_logs')
+        .insert({
+          user_id: userId,
+          integration_id: integration.id,
+          action: 'sync_orders',
+          status: 'error',
+          error_message: error.message,
+          details: { error: error.toString() }
+        });
+    }
 
     throw error;
   }
@@ -217,7 +257,8 @@ export async function updateShopifyOrderStatus(
   status: string
 ) {
   try {
-    const { api_key, shopify_domain } = settings;
+    const access_token = settings.access_token;
+    const shopify_domain = settings.shopify_domain;
     
     // Map our status to Shopify fulfillment status
     const shopifyStatus = mapToShopifyFulfillment(status);
@@ -225,16 +266,16 @@ export async function updateShopifyOrderStatus(
     if (shopifyStatus === 'fulfilled') {
       // Create fulfillment in Shopify
       const response = await fetch(
-        `https://${shopify_domain}/admin/api/2023-10/orders/${orderId}/fulfillments.json`,
+        `https://${shopify_domain}/admin/api/2024-01/orders/${orderId}/fulfillments.json`,
         {
           method: 'POST',
           headers: {
-            'X-Shopify-Access-Token': api_key,
+            'X-Shopify-Access-Token': access_token,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             fulfillment: {
-              location_id: settings.location_id || 1,
+              location_id: settings.location_id || null,
               notify_customer: true,
               tracking_info: null
             }
@@ -243,7 +284,9 @@ export async function updateShopifyOrderStatus(
       );
 
       if (!response.ok) {
-        throw new Error(`Failed to update Shopify order: ${await response.text()}`);
+        const errorText = await response.text();
+        console.error('Shopify fulfillment error:', errorText);
+        throw new Error(`Failed to update Shopify order: ${errorText}`);
       }
 
       return { success: true };
@@ -269,8 +312,15 @@ function mapToShopifyFulfillment(status: string): string | null {
 // Webhook verification
 export function verifyShopifyWebhook(body: string, hmac: string): boolean {
   const crypto = require('crypto');
+  const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
+  
+  if (!secret) {
+    console.warn('SHOPIFY_WEBHOOK_SECRET not set');
+    return false;
+  }
+
   const calculatedHmac = crypto
-    .createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET || '')
+    .createHmac('sha256', secret)
     .update(body, 'utf8')
     .digest('base64');
   
