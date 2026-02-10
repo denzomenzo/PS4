@@ -21,15 +21,26 @@ export async function GET(request: NextRequest) {
     // Remove https:// or http:// if present
     shopDomain = shopDomain.replace(/^https?:\/\//, '');
     
-    // Add .myshopify.com if not present
-    if (!shopDomain.includes('.myshopify.com')) {
+    // Remove trailing slashes
+    shopDomain = shopDomain.replace(/\/$/, '');
+    
+    // Check if it's a custom domain or myshopify.com domain
+    const isCustomDomain = shopDomain.includes('.') && !shopDomain.includes('.myshopify.com');
+    const isMyShopifyDomain = shopDomain.includes('.myshopify.com');
+    const isJustStoreName = !shopDomain.includes('.');
+    
+    // If it's just a store name (e.g., "mystore"), add .myshopify.com
+    if (isJustStoreName) {
       shopDomain = `${shopDomain}.myshopify.com`;
     }
     
-    // Validate final format
-    if (!shopDomain.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
+    // Validate domain format
+    // Accept: mystore.myshopify.com OR custom domains like shop.example.com
+    const validDomainPattern = /^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9-]+)+$/;
+    
+    if (!validDomainPattern.test(shopDomain)) {
       return NextResponse.json(
-        { error: 'Invalid Shopify store domain format. Please enter your store name (e.g., "mystore" or "mystore.myshopify.com")' },
+        { error: 'Invalid domain format. Please enter your Shopify store domain (e.g., "mystore.myshopify.com" or "shop.example.com")' },
         { status: 400 }
       );
     }
