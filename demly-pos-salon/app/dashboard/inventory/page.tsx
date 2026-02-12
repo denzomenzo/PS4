@@ -1,4 +1,3 @@
-// app/dashboard/inventory/page.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -108,11 +107,9 @@ export default function Inventory() {
   const [formStock, setFormStock] = useState("");
   const [formThreshold, setFormThreshold] = useState("10");
   const [formTrackInventory, setFormTrackInventory] = useState(true);
-  const [formIsService, setFormIsService] = useState(false);
   const [formIcon, setFormIcon] = useState("");
   const [formSupplier, setFormSupplier] = useState("");
   const [formImageUrl, setFormImageUrl] = useState("");
-  const [formServiceType, setFormServiceType] = useState("");
 
   // Service form states
   const [serviceName, setServiceName] = useState("");
@@ -176,7 +173,7 @@ export default function Inventory() {
         .eq("user_id", userId)
         .order("name");
 
-      if (servicesData) {
+      if (servicesData && servicesData.length > 0) {
         setServiceTypes(servicesData);
       } else {
         // Create default services if none exist
@@ -253,16 +250,23 @@ export default function Inventory() {
     setFormStock("");
     setFormThreshold("10");
     setFormTrackInventory(true);
-    setFormIsService(false);
     setFormIcon("");
     setFormSupplier("");
     setFormImageUrl("");
-    setFormServiceType("");
   };
 
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
+  };
+
+  const openAddServiceModal = () => {
+    setEditingService(null);
+    setServiceName("");
+    setServiceIcon("");
+    setServiceColor("#3B82F6");
+    setServicePrice("");
+    setShowServicesModal(true);
   };
 
   const openEditModal = (product: Product) => {
@@ -277,11 +281,9 @@ export default function Inventory() {
     setFormStock(product.stock_quantity.toString());
     setFormThreshold(product.low_stock_threshold.toString());
     setFormTrackInventory(product.track_inventory);
-    setFormIsService(product.is_service);
     setFormIcon(product.icon || "");
     setFormSupplier(product.supplier || "");
     setFormImageUrl(product.image_url || "");
-    setFormServiceType(product.service_type || "");
     setShowEditModal(true);
   };
 
@@ -290,10 +292,6 @@ export default function Inventory() {
     setStockAdjustment("");
     setStockReason("");
     setShowStockModal(true);
-  };
-
-  const openServicesModal = () => {
-    setShowServicesModal(true);
   };
 
   const openEditServiceModal = (service: ServiceType) => {
@@ -320,14 +318,14 @@ export default function Inventory() {
         category: formCategory || null,
         price: parseFloat(formPrice),
         cost: parseFloat(formCost) || 0,
-        stock_quantity: formIsService ? 0 : (parseInt(formStock) || 0),
-        low_stock_threshold: formIsService ? 0 : parseInt(formThreshold),
-        track_inventory: formIsService ? false : formTrackInventory,
-        is_service: formIsService,
+        stock_quantity: parseInt(formStock) || 0,
+        low_stock_threshold: parseInt(formThreshold),
+        track_inventory: formTrackInventory,
+        is_service: false,
         icon: formIcon || null,
         supplier: formSupplier || null,
         image_url: formImageUrl || null,
-        service_type: formIsService && formServiceType ? formServiceType : null,
+        service_type: null,
       });
 
       if (error) throw error;
@@ -354,14 +352,14 @@ export default function Inventory() {
           category: formCategory || null,
           price: parseFloat(formPrice),
           cost: parseFloat(formCost) || 0,
-          stock_quantity: formIsService ? 0 : (parseInt(formStock) || 0),
-          low_stock_threshold: formIsService ? 0 : parseInt(formThreshold),
-          track_inventory: formIsService ? false : formTrackInventory,
-          is_service: formIsService,
+          stock_quantity: parseInt(formStock) || 0,
+          low_stock_threshold: parseInt(formThreshold),
+          track_inventory: formTrackInventory,
+          is_service: false,
           icon: formIcon || null,
           supplier: formSupplier || null,
           image_url: formImageUrl || null,
-          service_type: formIsService && formServiceType ? formServiceType : null,
+          service_type: null,
         })
         .eq("id", editingProduct.id);
 
@@ -512,7 +510,7 @@ export default function Inventory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Is Service", "Service Type", "Image URL", "Supplier"];
+    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Image URL", "Supplier"];
     
     const rows = products.map(p => [
       p.name,
@@ -525,8 +523,6 @@ export default function Inventory() {
       p.stock_quantity,
       p.low_stock_threshold,
       p.track_inventory,
-      p.is_service,
-      p.service_type || "",
       p.image_url || "",
       p.supplier || ""
     ]);
@@ -570,10 +566,9 @@ export default function Inventory() {
         stock_quantity: parseInt(values[7]) || 0,
         low_stock_threshold: parseInt(values[8]) || 10,
         track_inventory: values[9] === "true" || values[9] === "TRUE",
-        is_service: values[10] === "true" || values[10] === "TRUE",
-        service_type: values[11] || null,
-        image_url: values[12] || null,
-        supplier: values[13] || null,
+        is_service: false,
+        image_url: values[10] || null,
+        supplier: values[11] || null,
       };
       productsToImport.push(product);
     }
@@ -607,11 +602,8 @@ export default function Inventory() {
       product.sku?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       product.category?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    // Type filter
-    const typeMatch = 
-      typeFilter === "all" ||
-      (typeFilter === "products" && !product.is_service) ||
-      (typeFilter === "services" && product.is_service);
+    // Type filter - only show products (not services)
+    const typeMatch = !product.is_service;
 
     // Category filter
     const categoryMatch = 
@@ -689,7 +681,7 @@ export default function Inventory() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
-          <p className="text-muted-foreground">Manage your products and services</p>
+          <p className="text-muted-foreground">Manage your products</p>
         </div>
         <div className="flex items-center gap-3">
           <Link 
@@ -699,18 +691,36 @@ export default function Inventory() {
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
-          <button
-            onClick={openAddModal}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            New Item
-          </button>
+          <div className="relative group">
+            <button
+              onClick={openAddModal}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              New Item
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg hidden group-hover:block">
+              <button
+                onClick={openAddModal}
+                className="w-full px-4 py-2 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-t-lg"
+              >
+                <Box className="w-4 h-4" />
+                Add Product
+              </button>
+              <button
+                onClick={openAddServiceModal}
+                className="w-full px-4 py-2 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-b-lg"
+              >
+                <Coffee className="w-4 h-4" />
+                Add Service
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+      {/* Stats Cards - Updated to show only product stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -719,18 +729,6 @@ export default function Inventory() {
             </div>
             <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
               <Box className="w-5 h-5 text-white" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Services</p>
-              <p className="text-2xl font-bold text-foreground">{stats.totalServices}</p>
-            </div>
-            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg flex items-center justify-center">
-              <Coffee className="w-5 h-5 text-white" />
             </div>
           </div>
         </div>
@@ -849,33 +847,12 @@ export default function Inventory() {
               <RefreshCw className="w-4 h-4" />
               Refresh
             </button>
-
-            <button
-              onClick={openServicesModal}
-              className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
-            >
-              <Tag className="w-4 h-4" />
-              Service Types
-            </button>
           </div>
         </div>
 
         {/* Advanced Filters */}
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Item Type</label>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="all">All Items</option>
-                <option value="products">Products Only</option>
-                <option value="services">Services Only</option>
-              </select>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Stock Status</label>
               <select
@@ -934,11 +911,7 @@ export default function Inventory() {
                         </div>
                       ) : (
                         <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-                          {product.is_service ? (
-                            <Coffee className="w-6 h-6 text-primary" />
-                          ) : (
-                            <Box className="w-6 h-6 text-primary" />
-                          )}
+                          <Box className="w-6 h-6 text-primary" />
                         </div>
                       )}
                     </div>
@@ -948,11 +921,6 @@ export default function Inventory() {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${stockStatus.color}`}>
                           {stockStatus.text}
                         </span>
-                        {product.is_service && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                            Service
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -978,7 +946,7 @@ export default function Inventory() {
                       <p className="font-medium text-foreground">Price</p>
                       <p className="text-emerald-500 font-bold">£{product.price.toFixed(2)}</p>
                     </div>
-                    {product.track_inventory && !product.is_service && (
+                    {product.track_inventory && (
                       <div className="text-right">
                         <p className="font-medium text-foreground">Stock</p>
                         <p className="font-bold text-foreground">{product.stock_quantity}</p>
@@ -992,13 +960,6 @@ export default function Inventory() {
                       <p className="text-muted-foreground">{product.category}</p>
                     </div>
                   )}
-
-                  {product.is_service && product.service_type && (
-                    <div className="text-sm">
-                      <p className="font-medium text-foreground">Service Type</p>
-                      <p className="text-muted-foreground">{product.service_type}</p>
-                    </div>
-                  )}
                 </div>
 
                 {/* Action Buttons */}
@@ -1009,7 +970,7 @@ export default function Inventory() {
                   >
                     Edit
                   </button>
-                  {!product.is_service && product.track_inventory && (
+                  {product.track_inventory && (
                     <button
                       onClick={() => openStockModal(product)}
                       className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
@@ -1054,11 +1015,7 @@ export default function Inventory() {
                             </div>
                           ) : (
                             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-                              {product.is_service ? (
-                                <Coffee className="w-5 h-5 text-primary" />
-                              ) : (
-                                <Box className="w-5 h-5 text-primary" />
-                              )}
+                              <Box className="w-5 h-5 text-primary" />
                             </div>
                           )}
                           <div>
@@ -1080,7 +1037,7 @@ export default function Inventory() {
                         )}
                       </td>
                       <td className="py-4 px-4">
-                        {product.track_inventory && !product.is_service ? (
+                        {product.track_inventory ? (
                           <div>
                             <div className="font-bold text-foreground">{product.stock_quantity}</div>
                             <div className="text-xs text-muted-foreground">Min: {product.low_stock_threshold}</div>
@@ -1093,9 +1050,6 @@ export default function Inventory() {
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${stockStatus.color}`}>
                           {stockStatus.text}
                         </span>
-                        {product.is_service && (
-                          <div className="text-xs text-blue-500 mt-1">Service</div>
-                        )}
                       </td>
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-2">
@@ -1106,7 +1060,7 @@ export default function Inventory() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          {!product.is_service && product.track_inventory && (
+                          {product.track_inventory && (
                             <button
                               onClick={() => openStockModal(product)}
                               className="p-2 text-muted-foreground hover:text-primary transition-colors"
@@ -1136,7 +1090,7 @@ export default function Inventory() {
       {filteredProducts.length === 0 && (
         <div className="text-center py-12 bg-muted/30 rounded-lg border-2 border-dashed border-border">
           <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-          <p className="text-muted-foreground mb-3">No items found</p>
+          <p className="text-muted-foreground mb-3">No products found</p>
           {products.length > 0 ? (
             <p className="text-sm text-muted-foreground mb-3">Try adjusting your filters</p>
           ) : (
@@ -1144,19 +1098,19 @@ export default function Inventory() {
               onClick={openAddModal}
               className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
             >
-              Add Your First Item
+              Add Your First Product
             </button>
           )}
         </div>
       )}
 
-      {/* Add/Edit Product Modal */}
+      {/* Add/Edit Product Modal - Removed service checkbox */}
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-foreground">
-                {showAddModal ? "Add New Item" : "Edit Item"}
+                {showAddModal ? "Add New Product" : "Edit Product"}
               </h3>
               <button 
                 onClick={() => {
@@ -1177,7 +1131,7 @@ export default function Inventory() {
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="Item name"
+                    placeholder="Product name"
                   />
                 </div>
 
@@ -1188,7 +1142,7 @@ export default function Inventory() {
                     onChange={(e) => setFormDescription(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     rows={2}
-                    placeholder="Item description"
+                    placeholder="Product description"
                   />
                 </div>
 
@@ -1248,53 +1202,28 @@ export default function Inventory() {
                   <p className="text-xs text-muted-foreground mt-1">Add a product image URL to display in POS</p>
                 </div>
 
-                {/* Service Type Selector */}
-                {formIsService && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-foreground mb-1">Service Type</label>
-                    <select
-                      value={formServiceType}
-                      onChange={(e) => setFormServiceType(e.target.value)}
-                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="">No Service Type</option>
-                      {serviceTypes
-                        .filter(service => service.is_active)
-                        .map(service => (
-                          <option key={service.id} value={service.name}>
-                            {service.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-
                 {/* Inventory Settings */}
-                {!formIsService && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1">Initial Stock</label>
-                      <input
-                        type="number"
-                        value={formStock}
-                        onChange={(e) => setFormStock(e.target.value)}
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                        placeholder="100"
-                      />
-                    </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Initial Stock</label>
+                  <input
+                    type="number"
+                    value={formStock}
+                    onChange={(e) => setFormStock(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="100"
+                  />
+                </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1">Low Stock Alert</label>
-                      <input
-                        type="number"
-                        value={formThreshold}
-                        onChange={(e) => setFormThreshold(e.target.value)}
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                        placeholder="10"
-                      />
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Low Stock Alert</label>
+                  <input
+                    type="number"
+                    value={formThreshold}
+                    onChange={(e) => setFormThreshold(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="10"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">Barcode</label>
@@ -1316,34 +1245,16 @@ export default function Inventory() {
                   />
                 </div>
 
-                {/* Toggles */}
-                <div className="md:col-span-2 flex items-center gap-6 p-4 bg-muted/30 rounded-lg border border-border">
-                  <label className="flex items-center gap-3 cursor-pointer">
+                {/* Track Inventory Toggle */}
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg border border-border cursor-pointer">
                     <input
                       type="checkbox"
                       checked={formTrackInventory}
                       onChange={(e) => setFormTrackInventory(e.target.checked)}
-                      disabled={formIsService}
                       className="w-4 h-4 accent-primary"
                     />
-                    <span className="text-sm text-foreground">Track Inventory</span>
-                  </label>
-
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formIsService}
-                      onChange={(e) => {
-                        setFormIsService(e.target.checked);
-                        if (e.target.checked) {
-                          setFormTrackInventory(false);
-                          setFormStock("0");
-                          setFormThreshold("0");
-                        }
-                      }}
-                      className="w-4 h-4 accent-primary"
-                    />
-                    <span className="text-sm text-foreground">Is Service</span>
+                    <span className="text-sm text-foreground font-medium">Track Inventory</span>
                   </label>
                 </div>
               </div>
@@ -1363,7 +1274,7 @@ export default function Inventory() {
                 onClick={showAddModal ? addProduct : updateProduct}
                 className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
-                {showAddModal ? "Add Item" : "Save Changes"}
+                {showAddModal ? "Add Product" : "Save Changes"}
               </button>
             </div>
           </div>
@@ -1477,16 +1388,22 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Service Types Modal - Similar style to appointments modals */}
+      {/* Service Types Modal - Now only for managing service types */}
       {showServicesModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Service Types</h3>
+              <h3 className="text-lg font-semibold text-foreground">
+                {editingService ? "Edit Service" : "Add Service"}
+              </h3>
               <button 
                 onClick={() => {
                   setShowServicesModal(false);
                   setEditingService(null);
+                  setServiceName("");
+                  setServiceIcon("");
+                  setServiceColor("#3B82F6");
+                  setServicePrice("");
                 }} 
                 className="text-muted-foreground hover:text-foreground"
               >
@@ -1495,7 +1412,7 @@ export default function Inventory() {
             </div>
 
             <p className="text-muted-foreground mb-6">
-              Manage service types like "Eat In", "Takeaway", "Delivery". These can be added as buttons in the POS.
+              Create services like "Eat In", "Takeaway", "Delivery". These will appear as tick options in the POS.
             </p>
 
             {/* Add/Edit Service Form */}
@@ -1511,8 +1428,23 @@ export default function Inventory() {
                     value={serviceName}
                     onChange={(e) => setServiceName(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="e.g., Eat In, Takeaway"
+                    placeholder="e.g., Delivery"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">Icon</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={serviceIcon}
+                      onChange={(e) => setServiceIcon(e.target.value)}
+                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground"
+                      placeholder="🚚"
+                    />
+                    <span className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center text-2xl border border-border">
+                      {serviceIcon || "🔧"}
+                    </span>
+                  </div>
                 </div>
 
                 <div>
@@ -1534,15 +1466,16 @@ export default function Inventory() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Default Price (£)</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Fee (£)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={servicePrice}
                     onChange={(e) => setServicePrice(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="0.00"
+                    placeholder="2.99"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">Fixed fee added to order</p>
                 </div>
 
                 <div className="flex items-end">
@@ -1574,27 +1507,42 @@ export default function Inventory() {
 
             {/* Services List */}
             <div className="space-y-3">
-              <h4 className="font-medium text-foreground">Active Service Types</h4>
+              <h4 className="font-medium text-foreground">Available Services</h4>
               
-              {serviceTypes
-                .filter(service => service.is_active)
-                .map(service => (
+              {serviceTypes.length === 0 ? (
+                <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed border-border">
+                  <Coffee className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-muted-foreground">No services created yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">Add your first service above</p>
+                </div>
+              ) : (
+                serviceTypes.map(service => (
                   <div 
                     key={service.id}
-                    className="bg-background border border-border rounded-lg p-4 flex items-center justify-between"
+                    className={`bg-background border border-border rounded-lg p-4 flex items-center justify-between ${
+                      !service.is_active ? 'opacity-60' : ''
+                    }`}
                   >
                     <div className="flex items-center gap-3">
                       <div 
-                        className="w-10 h-10 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: serviceColor + '20', border: `1px solid ${serviceColor}30` }}
+                        className="w-10 h-10 rounded-lg flex items-center justify-center text-2xl"
+                        style={{ backgroundColor: service.color + '20' }}
                       >
-                        <Tag className="w-5 h-5" style={{ color: serviceColor }} />
+                        {service.icon || "🔧"}
                       </div>
                       <div>
-                        <h5 className="font-medium text-foreground">{service.name}</h5>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span>Price: £{service.default_price.toFixed(2)}</span>
-                          <span className="font-mono text-xs">{service.color}</span>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-medium text-foreground">{service.name}</h5>
+                          {!service.is_active && (
+                            <span className="px-2 py-0.5 bg-muted rounded-full text-xs text-muted-foreground">
+                              Inactive
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="text-muted-foreground">
+                            Fee: <span className="font-medium text-foreground">£{service.default_price.toFixed(2)}</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1602,55 +1550,31 @@ export default function Inventory() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => toggleServiceActive(service)}
-                        className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-lg text-sm font-medium hover:bg-emerald-500/20 transition-all"
+                        className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+                          service.is_active
+                            ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border border-emerald-500/20'
+                            : 'bg-muted text-foreground hover:bg-accent border border-border'
+                        }`}
                       >
-                        Active
+                        {service.is_active ? 'Active' : 'Activate'}
                       </button>
                       <button
-                        onClick={() => openEditServiceModal(service)}
-                        className="px-3 py-1 bg-blue-500/10 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-500/20 transition-all"
+                        onClick={() => {
+                          openEditServiceModal(service);
+                        }}
+                        className="px-3 py-1 bg-blue-500/10 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-500/20 transition-all border border-blue-500/20"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => deleteServiceType(service.id)}
-                        className="px-3 py-1 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all"
+                        className="px-3 py-1 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all border border-red-500/20"
                       >
                         Delete
                       </button>
                     </div>
                   </div>
-                ))}
-              
-              {serviceTypes.filter(service => !service.is_active).length > 0 && (
-                <>
-                  <h4 className="font-medium text-foreground mt-6">Inactive Service Types</h4>
-                  {serviceTypes
-                    .filter(service => !service.is_active)
-                    .map(service => (
-                      <div 
-                        key={service.id}
-                        className="bg-background border border-border rounded-lg p-4 flex items-center justify-between opacity-60"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                            <Tag className="w-5 h-5 text-muted-foreground" />
-                          </div>
-                          <div>
-                            <h5 className="font-medium text-foreground">{service.name}</h5>
-                            <p className="text-sm text-muted-foreground">Inactive</p>
-                          </div>
-                        </div>
-                        
-                        <button
-                          onClick={() => toggleServiceActive(service)}
-                          className="px-3 py-1 bg-muted text-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-                        >
-                          Activate
-                        </button>
-                      </div>
-                    ))}
-                </>
+                ))
               )}
             </div>
 
