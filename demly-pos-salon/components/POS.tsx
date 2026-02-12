@@ -63,6 +63,7 @@ interface Transaction {
   createdAt: number;
   serviceTypeId?: number | null;
   serviceFee?: number;
+  serviceName?: string
 }
 
 interface SplitPayment {
@@ -951,7 +952,8 @@ export default function POS() {
       customerId: "",
       createdAt: Date.now(),
       serviceTypeId: null,
-      serviceFee: 0
+      serviceFee: 0,
+      serviceName: undefined
     };
     setTransactions([...transactions, newTransaction]);
     setActiveTransactionId(newId);
@@ -960,15 +962,16 @@ export default function POS() {
     setShowTransactionMenu(false);
   };
 
-  const switchTransaction = (id: string) => {
-    const transaction = transactions.find(t => t.id === id);
-    if (transaction) {
-      setActiveTransactionId(id);
-      setSelectedServiceId(transaction.serviceTypeId || null);
-      setServiceFee(transaction.serviceFee || 0);
-    }
-    setShowTransactionMenu(false);
-  };
+const switchTransaction = (id: string) => {
+  const transaction = transactions.find(t => t.id === id);
+  if (transaction) {
+    setActiveTransactionId(id);
+    setSelectedServiceId(transaction.serviceTypeId || null);
+    setServiceFee(transaction.serviceFee || 0);
+    
+  }
+  setShowTransactionMenu(false);
+};
 
   const deleteTransaction = (id: string) => {
     if (transactions.length === 1) {
@@ -2698,5 +2701,6 @@ export default function POS() {
     </div>
   );
 }
+
 
 
