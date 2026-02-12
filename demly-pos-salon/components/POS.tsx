@@ -1329,9 +1329,10 @@ export default function POS() {
           balanceDeducted: balanceDeducted,
           paymentDetails: paymentDetails,
           staffName: currentStaff?.name,
-          notes: transactionNotes,
-          serviceName: selectedService?.name,
-          serviceFee: serviceFee
+          notes: selectedService 
+         ? `${transactionNotes}${transactionNotes ? ' • ' : ''}${selectedService.name}${serviceFee > 0 ? ` (+£${serviceFee.toFixed(2)} fee)` : ''}`.trim()
+         : transactionNotes,;
+
         };
         
         setReceiptData(receiptData);
@@ -2697,3 +2698,4 @@ export default function POS() {
     </div>
   );
 }
+
