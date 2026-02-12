@@ -1331,7 +1331,7 @@ export default function POS() {
           staffName: currentStaff?.name,
           notes: selectedService 
          ? `${transactionNotes}${transactionNotes ? ' • ' : ''}${selectedService.name}${serviceFee > 0 ? ` (+£${serviceFee.toFixed(2)} fee)` : ''}`.trim()
-         : transactionNotes,;
+         : transactionNotes,
 
         };
         
@@ -2698,4 +2698,5 @@ export default function POS() {
     </div>
   );
 }
+
 
