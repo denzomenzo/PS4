@@ -48,6 +48,9 @@ export interface ReceiptData {
   paymentDetails?: any;
   staffName?: string;
   notes?: string;
+  // Add service fields
+  serviceName?: string;
+  serviceFee?: number;
 }
 
 interface ReceiptPrintProps {
@@ -341,6 +344,28 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
             </div>
 
             <div className="divider" style={{ borderTop: '1px dashed #000', margin: '15px 0' }}></div>
+
+            {/* Service Info - Added */}
+            {data.serviceName && (
+              <>
+                <div style={{ margin: '15px 0', padding: '8px', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '14px' }}>🔧</span>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0369a1' }}>{data.serviceName}</span>
+                      </div>
+                    </div>
+                    {data.serviceFee && data.serviceFee > 0 && (
+                      <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#059669' }}>
+                        +£{data.serviceFee.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="divider" style={{ borderTop: '1px dashed #000', margin: '15px 0' }}></div>
+              </>
+            )}
 
             {/* Items Table */}
             <div className="section-title" style={{ fontSize: '12px', fontWeight: 'bold', margin: '15px 0 8px', textTransform: 'uppercase' }}>
