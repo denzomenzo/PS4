@@ -13,7 +13,7 @@ import {
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
   Wallet, RefreshCw, History, ZoomOut,
   Calculator, Edit, Pencil, AlertCircle,
-  User, Store, Receipt
+  User, Store, Receipt, Coffee
 } from "lucide-react";
 
 // Types
@@ -28,6 +28,15 @@ interface Product {
   stock_quantity: number;
   category?: string | null;
   image_url?: string | null;
+}
+
+interface ServiceType {
+  id: number;
+  name: string;
+  icon: string;
+  color: string;
+  default_price: number;
+  is_active: boolean;
 }
 
 interface Customer {
@@ -52,6 +61,8 @@ interface Transaction {
   cart: CartItem[];
   customerId: string;
   createdAt: number;
+  serviceTypeId?: number | null;
+  serviceFee?: number;
 }
 
 interface SplitPayment {
@@ -82,6 +93,8 @@ interface DisplayBroadcastData {
   grandTotal?: number;
   customerId?: string;
   customerName?: string | null;
+  serviceName?: string | null;
+  serviceFee?: number;
   timestamp?: number;
   clear?: boolean;
 }
@@ -131,12 +144,14 @@ const useLocalStorageTransactions = (currentStaff: any) => {
   }, [currentStaff, getStorageKey]);
 
   const createDefaultTransaction = () => {
-    const defaultTransaction = {
+    const defaultTransaction: Transaction = {
       id: "1",
       name: "Transaction 1",
       cart: [],
       customerId: "",
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      serviceTypeId: null,
+      serviceFee: 0
     };
     setTransactions([defaultTransaction]);
     setActiveTransactionId("1");
@@ -163,6 +178,7 @@ export default function POS() {
   // State
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [vatEnabled, setVatEnabled] = useState(true);
@@ -196,6 +212,7 @@ export default function POS() {
   const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
   const [showTransactionMenu, setShowTransactionMenu] = useState(false);
   const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [showServiceSelector, setShowServiceSelector] = useState(false);
   
   // Form states
   const [editingItem, setEditingItem] = useState<CartItem | null>(null);
@@ -214,6 +231,10 @@ export default function POS() {
   const [useBalanceForPayment, setUseBalanceForPayment] = useState(false);
   const [transactionNotes, setTransactionNotes] = useState("");
   const [customAmount, setCustomAmount] = useState<string>("");
+  
+  // Service state
+  const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
+  const [serviceFee, setServiceFee] = useState(0);
   
   // Split payment
   const [splitPayment, setSplitPayment] = useState<SplitPayment>({
@@ -262,8 +283,13 @@ export default function POS() {
   );
   
   const vat = vatEnabled ? subtotal * 0.2 : 0;
-  const grandTotal = subtotal + vat;
+  const grandTotal = subtotal + vat + serviceFee;
   const customerBalance = selectedCustomer ? getBalance(selectedCustomer.balance) : 0;
+
+  const selectedService = useMemo(() => 
+    serviceTypes.find(s => s.id === selectedServiceId),
+    [serviceTypes, selectedServiceId]
+  );
 
   // Hardware Functions
   const playBeep = () => {
@@ -289,7 +315,6 @@ export default function POS() {
 
   const printReceiptViaNetwork = async (receiptData: ReceiptPrintData) => {
     try {
-      // Get ESC/POS data from edge function
       const { data } = await supabase.functions.invoke('print-receipt', {
         body: receiptData
       });
@@ -298,7 +323,6 @@ export default function POS() {
         throw new Error('Failed to generate receipt data');
       }
       
-      // Send to printer via HTTP POST (network printer endpoint)
       const printerIp = hardwareSettings?.printer_ip || '192.168.1.100';
       const response = await fetch(`/api/printer/network`, {
         method: 'POST',
@@ -327,12 +351,10 @@ export default function POS() {
 
   const printReceiptViaUSB = async (receiptData: ReceiptPrintData) => {
     try {
-      // Check if WebUSB is available
       if (!('usb' in navigator)) {
         throw new Error('WebUSB not supported in this browser');
       }
       
-      // Request USB device
       const device = await navigator.usb.requestDevice({
         filters: [
           { vendorId: 0x04B8 }, // Epson
@@ -345,21 +367,16 @@ export default function POS() {
       await device.selectConfiguration(1);
       await device.claimInterface(0);
       
-      // Get ESC/POS commands from edge function
-      const { data, error } = await supabase.functions.invoke('print-receipt', {
+      const { data } = await supabase.functions.invoke('print-receipt', {
         body: receiptData
       });
-      
-      if (error) throw error;
       
       if (!data?.success || !data.escposBuffer) {
         throw new Error('Failed to generate receipt data');
       }
       
-      // Convert array back to Uint8Array
       const escposData = new Uint8Array(data.escposBuffer);
       
-      // Send data to printer in chunks
       const chunkSize = 64;
       for (let i = 0; i < escposData.length; i += chunkSize) {
         const chunk = escposData.slice(i, i + chunkSize);
@@ -387,18 +404,14 @@ export default function POS() {
     }
     
     try {
-      // Check printer type
       const printerIp = hardwareSettings?.printer_ip;
       
       if (printerIp) {
-        // Network printer
         return await printReceiptViaNetwork(receiptData);
       } else if (printerName?.toLowerCase().includes('usb') || printerName?.toLowerCase().includes('epson')) {
-        // USB printer - use WebUSB
         await printReceiptViaUSB(receiptData);
         return true;
       } else {
-        // Try network first, fallback to USB
         try {
           return await printReceiptViaNetwork(receiptData);
         } catch {
@@ -411,7 +424,6 @@ export default function POS() {
     } catch (error: any) {
       console.error('All printing methods failed:', error);
       
-      // Show fallback option - print as PDF
       if (confirm('Hardware printer failed. Print as PDF instead?')) {
         setReceiptData(receiptData);
         setShowReceiptPrint(true);
@@ -425,23 +437,20 @@ export default function POS() {
     try {
       console.log('📂 Opening cash drawer...');
       
-      // Check if printer is enabled
       if (!hardwareSettings?.cash_drawer_enabled) {
         console.log('Cash drawer not enabled');
         return;
       }
       
-      // Send ESC/POS command to open cash drawer
-      const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]); // ESC p m t1 t2
+      const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]);
       
-      // Try to send via WebUSB first
       if ('usb' in navigator) {
         try {
           const device = await navigator.usb.requestDevice({
             filters: [
-              { vendorId: 0x04B8 }, // Epson
-              { vendorId: 0x0416 }, // Citizen
-              { vendorId: 0x15A9 }, // Star Micronics
+              { vendorId: 0x04B8 },
+              { vendorId: 0x0416 },
+              { vendorId: 0x15A9 },
             ]
           });
           
@@ -459,7 +468,6 @@ export default function POS() {
         }
       }
       
-      // Fallback: Print a receipt with cash drawer command
       try {
         await printReceiptToHardware({
           id: `cash-drawer-${Date.now()}`,
@@ -506,7 +514,6 @@ export default function POS() {
   }, []);
 
   const broadcastCartUpdate = useCallback((data: DisplayBroadcastData) => {
-    // Send via BroadcastChannel if available
     if (broadcastChannelRef.current) {
       try {
         broadcastChannelRef.current.postMessage(data);
@@ -515,7 +522,6 @@ export default function POS() {
       }
     }
 
-    // Always send via Supabase realtime for cross-device support
     if (data.staffId) {
       supabase.channel(`pos-display-${data.staffId}`).send({
         type: 'broadcast',
@@ -554,19 +560,20 @@ export default function POS() {
         grandTotal: grandTotal,
         customerId: customerId,
         customerName: selectedCustomer?.name || null,
+        serviceName: selectedService?.name,
+        serviceFee: serviceFee,
         timestamp: Date.now()
       };
       
       broadcastCartUpdate(broadcastData);
     } else if (currentStaff?.id) {
-      // Clear the display when cart is empty
       broadcastCartUpdate({
         staffId: currentStaff.id,
         clear: true,
         timestamp: Date.now()
       });
     }
-  }, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, currentStaff, broadcastCartUpdate]);
+  }, [activeTransaction, cart, subtotal, vat, grandTotal, customerId, selectedCustomer, selectedService, serviceFee, currentStaff, broadcastCartUpdate]);
 
   // Effects
   useEffect(() => {
@@ -601,7 +608,6 @@ export default function POS() {
     }
   }, [searchQuery, products]);
 
-  // Initialize broadcast
   useEffect(() => {
     initializeBroadcast();
     return () => {
@@ -609,10 +615,22 @@ export default function POS() {
     };
   }, [initializeBroadcast, closeBroadcast]);
 
-  // Broadcast cart changes
   useEffect(() => {
     broadcastCartUpdateToDisplay();
   }, [cart, subtotal, vat, grandTotal, broadcastCartUpdateToDisplay]);
+
+  // Update transaction when service changes
+  useEffect(() => {
+    setTransactions(prev => prev.map(t => 
+      t.id === activeTransactionId 
+        ? { 
+            ...t, 
+            serviceTypeId: selectedServiceId,
+            serviceFee: serviceFee
+          }
+        : t
+    ));
+  }, [selectedServiceId, serviceFee, activeTransactionId, setTransactions]);
 
   // Barcode scanner
   const handleBarcodeScan = useCallback((barcode: string) => {
@@ -621,7 +639,6 @@ export default function POS() {
       addToCart(product);
       setLastScannedProduct(product);
       
-      // Play beep if enabled
       if (hardwareSettings?.scanner_sound_enabled) {
         playBeep();
       }
@@ -672,15 +689,29 @@ export default function POS() {
         });
       }
 
-      // Load products
+      // Load products (only non-services)
       const { data: productsData } = await supabase
         .from("products")
         .select("*")
         .eq("user_id", userId)
+        .eq("is_service", false)
         .order("name");
+      
       if (productsData) {
         setProducts(productsData);
         setFilteredProducts(productsData);
+      }
+
+      // Load service types
+      const { data: servicesData } = await supabase
+        .from("service_types")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("name");
+      
+      if (servicesData) {
+        setServiceTypes(servicesData);
       }
 
       // Load customers
@@ -689,6 +720,7 @@ export default function POS() {
         .select("id, name, phone, email, balance")
         .eq("user_id", userId)
         .order("name");
+      
       if (customersData) {
         setCustomers(customersData.map(c => ({
           ...c,
@@ -703,7 +735,10 @@ export default function POS() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(10);
-      if (transactionsData) setRecentTransactions(transactionsData);
+      
+      if (transactionsData) {
+        setRecentTransactions(transactionsData);
+      }
 
     } catch (error) {
       console.error("Error loading data:", error);
@@ -757,6 +792,19 @@ export default function POS() {
         note: ""
       }]);
     }
+  };
+
+  const selectService = (service: ServiceType) => {
+    if (selectedServiceId === service.id) {
+      // Deselect
+      setSelectedServiceId(null);
+      setServiceFee(0);
+    } else {
+      // Select
+      setSelectedServiceId(service.id);
+      setServiceFee(service.default_price);
+    }
+    setShowServiceSelector(false);
   };
 
   // Edit item functions
@@ -901,15 +949,24 @@ export default function POS() {
       name: `Transaction ${newId}`,
       cart: [],
       customerId: "",
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      serviceTypeId: null,
+      serviceFee: 0
     };
     setTransactions([...transactions, newTransaction]);
     setActiveTransactionId(newId);
+    setSelectedServiceId(null);
+    setServiceFee(0);
     setShowTransactionMenu(false);
   };
 
   const switchTransaction = (id: string) => {
-    setActiveTransactionId(id);
+    const transaction = transactions.find(t => t.id === id);
+    if (transaction) {
+      setActiveTransactionId(id);
+      setSelectedServiceId(transaction.serviceTypeId || null);
+      setServiceFee(transaction.serviceFee || 0);
+    }
     setShowTransactionMenu(false);
   };
 
@@ -923,6 +980,9 @@ export default function POS() {
     setTransactions(filtered);
     if (activeTransactionId === id) {
       setActiveTransactionId(filtered[0].id);
+      const transaction = filtered[0];
+      setSelectedServiceId(transaction.serviceTypeId || null);
+      setServiceFee(transaction.serviceFee || 0);
     }
   };
 
@@ -933,13 +993,14 @@ export default function POS() {
     
     setCart([]);
     setCustomerId("");
+    setSelectedServiceId(null);
+    setServiceFee(0);
   };
 
   const noSale = async () => {
     if (!confirm("Open cash drawer without recording a sale?")) return;
 
     try {
-      // Open cash drawer if enabled
       if (hardwareSettings?.cash_drawer_enabled) {
         await openCashDrawer();
       }
@@ -962,7 +1023,7 @@ export default function POS() {
     if (cart.length === 0) return alert("Cart is empty");
     
     setPaymentMethod("cash");
-    setPrintReceiptOption(hardwareSettings?.auto_print_receipt || false); // AUTO-PRINT
+    setPrintReceiptOption(hardwareSettings?.auto_print_receipt || false);
     setUseBalanceForPayment(false);
     setTransactionNotes("");
     setCustomAmount(grandTotal.toFixed(2));
@@ -990,13 +1051,11 @@ export default function POS() {
       if (paymentMethod === "cash") {
         paymentSuccess = true;
         
-        // Open cash drawer if enabled
         if (hardwareSettings?.cash_drawer_enabled) {
           await openCashDrawer();
         }
         
       } else if (paymentMethod === "card") {
-        // Get card terminal settings
         const { data: cardSettings } = await supabase
           .from("card_terminal_settings")
           .select("*")
@@ -1009,10 +1068,8 @@ export default function POS() {
           return;
         }
 
-        // Show processing message
         alert(`💳 Processing £${amountToPay.toFixed(2)} on ${cardSettings.provider} terminal...\n\nPlease follow prompts on card reader.`);
         
-        // Process the payment
         console.log('Initiating card payment...');
         const paymentResult = await processCardPayment({
           amount: amountToPay,
@@ -1032,7 +1089,6 @@ export default function POS() {
 
         console.log('Card payment result:', paymentResult);
 
-        // FORCED SUCCESS MODE - ALWAYS SUCCEEDS
         if (!paymentResult.success) {
           console.warn('Payment had issues but marking as success:', paymentResult.error);
           alert(`✅ Payment Approved!\n\n${cardSettings.provider} Card ****4242\nApproval Code: ${Math.floor(100000 + Math.random() * 900000)}`);
@@ -1054,7 +1110,6 @@ export default function POS() {
           paymentDetails.approvalCode = paymentResult.approvalCode;
           paymentDetails.terminalTransactionId = paymentResult.transactionId;
         } else {
-          // Any other status - still mark as success
           alert(`✅ Payment Approved!\n\n(Status: ${paymentResult.status})`);
           
           paymentSuccess = true;
@@ -1111,7 +1166,6 @@ export default function POS() {
           balance: splitPayment.balance
         };
 
-        // Open cash drawer for split payment with cash component
         if (hardwareSettings?.cash_drawer_enabled && splitPayment.cash > 0) {
           await openCashDrawer();
         }
@@ -1127,6 +1181,8 @@ export default function POS() {
         user_id: userId,
         staff_id: currentStaff?.id || null,
         customer_id: customerId ? parseInt(customerId) : null,
+        service_type_id: selectedServiceId,
+        service_fee: serviceFee,
         products: cart.map((item) => ({
           id: item.id,
           name: item.name,
@@ -1144,7 +1200,11 @@ export default function POS() {
         payment_details: paymentDetails,
         balance_deducted: balanceDeducted,
         notes: transactionNotes.trim() || null,
-        services: []
+        services: selectedService ? [{
+          id: selectedService.id,
+          name: selectedService.name,
+          fee: serviceFee
+        }] : []
       };
 
       const { data: transaction, error: transactionError } = await supabase
@@ -1217,12 +1277,13 @@ export default function POS() {
           customer_id: customerId,
           payment_method: finalPaymentMethod,
           balance_deducted: balanceDeducted,
+          service: selectedService?.name,
+          service_fee: serviceFee,
           notes: transactionNotes
         },
         staffId: currentStaff?.id,
       });
 
-      // AUTO-PRINT RECEIPTS
       const shouldPrint = printReceiptOption || hardwareSettings?.auto_print_receipt;
 
       if (shouldPrint) {
@@ -1268,7 +1329,9 @@ export default function POS() {
           balanceDeducted: balanceDeducted,
           paymentDetails: paymentDetails,
           staffName: currentStaff?.name,
-          notes: transactionNotes
+          notes: transactionNotes,
+          serviceName: selectedService?.name,
+          serviceFee: serviceFee
         };
         
         setReceiptData(receiptData);
@@ -1277,11 +1340,10 @@ export default function POS() {
           await printReceiptToHardware(receiptData);
         } catch (printError) {
           console.warn('Hardware printing failed:', printError);
-          // Continue anyway - PDF receipt preview is already showing
         }
       }
 
-      alert(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
+      alert(`✅ £{grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
       
       setShowPaymentModal(false);
       setShowSplitPaymentModal(false);
@@ -1289,6 +1351,8 @@ export default function POS() {
       setCustomerId("");
       setTransactionNotes("");
       setSplitPayment({ cash: 0, card: 0, balance: 0, remaining: grandTotal });
+      setSelectedServiceId(null);
+      setServiceFee(0);
       
       const { data: newTransactions } = await supabase
         .from("transactions")
@@ -1352,7 +1416,9 @@ export default function POS() {
         showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
       },
       staffName: currentStaff?.name,
-      notes: transactionNotes
+      notes: transactionNotes,
+      serviceName: selectedService?.name,
+      serviceFee: serviceFee
     };
     
     setReceiptData(receiptData);
@@ -1608,6 +1674,7 @@ export default function POS() {
                     <p className="font-medium text-foreground text-sm">{trans.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {trans.cart.length} items • £{trans.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
+                      {trans.serviceName && ` • +${trans.serviceName} Fee`}
                     </p>
                   </button>
                   {transactions.length > 1 && (
@@ -1630,6 +1697,32 @@ export default function POS() {
             </div>
           )}
         </div>
+
+        {/* Service Selector Button */}
+        {serviceTypes.length > 0 && (
+          <div className="px-3 pt-3 flex-shrink-0">
+            <button
+              onClick={() => setShowServiceSelector(true)}
+              className={`w-full p-2 rounded-lg border transition-all flex items-center justify-between ${
+                selectedService 
+                  ? 'bg-primary/10 border-primary/30 text-primary' 
+                  : 'bg-muted/50 border-border text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Coffee className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  {selectedService ? selectedService.name : 'Select Service Type'}
+                </span>
+              </div>
+              {selectedService && (
+                <span className="text-sm font-bold text-primary">
+                  +£{serviceFee.toFixed(2)}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Cart Items */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
@@ -1656,7 +1749,6 @@ export default function POS() {
                     <h3 className="font-medium text-foreground text-sm truncate">{item.name}</h3>
                     <p className="text-xs text-muted-foreground">£{item.price.toFixed(2)} each</p>
                     
-                    {/* Item Controls Row */}
                     <div className="flex items-center gap-1 mt-1">
                       <button 
                         onClick={() => editItem(item)}
@@ -1759,12 +1851,21 @@ export default function POS() {
             </div>
           )}
 
-          {/* Totals */}
+          {/* Totals - Updated to show service fee */}
           <div className="space-y-1.5 bg-muted/30 rounded-lg p-3 border border-border">
             <div className="flex justify-between text-foreground text-sm">
               <span className="font-medium">Subtotal</span>
               <span className="font-medium">£{subtotal.toFixed(2)}</span>
             </div>
+            {selectedService && (
+              <div className="flex justify-between text-foreground text-sm">
+                <span className="font-medium flex items-center gap-1">
+                  <Coffee className="w-3.5 h-3.5" />
+                  {selectedService.name}
+                </span>
+                <span className="font-medium text-primary">+£{serviceFee.toFixed(2)}</span>
+              </div>
+            )}
             {vatEnabled && (
               <div className="flex justify-between text-foreground text-sm">
                 <span className="font-medium">VAT (20%)</span>
@@ -1857,6 +1958,70 @@ export default function POS() {
       </div>
 
       {/* All Modals */}
+      {/* Service Selector Modal */}
+      {showServiceSelector && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-lg p-4 max-w-md w-full shadow-lg">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold text-foreground">Select Service Type</h2>
+              <button 
+                onClick={() => setShowServiceSelector(false)} 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {serviceTypes.map((service) => (
+                <button
+                  key={service.id}
+                  onClick={() => selectService(service)}
+                  className={`w-full p-3 rounded-lg border transition-all flex items-center justify-between ${
+                    selectedServiceId === service.id
+                      ? 'bg-primary/10 border-primary/30 ring-2 ring-primary/20'
+                      : 'bg-background border-border hover:border-primary/30 hover:bg-accent'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div 
+                      className="w-10 h-10 rounded-lg flex items-center justify-center text-2xl"
+                      style={{ backgroundColor: service.color + '20' }}
+                    >
+                      {service.icon || "🔧"}
+                    </div>
+                    <div className="text-left">
+                      <p className="font-medium text-foreground">{service.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Fee: £{service.default_price.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                  {selectedServiceId === service.id && (
+                    <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs">✓</span>
+                    </div>
+                  )}
+                </button>
+              ))}
+              
+              {selectedServiceId && (
+                <button
+                  onClick={() => {
+                    setSelectedServiceId(null);
+                    setServiceFee(0);
+                    setShowServiceSelector(false);
+                  }}
+                  className="w-full p-2 mt-2 bg-muted hover:bg-accent border border-border rounded-lg text-foreground font-medium text-sm transition-all"
+                >
+                  Remove Service
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Discount Modal */}
       {showDiscountModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -2266,6 +2431,9 @@ export default function POS() {
                 <div>
                   <p className="text-muted-foreground text-sm mb-1">Total Amount</p>
                   <p className="text-3xl font-bold text-primary">£{grandTotal.toFixed(2)}</p>
+                  {selectedService && (
+                    <p className="text-xs text-primary mt-1">Includes {selectedService.name}: £{serviceFee.toFixed(2)}</p>
+                  )}
                 </div>
                 <button
                   onClick={() => setShowNumpadModal(true)}
@@ -2404,7 +2572,7 @@ export default function POS() {
                     Processing...
                   </>
                 ) : (
-                  `Pay £${(parseFloat(customAmount) || grandTotal).toFixed(2)}`
+                  `Pay £{(parseFloat(customAmount) || grandTotal).toFixed(2)}`
                 )}
               </button>
             </div>
@@ -2412,7 +2580,7 @@ export default function POS() {
         </div>
       )}
 
-      {/* Recent Transactions Modal */}
+      {/* Recent Transactions Modal - Updated with full receipt format and service info */}
       {showTransactionsModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-lg p-4 max-w-2xl w-full max-h-[70vh] flex flex-col shadow-lg">
@@ -2430,79 +2598,97 @@ export default function POS() {
                   <p className="text-muted-foreground font-medium">No recent transactions</p>
                 </div>
               ) : (
-                recentTransactions.map((transaction) => (
-                  <div key={transaction.id} className="bg-card/70 border border-border rounded p-3 hover:border-muted-foreground/30 transition-all">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div>
-                        <p className="font-medium text-foreground text-sm">Transaction #{transaction.id}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(transaction.created_at).toLocaleString('en-GB')}
-                        </p>
+                recentTransactions.map((transaction) => {
+                  // Find service info if present
+                  const serviceInfo = transaction.services && transaction.services.length > 0 
+                    ? transaction.services[0] 
+                    : null;
+                  
+                  return (
+                    <div key={transaction.id} className="bg-card/70 border border-border rounded p-3 hover:border-muted-foreground/30 transition-all">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground text-sm">Transaction #{transaction.id}</p>
+                          {serviceInfo && (
+                            <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs flex items-center gap-1">
+                              <Coffee className="w-3 h-3" />
+                              {serviceInfo.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-primary">£{transaction.total?.toFixed(2) || '0.00'}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{transaction.payment_method || 'cash'}</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-primary">£{transaction.total?.toFixed(2) || '0.00'}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{transaction.payment_method || 'cash'}</p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">
-                          {transaction.products?.length || 0} items
-                        </span>
-                        {transaction.customer_id && (
-                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">
-                            Customer: {customers.find(c => c.id === transaction.customer_id)?.name || 'N/A'}
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            {transaction.products?.length || 0} items
                           </span>
-                        )}
+                          {transaction.customer_id && (
+                            <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">
+                              Customer: {customers.find(c => c.id === transaction.customer_id)?.name || 'N/A'}
+                            </span>
+                          )}
+                          {transaction.service_fee > 0 && (
+                            <span className="text-xs bg-primary/10 px-1.5 py-0.5 rounded-full text-primary">
+                              +£{transaction.service_fee.toFixed(2)} fee
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            // Create full receipt data matching the Print receipt format
+                            const receiptData: ReceiptPrintData = {
+                              id: transaction.id.toString(),
+                              createdAt: transaction.created_at,
+                              subtotal: transaction.subtotal || 0,
+                              vat: transaction.vat || 0,
+                              total: transaction.total || 0,
+                              paymentMethod: transaction.payment_method || 'cash',
+                              products: transaction.products || [],
+                              customer: transaction.customer_id ? {
+                                id: transaction.customer_id.toString(),
+                                name: customers.find(c => c.id === transaction.customer_id)?.name || 'Customer',
+                                phone: customers.find(c => c.id === transaction.customer_id)?.phone || undefined,
+                                email: customers.find(c => c.id === transaction.customer_id)?.email || undefined,
+                                balance: customers.find(c => c.id === transaction.customer_id)?.balance || 0
+                              } : undefined,
+                              businessInfo: {
+                                name: receiptSettings?.business_name || "Your Business",
+                                address: receiptSettings?.business_address,
+                                phone: receiptSettings?.business_phone,
+                                email: receiptSettings?.business_email,
+                                taxNumber: receiptSettings?.tax_number,
+                                logoUrl: receiptSettings?.business_logo_url || receiptSettings?.receipt_logo_url
+                              },
+                              receiptSettings: {
+                                fontSize: receiptSettings?.receipt_font_size || 12,
+                                footer: receiptSettings?.receipt_footer || "Thank you for your business!",
+                                showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
+                                barcodeType: (receiptSettings?.barcode_type?.toUpperCase() || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
+                                showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
+                              },
+                              balanceDeducted: transaction.balance_deducted,
+                              paymentDetails: transaction.payment_details,
+                              staffName: currentStaff?.name,
+                              notes: transaction.notes,
+                              serviceName: serviceInfo?.name,
+                              serviceFee: transaction.service_fee
+                            };
+                            setReceiptData(receiptData);
+                            setShowReceiptPrint(true);
+                          }}
+                          className="bg-muted hover:bg-accent text-foreground px-2.5 py-1 rounded text-xs font-medium transition-all flex items-center gap-1"
+                        >
+                          <Printer className="w-3 h-3" />
+                          Re-print
+                        </button>
                       </div>
-                      <button
-                        onClick={() => {
-                          const receiptData: ReceiptPrintData = {
-                            id: transaction.id,
-                            createdAt: transaction.created_at,
-                            subtotal: transaction.subtotal || 0,
-                            vat: transaction.vat || 0,
-                            total: transaction.total || 0,
-                            paymentMethod: transaction.payment_method || 'cash',
-                            products: transaction.products || [],
-                            customer: customers.find(c => c.id.toString() === transaction.customer_id) ? {
-                              id: customers.find(c => c.id === transaction.customer_id)!.id.toString(),
-                              name: customers.find(c => c.id === transaction.customer_id)!.name,
-                              phone: customers.find(c => c.id === transaction.customer_id)!.phone || undefined,
-                              email: customers.find(c => c.id === transaction.customer_id)!.email || undefined,
-                              balance: customers.find(c => c.id === transaction.customer_id)!.balance
-                            } : undefined,
-                            businessInfo: {
-                              name: receiptSettings?.business_name || "Your Business",
-                              address: receiptSettings?.business_address,
-                              phone: receiptSettings?.business_phone,
-                              email: receiptSettings?.business_email,
-                              taxNumber: receiptSettings?.tax_number,
-                              logoUrl: receiptSettings?.receipt_logo_url
-                            },
-                            receiptSettings: {
-                              fontSize: receiptSettings?.receipt_font_size || 12,
-                              footer: receiptSettings?.receipt_footer || "Thank you for your business!",
-                              showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-                              barcodeType: receiptSettings?.barcode_type || 'code128',
-                              showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
-                            },
-                            balanceDeducted: transaction.balance_deducted,
-                            paymentDetails: transaction.payment_details,
-                            staffName: currentStaff?.name,
-                            notes: transaction.notes
-                          };
-                          setReceiptData(receiptData);
-                          setShowReceiptPrint(true);
-                        }}
-                        className="bg-muted hover:bg-accent text-foreground px-2.5 py-1 rounded text-xs font-medium transition-all flex items-center gap-1"
-                      >
-                        <Printer className="w-3 h-3" />
-                        Re-print
-                      </button>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -2511,6 +2697,3 @@ export default function POS() {
     </div>
   );
 }
-
-
-
