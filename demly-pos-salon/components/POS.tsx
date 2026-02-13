@@ -300,6 +300,7 @@ export default function POS() {
   );
 
   // Filter customers based on search query
+
 useEffect(() => {
   if (!customers.length) {
     setFilteredCustomers([]);
@@ -312,10 +313,9 @@ useEffect(() => {
       const nameMatch = c.name?.toLowerCase().includes(query) || false;
       const phoneMatch = c.phone?.toLowerCase().includes(query) || false;
       const emailMatch = c.email?.toLowerCase().includes(query) || false;
-      const businessMatch = c.business_name?.toLowerCase().includes(query) || false;
       const addressMatch = c.address?.toLowerCase().includes(query) || false;
       
-      return nameMatch || phoneMatch || emailMatch || businessMatch || addressMatch;
+      return nameMatch || phoneMatch || emailMatch || addressMatch;
     });
     setFilteredCustomers(filtered);
   } else {
@@ -759,9 +759,10 @@ useEffect(() => {
       }
 
       // Load customers
+
 const { data: customersData } = await supabase
   .from("customers")
-  .select("id, name, phone, email, address, business_name, balance") // 
+  .select("id, name, phone, email, address, balance") // Make sure address is included
   .eq("user_id", userId)
   .order("name");
 
@@ -2803,5 +2804,6 @@ if (customersData) {
     </div>
   );
 }
+
 
 
