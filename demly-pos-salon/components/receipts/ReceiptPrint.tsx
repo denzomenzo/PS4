@@ -48,7 +48,6 @@ export interface ReceiptData {
   paymentDetails?: any;
   staffName?: string;
   notes?: string;
-  // Add service fields
   serviceName?: string;
   serviceFee?: number;
 }
@@ -237,7 +236,6 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
         
         printWindow.document.close();
         
-        // Wait for images to load before printing
         setTimeout(() => {
           printWindow.focus();
           printWindow.print();
@@ -275,7 +273,7 @@ export default function ReceiptPrint({ data, onClose }: ReceiptPrintProps) {
             onClick={onClose}
             className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 flex items-center gap-2 font-medium"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
             Close
           </button>
         </div>
