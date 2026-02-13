@@ -60,6 +60,7 @@ interface Transaction {
   return_status: 'none' | 'partial' | 'full';
   returned_amount: number;
   returned_at: string | null;
+  returned_quantities?: { [key: string]: number };
 }
 
 interface Return {
@@ -292,19 +293,41 @@ export default function Transactions() {
 
       if (transError) throw transError;
 
+      // Calculate returned quantities from returns
+      const { data: returnsData } = await supabase
+        .from("transaction_returns")
+        .select("transaction_id, items")
+        .eq("user_id", userId);
+
+      const returnedQuantitiesMap: { [key: number]: { [key: string]: number } } = {};
+      
+      if (returnsData) {
+        returnsData.forEach((ret) => {
+          if (!returnedQuantitiesMap[ret.transaction_id]) {
+            returnedQuantitiesMap[ret.transaction_id] = {};
+          }
+          ret.items.forEach((item: any) => {
+            const productId = item.product_id?.toString() || `product-${item.product_name}`;
+            returnedQuantitiesMap[ret.transaction_id][productId] = 
+              (returnedQuantitiesMap[ret.transaction_id][productId] || 0) + item.quantity;
+          });
+        });
+      }
+
       const formattedTransactions = (transactionsData || []).map(t => ({
         ...t,
         customer_name: t.customers?.name || null,
         return_status: (t.returned_amount || 0) > 0 
           ? ((t.returned_amount || 0) >= t.total ? 'full' : 'partial')
           : 'none',
-        returned_amount: t.returned_amount || 0
+        returned_amount: t.returned_amount || 0,
+        returned_quantities: returnedQuantitiesMap[t.id] || {}
       }));
 
       setTransactions(formattedTransactions);
 
       // Load returns history with staff names
-      const { data: returnsData, error: returnsError } = await supabase
+      const { data: returnsData2, error: returnsError } = await supabase
         .from("transaction_returns")
         .select(`
           *,
@@ -314,8 +337,8 @@ export default function Transactions() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
-      if (!returnsError && returnsData) {
-        const formattedReturns = returnsData.map(r => ({
+      if (!returnsError && returnsData2) {
+        const formattedReturns = returnsData2.map(r => ({
           ...r,
           original_transaction: r.transactions,
           processed_by: r.staff?.name || 'System',
@@ -402,18 +425,22 @@ export default function Transactions() {
   };
 
   const initiateReturn = (transaction: Transaction) => {
-    // Check if transaction already has a return
+    // Check if transaction already has a full return
     if (transaction.return_status === 'full') {
       alert("This transaction has already been fully returned and cannot be returned again.");
       return;
     }
-    
-    // Check if there's already a pending/partial return
-    const existingReturn = returns.find(r => r.transaction_id === transaction.id);
-    if (existingReturn && transaction.return_status === 'partial') {
-      if (!confirm("This transaction already has a partial return. Process another return?")) {
-        return;
-      }
+
+    // Check if all items have been fully returned
+    const allItemsReturned = transaction.products?.every((product: any) => {
+      const productId = product.id?.toString();
+      const returnedQty = transaction.returned_quantities?.[productId] || 0;
+      return returnedQty >= (product.quantity || 0);
+    });
+
+    if (allItemsReturned) {
+      alert("All items in this transaction have already been returned.");
+      return;
     }
 
     setSelectedTransaction(transaction);
@@ -421,8 +448,7 @@ export default function Transactions() {
     const initialItems: {[key: string]: number} = {};
     transaction.products?.forEach((product: any) => {
       const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
-      // Calculate remaining quantity that hasn't been returned
-      const returnedQty = product.returned_quantity || 0;
+      const returnedQty = transaction.returned_quantities?.[productId] || 0;
       const availableQty = getSafeNumber(product.quantity) - returnedQty;
       initialItems[productId] = 0;
     });
@@ -441,12 +467,20 @@ export default function Transactions() {
       .filter(([_, qty]) => qty > 0)
       .map(([productId, qty]) => {
         const product = selectedTransaction.products.find(p => p.id?.toString() === productId);
+        const returnedQty = selectedTransaction.returned_quantities?.[productId] || 0;
+        const availableQty = getSafeNumber(product?.quantity) - returnedQty;
+        
+        if (qty > availableQty) {
+          throw new Error(`Cannot return ${qty} of ${product?.name}. Only ${availableQty} available.`);
+        }
+        
         return {
           product_id: parseInt(productId),
           product_name: product?.name,
           quantity: qty,
           price: product?.price || 0,
-          total: (product?.price || 0) * qty
+          total: (product?.price || 0) * qty,
+          track_inventory: product?.track_inventory || false
         };
       });
     
@@ -471,6 +505,7 @@ export default function Transactions() {
 
       let cardRefundId = null;
 
+      // Process card refund
       if (refundMethod === 'original' && 
           selectedTransaction.payment_method === 'card' && 
           cardTerminalSettings?.enabled) {
@@ -485,13 +520,14 @@ export default function Transactions() {
         alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}`);
       }
 
+      // Open cash drawer for cash refunds
       if (refundMethod === 'cash') {
         await openCashDrawer();
       }
 
-      // Handle balance refund FIRST before creating return record
+      // HANDLE BALANCE REFUND FIRST - Update customer balance immediately
       if (refundMethod === 'balance' && selectedTransaction.customer_id) {
-        console.log('Processing balance refund...');
+        console.log('💰 Processing balance refund...');
         
         // Get current customer balance
         const { data: customer, error: customerError } = await supabase
@@ -502,12 +538,10 @@ export default function Transactions() {
 
         if (customerError) throw customerError;
         
-        console.log('Current customer balance:', customer.balance);
-        
         const currentBalance = getSafeNumber(customer.balance);
         const newBalance = currentBalance + totalRefund;
         
-        console.log('New balance will be:', newBalance);
+        console.log(`Current balance: £${currentBalance}, New balance: £${newBalance}`);
 
         // Update customer balance
         const { error: updateError } = await supabase
@@ -537,7 +571,43 @@ export default function Transactions() {
 
         if (historyError) throw historyError;
         
-        console.log('Balance refund completed successfully');
+        console.log('✅ Balance refund completed successfully');
+      }
+
+      // HANDLE INVENTORY RESTORE - Update stock quantities
+      if (restoreInventory) {
+        console.log('📦 Restoring inventory...');
+        
+        for (const item of itemsToReturn) {
+          if (item.track_inventory) {
+            // Get current stock
+            const { data: productData, error: productError } = await supabase
+              .from("products")
+              .select("stock_quantity")
+              .eq("id", item.product_id)
+              .single();
+
+            if (productError) throw productError;
+
+            const currentStock = getSafeNumber(productData.stock_quantity);
+            const newStock = currentStock + item.quantity;
+
+            console.log(`Product ${item.product_name}: Stock ${currentStock} → ${newStock}`);
+
+            // Update stock
+            const { error: stockError } = await supabase
+              .from("products")
+              .update({ 
+                stock_quantity: newStock,
+                updated_at: new Date().toISOString()
+              })
+              .eq("id", item.product_id);
+
+            if (stockError) throw stockError;
+          }
+        }
+        
+        console.log('✅ Inventory restored successfully');
       }
 
       // Create return record
@@ -575,29 +645,7 @@ export default function Transactions() {
 
       if (updateError) throw updateError;
 
-      // Restore inventory if selected
-      if (restoreInventory) {
-        for (const item of itemsToReturn) {
-          const product = selectedTransaction.products.find(p => p.id === item.product_id);
-          if (product && product.track_inventory) {
-            const { data: productData } = await supabase
-              .from("products")
-              .select("stock_quantity")
-              .eq("id", item.product_id)
-              .single();
-
-            if (productData) {
-              await supabase
-                .from("products")
-                .update({ 
-                  stock_quantity: productData.stock_quantity + item.quantity 
-                })
-                .eq("id", item.product_id);
-            }
-          }
-        }
-      }
-
+      // Log audit
       await logAuditAction({
         action: "RETURN_PROCESSED",
         entityType: "transaction",
@@ -613,10 +661,16 @@ export default function Transactions() {
         staffId: currentStaff?.id,
       });
 
-      alert(`✅ Return processed successfully!\n\nRefunded: £${totalRefund.toFixed(2)}\nMethod: ${refundMethod}\n\n${restoreInventory ? 'Inventory has been restored.' : 'Inventory not restored.'}`);
+      alert(`✅ Return processed successfully!\n\n` +
+            `Refunded: £${totalRefund.toFixed(2)}\n` +
+            `Method: ${refundMethod}\n` +
+            `${restoreInventory ? '✓ Inventory restored' : '✗ Inventory not restored'}\n` +
+            `${refundMethod === 'balance' ? '✓ Customer balance updated' : ''}`);
 
       setShowReturnModal(false);
-      loadData();
+      
+      // Reload all data to reflect changes
+      await loadData();
 
     } catch (error: any) {
       console.error("Return processing error:", error);
@@ -1029,24 +1083,35 @@ export default function Transactions() {
                       <div className="mb-4">
                         <h4 className="text-sm font-bold text-foreground mb-3">Items Purchased</h4>
                         <div className="space-y-2">
-                          {transaction.products?.map((product: any, index: number) => (
-                            <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
-                              <div className="flex-1">
-                                <p className="font-medium text-foreground">{product.name}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  £{getSafeNumber(product.price).toFixed(2)} × {getSafeNumber(product.quantity)}
-                                  {getSafeNumber(product.discount) > 0 && (
-                                    <span className="text-primary ml-2">
-                                      (-£{getSafeNumber(product.discount).toFixed(2)} discount)
-                                    </span>
+                          {transaction.products?.map((product: any, index: number) => {
+                            const productId = product.id?.toString();
+                            const returnedQty = transaction.returned_quantities?.[productId] || 0;
+                            const availableQty = getSafeNumber(product.quantity) - returnedQty;
+                            
+                            return (
+                              <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
+                                <div className="flex-1">
+                                  <p className="font-medium text-foreground">{product.name}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    £{getSafeNumber(product.price).toFixed(2)} × {getSafeNumber(product.quantity)}
+                                    {getSafeNumber(product.discount) > 0 && (
+                                      <span className="text-primary ml-2">
+                                        (-£{getSafeNumber(product.discount).toFixed(2)} discount)
+                                      </span>
+                                    )}
+                                  </p>
+                                  {returnedQty > 0 && (
+                                    <p className="text-xs text-orange-500 mt-1">
+                                      Returned: {returnedQty} | Available: {availableQty}
+                                    </p>
                                   )}
+                                </div>
+                                <p className="font-bold text-foreground">
+                                  £{((getSafeNumber(product.price) * getSafeNumber(product.quantity)) - getSafeNumber(product.discount)).toFixed(2)}
                                 </p>
                               </div>
-                              <p className="font-bold text-foreground">
-                                £{((getSafeNumber(product.price) * getSafeNumber(product.quantity)) - getSafeNumber(product.discount)).toFixed(2)}
-                              </p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -1185,7 +1250,10 @@ export default function Transactions() {
                 <div className="space-y-3">
                   {selectedTransaction.products?.map((product: any) => {
                     const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
-                    const availableQty = getSafeNumber(product.quantity) - (product.returned_quantity || 0);
+                    const returnedQty = selectedTransaction.returned_quantities?.[productId] || 0;
+                    const availableQty = getSafeNumber(product.quantity) - returnedQty;
+                    
+                    if (availableQty <= 0) return null;
                     
                     return (
                       <div key={productId} className="p-4 bg-background rounded-lg border border-border">
@@ -1193,10 +1261,10 @@ export default function Transactions() {
                           <div className="flex-1">
                             <p className="font-medium text-foreground">{product.name}</p>
                             <p className="text-sm text-muted-foreground">
-                              £{getSafeNumber(product.price).toFixed(2)} each • Sold: {getSafeNumber(product.quantity)}
-                              {product.returned_quantity > 0 && (
+                              £{getSafeNumber(product.price).toFixed(2)} each • Available: {availableQty}
+                              {returnedQty > 0 && (
                                 <span className="text-orange-500 ml-2">
-                                  (Previously returned: {product.returned_quantity})
+                                  (Previously returned: {returnedQty})
                                 </span>
                               )}
                             </p>
