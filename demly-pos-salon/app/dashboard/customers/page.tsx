@@ -1,3 +1,4 @@
+// app/dashboard/customers/page.tsx
 "use client";
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -28,9 +29,10 @@ import {
   Package,
   ArrowUp,
   ArrowDown,
-  MapPin
+  MapPin,
+  Coffee
 } from 'lucide-react';
-import ReceiptPrint, { ReceiptData as ReceiptPrintData } from '@/components/receipts/ReceiptPrint';
+import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
 interface Customer {
   id: string;
@@ -38,9 +40,16 @@ interface Customer {
   email: string | null;
   phone: string | null;
   address: string | null;
+  business_name?: string | null;
   balance: number;
   created_at: string;
   notes: string | null;
+}
+
+interface ServiceInfo {
+  id: number;
+  name: string;
+  fee: number;
 }
 
 interface Transaction {
@@ -56,6 +65,9 @@ interface Transaction {
   created_at: string;
   notes: string | null;
   products?: any[];
+  services?: ServiceInfo[];
+  service_fee?: number;
+  service_type_id?: number | null;
   staff_name?: string;
 }
 
@@ -146,7 +158,7 @@ function CustomersContent() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   const [showAddEditModal, setShowAddEditModal] = useState(false);
   const [showAdjustBalanceModal, setShowAdjustBalanceModal] = useState(false);
@@ -158,6 +170,7 @@ function CustomersContent() {
     email: '',
     phone: '',
     address: '',
+    business_name: '',
     notes: '',
     balance: 0
   });
@@ -185,7 +198,7 @@ function CustomersContent() {
     fetchBusinessSettings();
   }, []);
 
-  // Search effect - Include address search
+  // Search effect - Include address and business name search
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchCustomers();
@@ -216,7 +229,7 @@ function CustomersContent() {
     }
   };
 
-  // Search customers by name, email, phone, AND address
+  // Search customers by name, email, phone, address, and business name
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -226,11 +239,13 @@ function CustomersContent() {
         .order('created_at', { ascending: false });
       
       if (searchQuery) {
+        const searchTerm = `%${searchQuery}%`;
         query = query.or(`
-          name.ilike.%${searchQuery}%,
-          email.ilike.%${searchQuery}%,
-          phone.ilike.%${searchQuery}%,
-          address.ilike.%${searchQuery}%
+          name.ilike.${searchTerm},
+          email.ilike.${searchTerm},
+          phone.ilike.${searchTerm},
+          address.ilike.${searchTerm},
+          business_name.ilike.${searchTerm}
         `);
       }
       
@@ -308,7 +323,7 @@ function CustomersContent() {
     };
   };
 
-  // FIXED: Print receipt with proper data structure matching POS.tsx
+  // Print receipt with service support
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       console.log('🖨️ Generating receipt for transaction:', transaction.id);
@@ -321,6 +336,7 @@ function CustomersContent() {
           email: null, 
           phone: null, 
           address: null,
+          business_name: null,
           balance: 0,
           created_at: new Date().toISOString(),
           notes: null
@@ -363,6 +379,13 @@ function CustomersContent() {
         console.error('Error fetching transaction items:', error);
       }
 
+      // Get service info
+      const serviceInfo = transaction.services && transaction.services.length > 0 
+        ? transaction.services[0] 
+        : transaction.service_type_id 
+        ? { name: 'Service', fee: transaction.service_fee || 0 }
+        : null;
+
       // Create receipt data matching POS.tsx structure
       const receiptSettings = {
         fontSize: 13,
@@ -399,13 +422,17 @@ function CustomersContent() {
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
         staffName: transaction.staff_name || currentStaff?.name || 'Staff',
-        notes: transaction.notes || undefined
+        notes: transaction.notes || undefined,
+        serviceName: serviceInfo?.name,
+        serviceFee: serviceInfo?.fee
       };
       
       console.log('✅ Receipt data prepared:', {
         transactionId: receiptData.id,
         itemsCount: receiptData.products.length,
         total: receiptData.total,
+        serviceName: receiptData.serviceName,
+        serviceFee: receiptData.serviceFee,
         hasBarcode: receiptSettings.showBarcode
       });
       
@@ -430,6 +457,7 @@ function CustomersContent() {
       email: '',
       phone: '',
       address: '',
+      business_name: '',
       notes: '',
       balance: 0
     });
@@ -444,6 +472,7 @@ function CustomersContent() {
       email: customer.email || '',
       phone: customer.phone || '',
       address: customer.address || '',
+      business_name: customer.business_name || '',
       notes: customer.notes || '',
       balance: getSafeNumber(customer.balance)
     });
@@ -469,6 +498,7 @@ function CustomersContent() {
           email: editingCustomer.email,
           phone: editingCustomer.phone,
           address: editingCustomer.address,
+          business_name: editingCustomer.business_name,
           notes: editingCustomer.notes,
           balance: editingCustomer.balance
         };
@@ -480,6 +510,7 @@ function CustomersContent() {
             email: newCustomer.email || null,
             phone: newCustomer.phone || null,
             address: newCustomer.address || null,
+            business_name: newCustomer.business_name || null,
             notes: newCustomer.notes || null,
             balance: getSafeNumber(newCustomer.balance),
             updated_at: new Date().toISOString()
@@ -518,6 +549,7 @@ function CustomersContent() {
             email: newCustomer.email || null,
             phone: newCustomer.phone || null,
             address: newCustomer.address || null,
+            business_name: newCustomer.business_name || null,
             notes: newCustomer.notes || null,
             balance: getSafeNumber(newCustomer.balance),
             user_id: user.id,
@@ -552,6 +584,7 @@ function CustomersContent() {
         email: '',
         phone: '',
         address: '',
+        business_name: '',
         notes: '',
         balance: 0
       });
@@ -779,7 +812,7 @@ function CustomersContent() {
         </div>
       )}
 
-      {/* Add/Edit Customer Modal */}
+      {/* Add/Edit Customer Modal - Added business_name field */}
       {showAddEditModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-xl shadow-xl w-full max-w-md border border-border">
@@ -810,6 +843,22 @@ function CustomersContent() {
                   placeholder="Customer name"
                   autoFocus
                 />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Business Name
+                </label>
+                <input
+                  type="text"
+                  value={newCustomer.business_name}
+                  onChange={(e) => setNewCustomer({...newCustomer, business_name: e.target.value})}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  placeholder="Business name (optional)"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Customers can be searched by business name
+                </p>
               </div>
               
               <div>
@@ -1079,13 +1128,13 @@ function CustomersContent() {
                 <Search className="absolute left-3 top-2.5 text-muted-foreground w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Search by name, email, phone, or address..."
+                  placeholder="Search by name, email, phone, address, or business..."
                   className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground placeholder:text-muted-foreground"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground mt-1.5 ml-1">
-                  Tip: Search by postcode/ZIP code to find customers by area
+                  Tip: Search by business name or postcode/ZIP code
                 </p>
               </div>
               <button
@@ -1129,6 +1178,9 @@ function CustomersContent() {
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <h3 className="font-semibold text-foreground">{customer.name || 'Unnamed Customer'}</h3>
+                        {customer.business_name && (
+                          <div className="text-xs text-primary mt-0.5">{customer.business_name}</div>
+                        )}
                         <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                           {customer.phone && (
                             <span className="flex items-center gap-1">
@@ -1193,7 +1245,10 @@ function CustomersContent() {
                         ID: {getCustomerIdDisplay(selectedCustomer)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 mt-2 text-muted-foreground">
+                    {selectedCustomer.business_name && (
+                      <div className="text-sm text-primary mb-2">🏢 {selectedCustomer.business_name}</div>
+                    )}
+                    <div className="flex items-center gap-4 mt-2 text-muted-foreground flex-wrap">
                       {selectedCustomer.phone && (
                         <span className="flex items-center gap-2">
                           <Phone className="w-4 h-4" />
@@ -1317,89 +1372,112 @@ function CustomersContent() {
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
-                    {customerTransactions.map((transaction) => (
-                      <div key={String(transaction.id)} className="p-4 hover:bg-muted/50">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="font-semibold text-foreground flex items-center gap-2">
-                              <Hash className="w-4 h-4 text-muted-foreground" />
-                              Transaction {getTransactionIdDisplay(transaction)}
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {formatDate(transaction.created_at, true)}
-                              </span>
-                              <span className={`px-2 py-0.5 rounded-full text-xs ${
-                                transaction.status === 'completed' 
-                                  ? 'bg-primary/20 text-primary'
-                                  : transaction.status === 'pending'
-                                  ? 'bg-accent text-foreground'
-                                  : 'bg-destructive/20 text-destructive'
-                              }`}>
-                                {transaction.status || 'unknown'}
-                              </span>
-                              {transaction.staff_name && (
-                                <span className="text-muted-foreground">
-                                  by {transaction.staff_name}
+                    {customerTransactions.map((transaction) => {
+                      const serviceInfo = transaction.services && transaction.services.length > 0 
+                        ? transaction.services[0] 
+                        : transaction.service_type_id 
+                        ? { name: 'Service', fee: transaction.service_fee || 0 }
+                        : null;
+
+                      return (
+                        <div key={String(transaction.id)} className="p-4 hover:bg-muted/50">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <div className="font-semibold text-foreground flex items-center gap-2">
+                                <Hash className="w-4 h-4 text-muted-foreground" />
+                                Transaction {getTransactionIdDisplay(transaction)}
+                                {serviceInfo && (
+                                  <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs flex items-center gap-1">
+                                    <Coffee className="w-3 h-3" />
+                                    {serviceInfo.name}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" />
+                                  {formatDate(transaction.created_at, true)}
                                 </span>
-                              )}
+                                <span className={`px-2 py-0.5 rounded-full text-xs ${
+                                  transaction.status === 'completed' 
+                                    ? 'bg-primary/20 text-primary'
+                                    : transaction.status === 'pending'
+                                    ? 'bg-accent text-foreground'
+                                    : 'bg-destructive/20 text-destructive'
+                                }`}>
+                                  {transaction.status || 'unknown'}
+                                </span>
+                                {transaction.staff_name && (
+                                  <span className="text-muted-foreground">
+                                    by {transaction.staff_name}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold text-foreground">
+                                £{getSafeNumber(transaction.total).toFixed(2)}
+                              </div>
+                              <div className="text-sm text-muted-foreground capitalize">
+                                {transaction.payment_method || 'unknown'}
+                              </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-bold text-foreground">
-                              £{getSafeNumber(transaction.total).toFixed(2)}
-                            </div>
-                            <div className="text-sm text-muted-foreground capitalize">
-                              {transaction.payment_method || 'unknown'}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Transaction Details */}
-                        <div className="mt-3 text-sm text-muted-foreground space-y-1">
-                          <div className="flex justify-between">
-                            <span>Subtotal:</span>
-                            <span>£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
-                          </div>
-                          {getSafeNumber(transaction.vat) > 0 && (
+                          
+                          {/* Transaction Details */}
+                          <div className="mt-3 text-sm text-muted-foreground space-y-1">
                             <div className="flex justify-between">
-                              <span>VAT:</span>
-                              <span>£{getSafeNumber(transaction.vat).toFixed(2)}</span>
+                              <span>Subtotal:</span>
+                              <span>£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
                             </div>
-                          )}
-                          {transaction.notes && (
-                            <div className="mt-2 text-muted-foreground">
-                              <span className="font-medium">Note:</span> {transaction.notes}
-                            </div>
-                          )}
+                            {serviceInfo && (
+                              <div className="flex justify-between text-primary">
+                                <span className="flex items-center gap-1">
+                                  <Coffee className="w-3 h-3" />
+                                  {serviceInfo.name}:
+                                </span>
+                                <span>+£{getSafeNumber(serviceInfo.fee).toFixed(2)}</span>
+                              </div>
+                            )}
+                            {getSafeNumber(transaction.vat) > 0 && (
+                              <div className="flex justify-between">
+                                <span>VAT:</span>
+                                <span>£{getSafeNumber(transaction.vat).toFixed(2)}</span>
+                              </div>
+                            )}
+                            {transaction.notes && (
+                              <div className="mt-2 text-muted-foreground">
+                                <span className="font-medium">Note:</span> {transaction.notes}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Transaction Actions */}
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              onClick={() => printTransactionReceipt(transaction)}
+                              className="flex-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded hover:bg-primary/20 flex items-center justify-center gap-1 font-medium"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print Receipt
+                            </button>
+                            {getSafeNumber(transaction.balance_deducted) > 0 && (
+                              <div className="flex-1 px-3 py-1.5 text-sm bg-accent text-foreground rounded flex items-center justify-center gap-1 font-medium">
+                                <DollarSign className="w-3 h-3" />
+                                £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
+                              </div>
+                            )}
+                            <button
+                              onClick={() => viewTransactionItems(transaction)}
+                              className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
+                            >
+                              <Package className="w-3 h-3" />
+                              View Items
+                            </button>
+                          </div>
                         </div>
-                        
-                        {/* Transaction Actions */}
-                        <div className="flex gap-2 mt-3">
-                          <button
-                            onClick={() => printTransactionReceipt(transaction)}
-                            className="flex-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded hover:bg-primary/20 flex items-center justify-center gap-1 font-medium"
-                          >
-                            <Printer className="w-3 h-3" />
-                            Print Receipt
-                          </button>
-                          {getSafeNumber(transaction.balance_deducted) > 0 && (
-                            <div className="flex-1 px-3 py-1.5 text-sm bg-accent text-foreground rounded flex items-center justify-center gap-1 font-medium">
-                              <DollarSign className="w-3 h-3" />
-                              £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
-                            </div>
-                          )}
-                          <button
-                            onClick={() => viewTransactionItems(transaction)}
-                            className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
-                          >
-                            <Package className="w-3 h-3" />
-                            View Items
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
