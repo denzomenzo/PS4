@@ -84,7 +84,7 @@ interface Return {
 type DateFilter = '7days' | '30days' | '90days' | 'all';
 type StatusFilter = 'all' | 'completed' | 'returned' | 'partial';
 
-// Helper functions
+// Helper functions (copied from customers page)
 const formatDate = (dateString: string, includeTime: boolean = true) => {
   try {
     const date = new Date(dateString);
@@ -127,7 +127,7 @@ const getTransactionIdDisplay = (id: number): string => {
   return `#${id}`;
 };
 
-// Hardware Helper Functions
+// Hardware Helper Functions (copied from POS.tsx)
 const openCashDrawer = async () => {
   try {
     console.log('📂 Opening cash drawer...');
@@ -460,6 +460,110 @@ export default function Transactions() {
     setShowReturnModal(true);
   };
 
+  // ========== BALANCE ADJUSTMENT FUNCTION (copied from customers page) ==========
+  const adjustCustomerBalance = async (
+    customerId: number, 
+    amount: number, 
+    reason: string,
+    transactionId: number
+  ) => {
+    try {
+      console.log('💰 Adjusting customer balance:', { customerId, amount, reason });
+
+      // Get current customer balance
+      const { data: customer, error: fetchError } = await supabase
+        .from("customers")
+        .select("balance")
+        .eq("id", customerId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const previousBalance = getSafeNumber(customer.balance);
+      const newBalance = previousBalance + amount;
+
+      console.log(`Balance: £${previousBalance} → £${newBalance}`);
+
+      // Update customer balance
+      const { error: updateError } = await supabase
+        .from("customers")
+        .update({ 
+          balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", customerId);
+
+      if (updateError) throw updateError;
+
+      // Create balance history entry
+      const { error: historyError } = await supabase
+        .from("customer_balance_history")
+        .insert({
+          user_id: userId,
+          customer_id: customerId,
+          staff_id: currentStaff?.id,
+          amount: amount,
+          previous_balance: previousBalance,
+          new_balance: newBalance,
+          note: `Return for transaction #${transactionId} - ${reason}`,
+          transaction_id: transactionId,
+          created_at: new Date().toISOString()
+        });
+
+      if (historyError) throw historyError;
+
+      console.log('✅ Balance adjusted successfully');
+      return true;
+
+    } catch (error) {
+      console.error('❌ Error adjusting balance:', error);
+      throw error;
+    }
+  };
+
+  // ========== INVENTORY RESTORE FUNCTION (copied from POS.tsx but with addition) ==========
+  const restoreInventoryItems = async (items: any[]) => {
+    try {
+      console.log('📦 Restoring inventory for items:', items);
+
+      for (const item of items) {
+        if (!item.track_inventory) {
+          console.log(`ℹ️ Product ${item.product_name} does not track inventory, skipping`);
+          continue;
+        }
+
+        // Get current stock (like POS.tsx)
+        const { data: product, error: fetchError } = await supabase
+          .from("products")
+          .select("stock_quantity")
+          .eq("id", item.product_id)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        const currentStock = getSafeNumber(product.stock_quantity);
+        const newStock = currentStock + item.quantity; // ADDITION instead of subtraction
+
+        console.log(`Product ${item.product_id}: Stock ${currentStock} → ${newStock} (+${item.quantity})`);
+
+        // Update stock (like POS.tsx)
+        const { error: updateError } = await supabase
+          .from("products")
+          .update({ stock_quantity: newStock })
+          .eq("id", item.product_id);
+
+        if (updateError) throw updateError;
+      }
+
+      console.log('✅ Inventory restored successfully');
+      return true;
+
+    } catch (error) {
+      console.error('❌ Error restoring inventory:', error);
+      throw error;
+    }
+  };
+
   const processReturn = async () => {
     if (!selectedTransaction || !currentStaff) return;
 
@@ -503,6 +607,16 @@ export default function Transactions() {
         : 0;
       const totalRefund = refundAmount + vatAmount;
 
+      console.log('💰 Return processing started:', {
+        transactionId: selectedTransaction.id,
+        itemsToReturn,
+        refundAmount,
+        vatAmount,
+        totalRefund,
+        refundMethod,
+        restoreInventory
+      });
+
       let cardRefundId = null;
 
       // Process card refund
@@ -525,89 +639,19 @@ export default function Transactions() {
         await openCashDrawer();
       }
 
-      // HANDLE BALANCE REFUND FIRST - Update customer balance immediately
+      // ========== HANDLE BALANCE REFUND (using customers page function) ==========
       if (refundMethod === 'balance' && selectedTransaction.customer_id) {
-        console.log('💰 Processing balance refund...');
-        
-        // Get current customer balance
-        const { data: customer, error: customerError } = await supabase
-          .from("customers")
-          .select("balance")
-          .eq("id", selectedTransaction.customer_id)
-          .single();
-
-        if (customerError) throw customerError;
-        
-        const currentBalance = getSafeNumber(customer.balance);
-        const newBalance = currentBalance + totalRefund;
-        
-        console.log(`Current balance: £${currentBalance}, New balance: £${newBalance}`);
-
-        // Update customer balance
-        const { error: updateError } = await supabase
-          .from("customers")
-          .update({ 
-            balance: newBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", selectedTransaction.customer_id);
-
-        if (updateError) throw updateError;
-
-        // Log to balance history
-        const { error: historyError } = await supabase
-          .from("customer_balance_history")
-          .insert({
-            user_id: userId,
-            customer_id: selectedTransaction.customer_id,
-            staff_id: currentStaff.id,
-            amount: totalRefund,
-            previous_balance: currentBalance,
-            new_balance: newBalance,
-            note: `Return for transaction #${selectedTransaction.id} - ${returnReason}`,
-            transaction_id: selectedTransaction.id,
-            created_at: new Date().toISOString()
-          });
-
-        if (historyError) throw historyError;
-        
-        console.log('✅ Balance refund completed successfully');
+        await adjustCustomerBalance(
+          selectedTransaction.customer_id,
+          totalRefund,
+          returnReason,
+          selectedTransaction.id
+        );
       }
 
-      // HANDLE INVENTORY RESTORE - Update stock quantities
+      // ========== HANDLE INVENTORY RESTORE (using POS.tsx pattern) ==========
       if (restoreInventory) {
-        console.log('📦 Restoring inventory...');
-        
-        for (const item of itemsToReturn) {
-          if (item.track_inventory) {
-            // Get current stock
-            const { data: productData, error: productError } = await supabase
-              .from("products")
-              .select("stock_quantity")
-              .eq("id", item.product_id)
-              .single();
-
-            if (productError) throw productError;
-
-            const currentStock = getSafeNumber(productData.stock_quantity);
-            const newStock = currentStock + item.quantity;
-
-            console.log(`Product ${item.product_name}: Stock ${currentStock} → ${newStock}`);
-
-            // Update stock
-            const { error: stockError } = await supabase
-              .from("products")
-              .update({ 
-                stock_quantity: newStock,
-                updated_at: new Date().toISOString()
-              })
-              .eq("id", item.product_id);
-
-            if (stockError) throw stockError;
-          }
-        }
-        
-        console.log('✅ Inventory restored successfully');
+        await restoreInventoryItems(itemsToReturn);
       }
 
       // Create return record
