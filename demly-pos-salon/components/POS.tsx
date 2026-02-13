@@ -300,22 +300,22 @@ export default function POS() {
   );
 
   // Filter customers based on search query
-  useEffect(() => {
-    if (customerSearchQuery.trim()) {
-      const query = customerSearchQuery.toLowerCase();
-      setFilteredCustomers(
-        customers.filter(c => 
-          c.name.toLowerCase().includes(query) ||
-          (c.phone && c.phone.toLowerCase().includes(query)) ||
-          (c.email && c.email.toLowerCase().includes(query)) ||
-          (c.business_name && c.business_name.toLowerCase().includes(query)) ||
-          (c.address && c.address.toLowerCase().includes(query))
-        )
-      );
-    } else {
-      setFilteredCustomers(customers);
-    }
-  }, [customerSearchQuery, customers]);
+useEffect(() => {
+  if (customerSearchQuery.trim()) {
+    const query = customerSearchQuery.toLowerCase().trim();
+    setFilteredCustomers(
+      customers.filter(c => 
+        (c.name && c.name.toLowerCase().includes(query)) ||
+        (c.phone && c.phone.toLowerCase().includes(query)) ||
+        (c.email && c.email.toLowerCase().includes(query)) ||
+        (c.business_name && c.business_name.toLowerCase().includes(query)) ||
+        (c.address && c.address.toLowerCase().includes(query))
+      )
+    );
+  } else {
+    setFilteredCustomers(customers);
+  }
+}, [customerSearchQuery, customers]);
 
   // Close customer dropdown when clicking outside
   useEffect(() => {
@@ -2797,3 +2797,4 @@ export default function POS() {
     </div>
   );
 }
+
