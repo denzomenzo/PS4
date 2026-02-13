@@ -33,7 +33,8 @@ import {
   Package,
   RefreshCw,
   Plus,
-  Minus
+  Minus,
+  X
 } from "lucide-react";
 import Link from "next/link";
 
@@ -71,17 +72,62 @@ interface Return {
   card_refund_id: string | null;
   original_transaction: Transaction;
   restore_inventory: boolean;
+  staff?: {
+    name: string;
+  };
 }
 
 type DateFilter = '7days' | '30days' | '90days' | 'all';
 type StatusFilter = 'all' | 'completed' | 'returned' | 'partial';
+
+// Helper functions
+const formatDate = (dateString: string, includeTime: boolean = true) => {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return 'Invalid date';
+    }
+    
+    if (includeTime) {
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } else {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+    }
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return dateString;
+  }
+};
+
+const getSafeNumber = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+const getTransactionIdDisplay = (id: number): string => {
+  return `#${id}`;
+};
 
 // Hardware Helper Functions
 const openCashDrawer = async () => {
   try {
     console.log('📂 Opening cash drawer...');
     
-    // Try USB first
     if ('usb' in navigator) {
       try {
         const device = await navigator.usb.requestDevice({
@@ -96,7 +142,6 @@ const openCashDrawer = async () => {
         await device.selectConfiguration(1);
         await device.claimInterface(0);
         
-        // ESC/POS command to open cash drawer
         const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]);
         await device.transferOut(1, cashDrawerCommand);
         await device.close();
@@ -108,7 +153,6 @@ const openCashDrawer = async () => {
       }
     }
     
-    // Fallback to printer
     alert('💰 Please open cash drawer manually');
     return false;
     
@@ -128,9 +172,11 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [returns, setReturns] = useState<Return[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
+  const [filteredReturns, setFilteredReturns] = useState<Return[]>([]);
   
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [returnSearchQuery, setReturnSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>('30days');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [startDate, setStartDate] = useState("");
@@ -168,12 +214,33 @@ export default function Transactions() {
     applyFilters();
   }, [transactions, searchQuery, dateFilter, statusFilter, startDate, endDate]);
 
+  // Filter returns when search changes
+  useEffect(() => {
+    if (!returns.length) {
+      setFilteredReturns([]);
+      return;
+    }
+
+    if (returnSearchQuery.trim()) {
+      const query = returnSearchQuery.toLowerCase();
+      const filtered = returns.filter(r => 
+        r.id.toString().includes(query) ||
+        r.transaction_id.toString().includes(query) ||
+        r.reason?.toLowerCase().includes(query) ||
+        r.processed_by?.toLowerCase().includes(query) ||
+        r.refund_method.toLowerCase().includes(query)
+      );
+      setFilteredReturns(filtered);
+    } else {
+      setFilteredReturns(returns);
+    }
+  }, [returnSearchQuery, returns]);
+
   // Barcode scanner for receipts
   const handleBarcodeScan = useCallback((barcode: string) => {
     console.log('Scanned barcode:', barcode);
     setLastScannedBarcode(barcode);
     
-    // Find transaction by ID
     const transaction = transactions.find(t => t.id.toString() === barcode);
     if (transaction) {
       setExpandedTransaction(transaction.id);
@@ -223,12 +290,13 @@ export default function Transactions() {
 
       setTransactions(formattedTransactions);
 
-      // Load returns history
+      // Load returns history with staff names
       const { data: returnsData, error: returnsError } = await supabase
         .from("transaction_returns")
         .select(`
           *,
-          transactions:transaction_id (*)
+          transactions:transaction_id (*),
+          staff:staff_id (name)
         `)
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -236,9 +304,12 @@ export default function Transactions() {
       if (!returnsError && returnsData) {
         const formattedReturns = returnsData.map(r => ({
           ...r,
-          original_transaction: r.transactions
+          original_transaction: r.transactions,
+          processed_by: r.staff?.name || 'System',
+          staff_name: r.staff?.name
         }));
         setReturns(formattedReturns);
+        setFilteredReturns(formattedReturns);
       }
 
     } catch (error: any) {
@@ -264,7 +335,6 @@ export default function Transactions() {
   const applyFilters = () => {
     let filtered = [...transactions];
 
-    // Date filter
     const now = new Date();
     const filterDate = new Date();
     
@@ -287,7 +357,6 @@ export default function Transactions() {
       filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
     }
 
-    // Custom date range
     if (startDate) {
       filtered = filtered.filter(t => new Date(t.created_at) >= new Date(startDate));
     }
@@ -295,7 +364,6 @@ export default function Transactions() {
       filtered = filtered.filter(t => new Date(t.created_at) <= new Date(endDate + 'T23:59:59'));
     }
 
-    // Status filter
     if (statusFilter !== 'all') {
       if (statusFilter === 'completed') {
         filtered = filtered.filter(t => t.return_status === 'none');
@@ -306,7 +374,6 @@ export default function Transactions() {
       }
     }
 
-    // Search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(t => 
@@ -329,7 +396,6 @@ export default function Transactions() {
 
     setSelectedTransaction(transaction);
     
-    // Initialize return items with zero quantities
     const initialItems: {[key: string]: number} = {};
     transaction.products?.forEach((product: any) => {
       const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
@@ -344,7 +410,7 @@ export default function Transactions() {
   };
 
   const processReturn = async () => {
-    if (!selectedTransaction) return;
+    if (!selectedTransaction || !currentStaff) return;
 
     const itemsToReturn = Object.entries(returnItems)
       .filter(([_, qty]) => qty > 0)
@@ -372,19 +438,14 @@ export default function Transactions() {
     setProcessingReturn(true);
 
     try {
-      // Calculate refund amount
       const refundAmount = itemsToReturn.reduce((sum, item) => sum + item.total, 0);
-      
-      // Calculate proportional VAT
       const vatAmount = selectedTransaction.vat > 0 
         ? (refundAmount / selectedTransaction.subtotal) * selectedTransaction.vat 
         : 0;
-      
       const totalRefund = refundAmount + vatAmount;
 
       let cardRefundId = null;
 
-      // Process card refund if original payment was card
       if (refundMethod === 'original' && 
           selectedTransaction.payment_method === 'card' && 
           cardTerminalSettings?.enabled) {
@@ -394,28 +455,24 @@ export default function Transactions() {
           return;
         }
 
-        alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
-        
-        // In production, this would call your card refund API
+        alert(`Processing card refund of £${totalRefund.toFixed(2)}...`);
         cardRefundId = `refund_${Date.now()}`;
-        
         alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}`);
       }
 
-      // Open cash drawer for cash refunds
       if (refundMethod === 'cash') {
         await openCashDrawer();
       }
 
-      // Create return record
       const returnData = {
         user_id: userId,
         transaction_id: selectedTransaction.id,
+        staff_id: currentStaff.id,
         items: itemsToReturn,
         total_refunded: totalRefund,
         refund_method: refundMethod,
         reason: returnReason,
-        processed_by: currentStaff?.name || 'System',
+        processed_by: currentStaff.name,
         card_refund_id: cardRefundId,
         restore_inventory: restoreInventory,
         created_at: new Date().toISOString()
@@ -427,7 +484,6 @@ export default function Transactions() {
 
       if (returnError) throw returnError;
 
-      // Update transaction with return info
       const newReturnedAmount = (selectedTransaction.returned_amount || 0) + totalRefund;
       const isFullReturn = Math.abs(newReturnedAmount - selectedTransaction.total) < 0.01;
 
@@ -441,7 +497,6 @@ export default function Transactions() {
 
       if (updateError) throw updateError;
 
-      // Update customer balance if refund to balance
       if (refundMethod === 'balance' && selectedTransaction.customer_id) {
         const { data: customer } = await supabase
           .from("customers")
@@ -469,7 +524,6 @@ export default function Transactions() {
         }
       }
 
-      // Restore inventory if selected
       if (restoreInventory) {
         for (const item of itemsToReturn) {
           const product = selectedTransaction.products.find(p => p.id === item.product_id);
@@ -492,7 +546,6 @@ export default function Transactions() {
         }
       }
 
-      // Log audit
       await logAuditAction({
         action: "RETURN_PROCESSED",
         entityType: "transaction",
@@ -529,7 +582,6 @@ export default function Transactions() {
         .eq("user_id", userId)
         .single();
 
-      // Get service info
       const serviceInfo = transaction.services && transaction.services.length > 0 
         ? transaction.services[0] 
         : transaction.service_type_id 
@@ -537,19 +589,19 @@ export default function Transactions() {
         : null;
 
       const receiptData: ReceiptPrintData = {
-        id: transaction.id.toString(),
+        id: String(transaction.id),
         createdAt: transaction.created_at,
-        subtotal: transaction.subtotal,
-        vat: transaction.vat,
-        total: transaction.total,
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
         paymentMethod: transaction.payment_method as any,
         products: (transaction.products || []).map(p => ({
           id: p.id?.toString() || Math.random().toString(),
           name: p.name || 'Product',
-          price: p.price || 0,
-          quantity: p.quantity || 1,
-          discount: p.discount || 0,
-          total: ((p.price || 0) * (p.quantity || 1)) - (p.discount || 0),
+          price: getSafeNumber(p.price),
+          quantity: getSafeNumber(p.quantity) || 1,
+          discount: getSafeNumber(p.discount) || 0,
+          total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
           sku: p.sku,
           barcode: p.barcode
         })),
@@ -573,8 +625,8 @@ export default function Transactions() {
           barcodeType: (settings?.barcode_type?.toUpperCase() || 'CODE128') as any,
           showTaxBreakdown: settings?.show_tax_breakdown !== false
         },
-        balanceDeducted: transaction.balance_deducted,
-        paymentDetails: transaction.payment_details,
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
+        paymentDetails: transaction.payment_details || {},
         staffName: transaction.staff_name || undefined,
         notes: transaction.notes || undefined,
         serviceName: serviceInfo?.name,
@@ -602,7 +654,6 @@ export default function Transactions() {
         return sum;
       }, 0);
 
-    // Add proportional VAT
     const vatAmount = selectedTransaction.vat > 0 
       ? (itemsTotal / selectedTransaction.subtotal) * selectedTransaction.vat 
       : 0;
@@ -853,7 +904,7 @@ export default function Transactions() {
                       <div>
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="text-lg font-bold text-foreground">
-                            #{transaction.id}
+                            {getTransactionIdDisplay(transaction.id)}
                           </span>
                           {getReturnStatusBadge(transaction.return_status)}
                           {getPaymentMethodBadge(transaction.payment_method)}
@@ -867,7 +918,7 @@ export default function Transactions() {
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-4 h-4" />
-                            {new Date(transaction.created_at).toLocaleString()}
+                            {formatDate(transaction.created_at, true)}
                           </span>
                           {transaction.customer_name && (
                             <span className="flex items-center gap-1">
@@ -887,11 +938,11 @@ export default function Transactions() {
                     <div className="flex items-center gap-4">
                       <div className="text-right">
                         <p className="text-2xl font-bold text-foreground">
-                          £{transaction.total.toFixed(2)}
+                          £{getSafeNumber(transaction.total).toFixed(2)}
                         </p>
-                        {transaction.returned_amount > 0 && (
+                        {getSafeNumber(transaction.returned_amount) > 0 && (
                           <p className="text-sm text-destructive">
-                            -£{transaction.returned_amount.toFixed(2)} returned
+                            -£{getSafeNumber(transaction.returned_amount).toFixed(2)} returned
                           </p>
                         )}
                       </div>
@@ -916,16 +967,16 @@ export default function Transactions() {
                             <div className="flex-1">
                               <p className="font-medium text-foreground">{product.name}</p>
                               <p className="text-sm text-muted-foreground">
-                                £{product.price.toFixed(2)} × {product.quantity}
-                                {product.discount > 0 && (
+                                £{getSafeNumber(product.price).toFixed(2)} × {getSafeNumber(product.quantity)}
+                                {getSafeNumber(product.discount) > 0 && (
                                   <span className="text-primary ml-2">
-                                    (-£{product.discount.toFixed(2)} discount)
+                                    (-£{getSafeNumber(product.discount).toFixed(2)} discount)
                                   </span>
                                 )}
                               </p>
                             </div>
                             <p className="font-bold text-foreground">
-                              £{((product.price * product.quantity) - (product.discount || 0)).toFixed(2)}
+                              £{((getSafeNumber(product.price) * getSafeNumber(product.quantity)) - getSafeNumber(product.discount)).toFixed(2)}
                             </p>
                           </div>
                         ))}
@@ -940,7 +991,7 @@ export default function Transactions() {
                             <Coffee className="w-4 h-4 text-primary" />
                             <span className="font-medium text-foreground">{serviceInfo.name}</span>
                           </div>
-                          <span className="text-primary font-bold">+£{serviceInfo.fee.toFixed(2)}</span>
+                          <span className="text-primary font-bold">+£{getSafeNumber(serviceInfo.fee).toFixed(2)}</span>
                         </div>
                       </div>
                     )}
@@ -950,23 +1001,23 @@ export default function Transactions() {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Subtotal</span>
-                          <span className="font-medium text-foreground">£{transaction.subtotal.toFixed(2)}</span>
+                          <span className="font-medium text-foreground">£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
                         </div>
-                        {transaction.vat > 0 && (
+                        {getSafeNumber(transaction.vat) > 0 && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">VAT (20%)</span>
-                            <span className="font-medium text-foreground">£{transaction.vat.toFixed(2)}</span>
+                            <span className="font-medium text-foreground">£{getSafeNumber(transaction.vat).toFixed(2)}</span>
                           </div>
                         )}
-                        {transaction.balance_deducted > 0 && (
+                        {getSafeNumber(transaction.balance_deducted) > 0 && (
                           <div className="flex justify-between text-purple-600">
                             <span>Balance Used</span>
-                            <span className="font-medium">£{transaction.balance_deducted.toFixed(2)}</span>
+                            <span className="font-medium">£{getSafeNumber(transaction.balance_deducted).toFixed(2)}</span>
                           </div>
                         )}
                         <div className="flex justify-between pt-2 border-t border-border">
                           <span className="font-bold text-foreground">Total</span>
-                          <span className="font-bold text-foreground text-lg">£{transaction.total.toFixed(2)}</span>
+                          <span className="font-bold text-foreground text-lg">£{getSafeNumber(transaction.total).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -1018,15 +1069,15 @@ export default function Transactions() {
                   onClick={() => setShowReturnModal(false)}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  <XCircle className="w-6 h-6" />
+                  <X className="w-6 h-6" />
                 </button>
               </div>
 
               <div className="mb-6 p-4 bg-muted/50 rounded-lg">
                 <p className="text-sm text-muted-foreground mb-1">Transaction</p>
-                <p className="text-lg font-bold text-foreground">#{selectedTransaction.id}</p>
+                <p className="text-lg font-bold text-foreground">{getTransactionIdDisplay(selectedTransaction.id)}</p>
                 <p className="text-sm text-muted-foreground">
-                  {new Date(selectedTransaction.created_at).toLocaleString()}
+                  {formatDate(selectedTransaction.created_at, true)}
                 </p>
                 {selectedTransaction.customer_name && (
                   <p className="text-sm text-foreground mt-2">
@@ -1041,7 +1092,7 @@ export default function Transactions() {
                 <div className="space-y-3">
                   {selectedTransaction.products?.map((product: any) => {
                     const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
-                    const availableQty = product.quantity - (product.returned_quantity || 0);
+                    const availableQty = getSafeNumber(product.quantity) - (product.returned_quantity || 0);
                     
                     return (
                       <div key={productId} className="p-4 bg-background rounded-lg border border-border">
@@ -1049,7 +1100,7 @@ export default function Transactions() {
                           <div className="flex-1">
                             <p className="font-medium text-foreground">{product.name}</p>
                             <p className="text-sm text-muted-foreground">
-                              £{product.price.toFixed(2)} each • Sold: {product.quantity}
+                              £{getSafeNumber(product.price).toFixed(2)} each • Sold: {getSafeNumber(product.quantity)}
                               {product.returned_quantity > 0 && (
                                 <span className="text-orange-500 ml-2">
                                   (Previously returned: {product.returned_quantity})
@@ -1227,41 +1278,72 @@ export default function Transactions() {
         </div>
       )}
 
-      {/* Returns History Modal */}
+      {/* Returns History Modal - FIXED with search and staff names */}
       {showReturnsHistory && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-card border border-border rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-foreground">Returns History</h2>
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground">Returns History</h2>
+                  <p className="text-muted-foreground mt-1">{filteredReturns.length} returns found</p>
+                </div>
                 <button
                   onClick={() => setShowReturnsHistory(false)}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  <XCircle className="w-6 h-6" />
+                  <X className="w-6 h-6" />
                 </button>
               </div>
 
-              {returns.length === 0 ? (
+              {/* Search Returns */}
+              <div className="mb-6">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={returnSearchQuery}
+                    onChange={(e) => setReturnSearchQuery(e.target.value)}
+                    placeholder="Search returns by ID, transaction ID, reason, staff..."
+                    className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              {filteredReturns.length === 0 ? (
                 <div className="text-center py-12">
                   <RotateCcw className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No returns processed yet</p>
+                  <p className="text-muted-foreground">
+                    {returnSearchQuery ? 'No returns match your search' : 'No returns processed yet'}
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {returns.map((returnItem) => (
-                    <div key={returnItem.id} className="p-4 bg-background rounded-lg border border-border">
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                  {filteredReturns.map((returnItem) => (
+                    <div key={returnItem.id} className="p-4 bg-background rounded-lg border border-border hover:border-primary/30 transition-all">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <p className="font-bold text-foreground">
-                            Return #{returnItem.id} • Transaction #{returnItem.transaction_id}
-                          </p>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-bold text-foreground">
+                              Return #{returnItem.id}
+                            </span>
+                            <span className="px-2 py-0.5 bg-muted rounded-full text-xs text-muted-foreground">
+                              TXN {getTransactionIdDisplay(returnItem.transaction_id)}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              returnItem.refund_method === 'card' ? 'bg-blue-500/10 text-blue-600' :
+                              returnItem.refund_method === 'cash' ? 'bg-emerald-500/10 text-emerald-600' :
+                              'bg-purple-500/10 text-purple-600'
+                            } border`}>
+                              {returnItem.refund_method}
+                            </span>
+                          </div>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(returnItem.created_at).toLocaleString()}
+                            {formatDate(returnItem.created_at, true)}
                           </p>
                         </div>
                         <p className="text-lg font-bold text-destructive">
-                          -£{returnItem.total_refunded?.toFixed(2) || '0.00'}
+                          -£{getSafeNumber(returnItem.total_refunded).toFixed(2)}
                         </p>
                       </div>
 
@@ -1270,42 +1352,35 @@ export default function Transactions() {
                         <div className="space-y-1">
                           {returnItem.items?.map((item: any, index: number) => (
                             <p key={index} className="text-sm text-foreground">
-                              {item.product_name} × {item.quantity} = £{(item.total || 0).toFixed(2)}
+                              {item.product_name} × {item.quantity} = £{getSafeNumber(item.total).toFixed(2)}
                             </p>
                           ))}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <p className="text-muted-foreground">Refund Method</p>
-                          <p className="font-medium text-foreground capitalize">{returnItem.refund_method}</p>
-                        </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                         <div>
                           <p className="text-muted-foreground">Processed By</p>
-                          <p className="font-medium text-foreground">{returnItem.processed_by}</p>
+                          <p className="font-medium text-foreground">{returnItem.processed_by || returnItem.staff_name || 'System'}</p>
                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 text-sm mt-2">
                         <div>
                           <p className="text-muted-foreground">Inventory Restored</p>
                           <p className={`font-medium ${returnItem.restore_inventory ? 'text-primary' : 'text-muted-foreground'}`}>
                             {returnItem.restore_inventory ? 'Yes' : 'No'}
                           </p>
                         </div>
-                        {returnItem.card_refund_id && (
-                          <div>
-                            <p className="text-muted-foreground">Card Refund ID</p>
-                            <p className="font-medium text-foreground text-xs">{returnItem.card_refund_id}</p>
-                          </div>
-                        )}
                       </div>
 
                       {returnItem.reason && (
-                        <div className="mt-3 p-3 bg-muted/50 rounded-lg">
-                          <p className="text-sm text-muted-foreground mb-1">Reason:</p>
+                        <div className="mb-3 p-3 bg-muted/50 rounded-lg">
+                          <p className="text-xs text-muted-foreground mb-1">Reason:</p>
                           <p className="text-sm text-foreground">{returnItem.reason}</p>
+                        </div>
+                      )}
+
+                      {returnItem.card_refund_id && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Card Refund ID: {returnItem.card_refund_id}
                         </div>
                       )}
                     </div>
