@@ -75,6 +75,7 @@ interface Return {
   staff?: {
     name: string;
   };
+  staff_name?: string; 
 }
 
 type DateFilter = '7days' | '30days' | '90days' | 'all';
@@ -1403,3 +1404,4 @@ export default function Transactions() {
     </div>
   );
 }
+
