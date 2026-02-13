@@ -35,7 +35,8 @@ import {
   AlertCircle,
   Loader2,
   ChevronRight,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  History
 } from 'lucide-react';
 import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
@@ -58,24 +59,37 @@ interface ServiceInfo {
 }
 
 interface Transaction {
-  id: string | number;
-  customer_id: string;
-  total: number;
+  id: number;
+  created_at: string;
+  customer_id: number | null;
+  customer_name: string | null;
+  staff_name: string | null;
   subtotal: number;
   vat: number;
-  status: 'completed' | 'pending' | 'refunded';
-  payment_method: 'cash' | 'card' | 'split' | 'balance';
+  total: number;
+  payment_method: string;
   payment_details: any;
   balance_deducted: number;
-  created_at: string;
   notes: string | null;
-  products?: any[];
-  services?: ServiceInfo[];
+  products: any[];
+  services?: any[];
   service_fee?: number;
   service_type_id?: number | null;
   staff?: {
     name: string;
   };
+}
+
+interface BalanceHistory {
+  id: number;
+  created_at: string;
+  customer_id: string;
+  amount: number;
+  previous_balance: number;
+  new_balance: number;
+  note: string | null;
+  transaction_id: number | null;
+  staff_name?: string;
 }
 
 // Helper functions
@@ -113,12 +127,8 @@ const getSafeNumber = (value: any): number => {
   return isNaN(num) ? 0 : num;
 };
 
-const getTransactionIdDisplay = (transaction: Transaction): string => {
-  if (transaction.id) {
-    const idStr = String(transaction.id);
-    return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
-  }
-  return '#Unknown';
+const getTransactionIdDisplay = (id: number): string => {
+  return `#${id}`;
 };
 
 function CustomersContent() {
@@ -131,9 +141,12 @@ function CustomersContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
+  const [balanceHistory, setBalanceHistory] = useState<BalanceHistory[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [loadingBalanceHistory, setLoadingBalanceHistory] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState('');
+  const [showBalanceHistory, setShowBalanceHistory] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   const [showAddEditModal, setShowAddEditModal] = useState(false);
@@ -222,7 +235,6 @@ function CustomersContent() {
       const sixtyDaysAgo = new Date();
       sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-      // Delete old transactions
       const { error } = await supabase
         .from('transactions')
         .delete()
@@ -301,7 +313,6 @@ function CustomersContent() {
   const fetchCustomerTransactions = async (customerId: string) => {
     try {
       setLoadingTransactions(true);
-      setTransactionSearch('');
       
       const { data, error } = await supabase
         .from('transactions')
@@ -311,8 +322,13 @@ function CustomersContent() {
       
       if (error) throw error;
       
-      setCustomerTransactions(data || []);
-      setFilteredTransactions(data || []);
+      const formattedTransactions = (data || []).map(t => ({
+        ...t,
+        staff_name: t.staff?.name || null
+      }));
+      
+      setCustomerTransactions(formattedTransactions);
+      setFilteredTransactions(formattedTransactions);
       setCurrentPage(1);
       
     } catch (error) {
@@ -324,34 +340,56 @@ function CustomersContent() {
     }
   };
 
+  const fetchBalanceHistory = async (customerId: string) => {
+    try {
+      setLoadingBalanceHistory(true);
+      
+      const { data, error } = await supabase
+        .from('customer_balance_history')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Try to get staff names for manual adjustments
+      const historyWithStaff = await Promise.all((data || []).map(async (item) => {
+        if (item.staff_id) {
+          const { data: staffData } = await supabase
+            .from('staff')
+            .select('name')
+            .eq('id', item.staff_id)
+            .single();
+          return { ...item, staff_name: staffData?.name };
+        }
+        return item;
+      }));
+      
+      setBalanceHistory(historyWithStaff);
+      
+    } catch (error) {
+      console.error('Error fetching balance history:', error);
+      setBalanceHistory([]);
+    } finally {
+      setLoadingBalanceHistory(false);
+    }
+  };
+
   const handleCustomerSelect = async (customer: Customer) => {
     setSelectedCustomer(customer);
-    await fetchCustomerTransactions(customer.id);
+    await Promise.all([
+      fetchCustomerTransactions(customer.id),
+      fetchBalanceHistory(customer.id)
+    ]);
   };
 
-  const calculateCustomerStats = () => {
-    if (!selectedCustomer) {
-      return {
-        totalBalance: 0,
-        totalTransactions: 0
-      };
-    }
-    
-    const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
-    
-    return {
-      totalBalance: getSafeNumber(selectedCustomer.balance),
-      totalTransactions: completedTransactions.length
-    };
-  };
-
-  // Print receipt with proper format matching POS.tsx
+  // EXACT receipt function copied from transactions page
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       console.log('🖨️ Generating receipt for transaction:', transaction.id);
       
       const customer = selectedCustomer || 
-        customers.find(c => c.id === transaction.customer_id) || 
+        customers.find(c => c.id === transaction.customer_id?.toString()) || 
         { 
           id: '', 
           name: 'Walk-in Customer', 
@@ -423,7 +461,7 @@ function CustomersContent() {
         subtotal: getSafeNumber(transaction.subtotal),
         vat: getSafeNumber(transaction.vat),
         total: getSafeNumber(transaction.total),
-        paymentMethod: transaction.payment_method || 'cash',
+        paymentMethod: transaction.payment_method as any,
         products: transactionItems,
         customer: {
           id: customer.id,
@@ -561,6 +599,7 @@ function CustomersContent() {
         setCustomers([data, ...customers]);
         setSelectedCustomer(data);
         await fetchCustomerTransactions(data.id);
+        await fetchBalanceHistory(data.id);
       }
       
       setShowAddEditModal(false);
@@ -596,6 +635,7 @@ function CustomersContent() {
       if (selectedCustomer?.id === customerId) {
         setSelectedCustomer(null);
         setCustomerTransactions([]);
+        setBalanceHistory([]);
       }
       
     } catch (error: any) {
@@ -644,11 +684,26 @@ function CustomersContent() {
 
       if (updateError) throw updateError;
 
+      // Log to balance history
+      await supabase.from('customer_balance_history').insert({
+        user_id: userId,
+        customer_id: selectedCustomer.id,
+        staff_id: currentStaff.id,
+        amount: adjustmentAmount,
+        previous_balance: previousBalance,
+        new_balance: newBalance,
+        note: balanceAdjustment.reason,
+        created_at: new Date().toISOString()
+      });
+
       const updatedCustomer = { ...selectedCustomer, balance: newBalance };
       setSelectedCustomer(updatedCustomer);
       setCustomers(customers.map(c => 
         c.id === selectedCustomer.id ? updatedCustomer : c
       ));
+
+      // Refresh balance history
+      await fetchBalanceHistory(selectedCustomer.id);
 
       setShowAdjustBalanceModal(false);
       setBalanceAdjustment({
@@ -701,8 +756,6 @@ function CustomersContent() {
     (currentPage - 1) * transactionsPerPage,
     currentPage * transactionsPerPage
   );
-
-  const stats = calculateCustomerStats();
 
   if (loading) {
     return (
@@ -783,6 +836,83 @@ function CustomersContent() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Balance History Modal */}
+      {showBalanceHistory && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-border">
+            <div className="p-6 border-b border-border">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-foreground">Balance History - {selectedCustomer.name}</h2>
+                <button
+                  onClick={() => setShowBalanceHistory(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-muted-foreground mt-1">Current balance: £{selectedCustomer.balance.toFixed(2)}</p>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingBalanceHistory ? (
+                <div className="text-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
+                  <p className="text-muted-foreground">Loading history...</p>
+                </div>
+              ) : balanceHistory.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+                  <p className="text-muted-foreground">No balance history found</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {balanceHistory.map((item) => (
+                    <div key={item.id} className="p-4 bg-background rounded-lg border border-border">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            item.amount > 0 
+                              ? 'bg-primary/10 text-primary border border-primary/20'
+                              : 'bg-destructive/10 text-destructive border border-destructive/20'
+                          }`}>
+                            {item.amount > 0 ? 'Credit +' : 'Debit '}£{Math.abs(item.amount).toFixed(2)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(item.created_at, true)}
+                        </span>
+                      </div>
+                      
+                      <div className="text-sm text-foreground mb-2">
+                        {item.note || 'No reason provided'}
+                      </div>
+                      
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Previous: £{item.previous_balance.toFixed(2)}</span>
+                        <span>→</span>
+                        <span className="font-medium">New: £{item.new_balance.toFixed(2)}</span>
+                      </div>
+                      
+                      {item.staff_name && (
+                        <div className="mt-2 text-xs text-muted-foreground border-t border-border pt-2">
+                          Processed by: {item.staff_name}
+                        </div>
+                      )}
+                      
+                      {item.transaction_id && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Transaction: #{item.transaction_id}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1018,7 +1148,7 @@ function CustomersContent() {
         <p className="text-muted-foreground mt-2">Manage your customers and view their transaction history</p>
       </div>
       
-      {/* Stats Overview - Simplified */}
+      {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
@@ -1230,16 +1360,18 @@ function CustomersContent() {
                   </div>
                 </div>
                 
-                {/* Customer Stats - Simplified */}
+                {/* Customer Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
                     <div className="text-sm font-medium text-muted-foreground">Current Balance</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.totalBalance.toFixed(2)}</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">£{getSafeNumber(selectedCustomer.balance).toFixed(2)}</div>
                   </div>
                   
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
                     <div className="text-sm font-medium text-muted-foreground">Total Transactions</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">{stats.totalTransactions}</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">
+                      {customerTransactions.filter(t => t.status === 'completed').length}
+                    </div>
                   </div>
                 </div>
                 
@@ -1264,13 +1396,25 @@ function CustomersContent() {
                         {filteredTransactions.length} transactions • Last 60 days
                       </p>
                     </div>
-                    <button
-                      onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
-                      className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium flex items-center gap-2"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Refresh
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setShowBalanceHistory(true);
+                        }}
+                        className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium flex items-center gap-2"
+                        title="View Balance History"
+                      >
+                        <History className="w-4 h-4" />
+                        Balance History
+                      </button>
+                      <button
+                        onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
+                        className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium flex items-center gap-2"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                   
                   {/* Transaction Search */}
@@ -1318,14 +1462,14 @@ function CustomersContent() {
 
                         return (
                           <div
-                            key={String(transaction.id)}
+                            key={transaction.id}
                             className="bg-background border border-border rounded-lg p-4 hover:border-primary/30 transition-all"
                           >
                             <div className="flex items-start justify-between mb-3">
                               <div>
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <span className="font-bold text-foreground">
-                                    #{getTransactionIdDisplay(transaction)}
+                                    {getTransactionIdDisplay(transaction.id)}
                                   </span>
                                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                                     transaction.status === 'completed' 
@@ -1334,7 +1478,7 @@ function CustomersContent() {
                                       ? 'bg-accent text-foreground'
                                       : 'bg-destructive/20 text-destructive'
                                   }`}>
-                                    {transaction.status || 'unknown'}
+                                    {transaction.status || 'completed'}
                                   </span>
                                   <span className="px-2 py-0.5 bg-muted rounded-full text-xs text-muted-foreground capitalize">
                                     {transaction.payment_method}
