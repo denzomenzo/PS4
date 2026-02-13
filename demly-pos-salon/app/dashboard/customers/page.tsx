@@ -230,59 +230,61 @@ function CustomersContent() {
     }
   };
 
-  const fetchCustomerTransactions = async (customerId: string) => {
-    try {
-      setLoadingTransactions(true);
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*, staff:staff_id(name)')
-        .eq('customer_id', customerId)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      setCustomerTransactions(data || []);
-      
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      setCustomerTransactions([]);
-    } finally {
-      setLoadingTransactions(false);
-    }
-  };
+const fetchCustomerTransactions = async (customerId: string) => {
+  try {
+    setLoadingTransactions(true);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*, staff:staff_id(name)')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    setCustomerTransactions(data || []);
+    
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    setCustomerTransactions([]);
+  } finally {
+    setLoadingTransactions(false);
+  }
+};
 
   const handleCustomerSelect = async (customer: Customer) => {
     setSelectedCustomer(customer);
     await fetchCustomerTransactions(customer.id);
   };
 
-  const calculateCustomerStats = () => {
-    if (!selectedCustomer || customerTransactions.length === 0) {
-      return {
-        totalSpent: 0,
-        totalTransactions: 0,
-        averageOrderValue: 0,
-        lastTransactionDate: null,
-        lastTransactionAmount: 0,
-        firstPurchaseDate: null
-      };
-    }
-    
-    const totalSpent = customerTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
-    const totalTransactions = customerTransactions.length;
-    const averageOrderValue = totalTransactions > 0 ? totalSpent / totalTransactions : 0;
-    const lastTransaction = customerTransactions[0];
-    const firstTransaction = customerTransactions[customerTransactions.length - 1];
-    
+const calculateCustomerStats = () => {
+  if (!selectedCustomer || customerTransactions.length === 0) {
     return {
-      totalSpent: Number(totalSpent.toFixed(2)),
-      totalTransactions,
-      averageOrderValue: Number(averageOrderValue.toFixed(2)),
-      lastTransactionDate: lastTransaction?.created_at || null,
-      lastTransactionAmount: getSafeNumber(lastTransaction?.total),
-      firstPurchaseDate: firstTransaction?.created_at || null
+      totalSpent: 0,
+      totalTransactions: 0,
+      averageOrderValue: 0,
+      lastTransactionDate: null,
+      lastTransactionAmount: 0,
+      firstPurchaseDate: null
     };
+  }
+  
+  // Only count completed transactions for financial stats
+  const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
+  const totalSpent = completedTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
+  const totalTransactions = completedTransactions.length;
+  const averageOrderValue = totalTransactions > 0 ? totalSpent / totalTransactions : 0;
+  const lastTransaction = customerTransactions[0]; // Most recent regardless of status
+  const firstTransaction = customerTransactions[customerTransactions.length - 1];
+  
+  return {
+    totalSpent: Number(totalSpent.toFixed(2)),
+    totalTransactions,
+    averageOrderValue: Number(averageOrderValue.toFixed(2)),
+    lastTransactionDate: lastTransaction?.created_at || null,
+    lastTransactionAmount: getSafeNumber(lastTransaction?.total),
+    firstPurchaseDate: firstTransaction?.created_at || null
   };
+};
+
 
   // Print receipt with proper format matching POS.tsx
   const printTransactionReceipt = async (transaction: Transaction) => {
@@ -1398,3 +1400,4 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
