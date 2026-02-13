@@ -78,6 +78,7 @@ interface Transaction {
   staff?: {
     name: string;
   };
+  status?: 'completed' | 'pending' | 'refunded'; 
 }
 
 interface BalanceHistory {
@@ -310,35 +311,36 @@ function CustomersContent() {
     }
   };
 
-  const fetchCustomerTransactions = async (customerId: string) => {
-    try {
-      setLoadingTransactions(true);
-      
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*, staff:staff_id(name)')
-        .eq('customer_id', customerId)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      
-      const formattedTransactions = (data || []).map(t => ({
-        ...t,
-        staff_name: t.staff?.name || null
-      }));
-      
-      setCustomerTransactions(formattedTransactions);
-      setFilteredTransactions(formattedTransactions);
-      setCurrentPage(1);
-      
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      setCustomerTransactions([]);
-      setFilteredTransactions([]);
-    } finally {
-      setLoadingTransactions(false);
-    }
-  };
+const fetchCustomerTransactions = async (customerId: string) => {
+  try {
+    setLoadingTransactions(true);
+    
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*, staff:staff_id(name)')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    const formattedTransactions = (data || []).map(t => ({
+      ...t,
+      staff_name: t.staff?.name || null,
+      status: t.status || 'completed' // Set default status if missing
+    }));
+    
+    setCustomerTransactions(formattedTransactions);
+    setFilteredTransactions(formattedTransactions);
+    setCurrentPage(1);
+    
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    setCustomerTransactions([]);
+    setFilteredTransactions([]);
+  } finally {
+    setLoadingTransactions(false);
+  }
+};
 
   const fetchBalanceHistory = async (customerId: string) => {
     try {
@@ -1639,3 +1641,4 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
+
