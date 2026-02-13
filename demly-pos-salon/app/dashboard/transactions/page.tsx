@@ -34,7 +34,9 @@ import {
   RefreshCw,
   Plus,
   Minus,
-  X
+  X,
+  ChevronRight,
+  ChevronLeft as ChevronLeftIcon
 } from "lucide-react";
 import Link from "next/link";
 
@@ -75,7 +77,7 @@ interface Return {
   staff?: {
     name: string;
   };
-  staff_name?: string; 
+  staff_name?: string;
 }
 
 type DateFilter = '7days' | '30days' | '90days' | 'all';
@@ -197,6 +199,11 @@ export default function Transactions() {
   const [refundMethod, setRefundMethod] = useState<'original' | 'balance' | 'cash'>('original');
   const [restoreInventory, setRestoreInventory] = useState(true);
   
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const transactionsPerPage = 10;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
   // Receipt
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
@@ -236,6 +243,11 @@ export default function Transactions() {
       setFilteredReturns(returns);
     }
   }, [returnSearchQuery, returns]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filteredTransactions]);
 
   // Barcode scanner for receipts
   const handleBarcodeScan = useCallback((barcode: string) => {
@@ -390,9 +402,18 @@ export default function Transactions() {
   };
 
   const initiateReturn = (transaction: Transaction) => {
+    // Check if transaction already has a return
     if (transaction.return_status === 'full') {
-      alert("This transaction has already been fully returned");
+      alert("This transaction has already been fully returned and cannot be returned again.");
       return;
+    }
+    
+    // Check if there's already a pending/partial return
+    const existingReturn = returns.find(r => r.transaction_id === transaction.id);
+    if (existingReturn && transaction.return_status === 'partial') {
+      if (!confirm("This transaction already has a partial return. Process another return?")) {
+        return;
+      }
     }
 
     setSelectedTransaction(transaction);
@@ -400,6 +421,9 @@ export default function Transactions() {
     const initialItems: {[key: string]: number} = {};
     transaction.products?.forEach((product: any) => {
       const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
+      // Calculate remaining quantity that hasn't been returned
+      const returnedQty = product.returned_quantity || 0;
+      const availableQty = getSafeNumber(product.quantity) - returnedQty;
       initialItems[productId] = 0;
     });
     
@@ -465,6 +489,58 @@ export default function Transactions() {
         await openCashDrawer();
       }
 
+      // Handle balance refund FIRST before creating return record
+      if (refundMethod === 'balance' && selectedTransaction.customer_id) {
+        console.log('Processing balance refund...');
+        
+        // Get current customer balance
+        const { data: customer, error: customerError } = await supabase
+          .from("customers")
+          .select("balance")
+          .eq("id", selectedTransaction.customer_id)
+          .single();
+
+        if (customerError) throw customerError;
+        
+        console.log('Current customer balance:', customer.balance);
+        
+        const currentBalance = getSafeNumber(customer.balance);
+        const newBalance = currentBalance + totalRefund;
+        
+        console.log('New balance will be:', newBalance);
+
+        // Update customer balance
+        const { error: updateError } = await supabase
+          .from("customers")
+          .update({ 
+            balance: newBalance,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", selectedTransaction.customer_id);
+
+        if (updateError) throw updateError;
+
+        // Log to balance history
+        const { error: historyError } = await supabase
+          .from("customer_balance_history")
+          .insert({
+            user_id: userId,
+            customer_id: selectedTransaction.customer_id,
+            staff_id: currentStaff.id,
+            amount: totalRefund,
+            previous_balance: currentBalance,
+            new_balance: newBalance,
+            note: `Return for transaction #${selectedTransaction.id} - ${returnReason}`,
+            transaction_id: selectedTransaction.id,
+            created_at: new Date().toISOString()
+          });
+
+        if (historyError) throw historyError;
+        
+        console.log('Balance refund completed successfully');
+      }
+
+      // Create return record
       const returnData = {
         user_id: userId,
         transaction_id: selectedTransaction.id,
@@ -485,6 +561,7 @@ export default function Transactions() {
 
       if (returnError) throw returnError;
 
+      // Update transaction with return info
       const newReturnedAmount = (selectedTransaction.returned_amount || 0) + totalRefund;
       const isFullReturn = Math.abs(newReturnedAmount - selectedTransaction.total) < 0.01;
 
@@ -498,33 +575,7 @@ export default function Transactions() {
 
       if (updateError) throw updateError;
 
-      if (refundMethod === 'balance' && selectedTransaction.customer_id) {
-        const { data: customer } = await supabase
-          .from("customers")
-          .select("balance")
-          .eq("id", selectedTransaction.customer_id)
-          .single();
-
-        if (customer) {
-          const newBalance = (customer.balance || 0) + totalRefund;
-          
-          await supabase
-            .from("customers")
-            .update({ balance: newBalance })
-            .eq("id", selectedTransaction.customer_id);
-
-          await supabase.from("customer_balance_history").insert({
-            user_id: userId,
-            customer_id: selectedTransaction.customer_id,
-            amount: totalRefund,
-            previous_balance: customer.balance,
-            new_balance: newBalance,
-            note: `Return for transaction #${selectedTransaction.id} - ${returnReason}`,
-            transaction_id: selectedTransaction.id
-          });
-        }
-      }
-
+      // Restore inventory if selected
       if (restoreInventory) {
         for (const item of itemsToReturn) {
           const product = selectedTransaction.products.find(p => p.id === item.product_id);
@@ -703,6 +754,13 @@ export default function Transactions() {
     );
   };
 
+  // Pagination
+  const totalPages = Math.ceil(filteredTransactions.length / transactionsPerPage);
+  const paginatedTransactions = filteredTransactions.slice(
+    (currentPage - 1) * transactionsPerPage,
+    currentPage * transactionsPerPage
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -865,197 +923,231 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Transactions List */}
-      <div className="space-y-3">
-        {filteredTransactions.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-12 text-center">
-            <Receipt className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-bold text-foreground mb-2">No Transactions Found</h3>
-            <p className="text-muted-foreground">
-              {searchQuery ? 'Try adjusting your search criteria' : 'No transactions in this period'}
-            </p>
-          </div>
-        ) : (
-          filteredTransactions.map((transaction) => {
-            const serviceInfo = transaction.services && transaction.services.length > 0 
-              ? transaction.services[0] 
-              : transaction.service_type_id 
-              ? { name: 'Service', fee: transaction.service_fee || 0 }
-              : null;
+      {/* Transactions List - Scrollable Grid */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div 
+          ref={scrollContainerRef}
+          className="overflow-y-auto max-h-[600px] p-4 space-y-3"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'var(--border) var(--background)'
+          }}
+        >
+          {paginatedTransactions.length === 0 ? (
+            <div className="p-12 text-center">
+              <Receipt className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-foreground mb-2">No Transactions Found</h3>
+              <p className="text-muted-foreground">
+                {searchQuery ? 'Try adjusting your search criteria' : 'No transactions in this period'}
+              </p>
+            </div>
+          ) : (
+            paginatedTransactions.map((transaction) => {
+              const serviceInfo = transaction.services && transaction.services.length > 0 
+                ? transaction.services[0] 
+                : transaction.service_type_id 
+                ? { name: 'Service', fee: transaction.service_fee || 0 }
+                : null;
 
-            return (
-              <div
-                key={transaction.id}
-                id={`transaction-${transaction.id}`}
-                className={`bg-card border rounded-xl transition-all ${
-                  lastScannedBarcode === transaction.id.toString()
-                    ? 'border-primary shadow-lg shadow-primary/20'
-                    : 'border-border'
-                }`}
-              >
-                {/* Transaction Header */}
+              return (
                 <div
-                  className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => setExpandedTransaction(
-                    expandedTransaction === transaction.id ? null : transaction.id
-                  )}
+                  key={transaction.id}
+                  id={`transaction-${transaction.id}`}
+                  className={`bg-card border rounded-xl transition-all ${
+                    lastScannedBarcode === transaction.id.toString()
+                      ? 'border-primary shadow-lg shadow-primary/20'
+                      : 'border-border'
+                  }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 flex-1">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-lg font-bold text-foreground">
-                            {getTransactionIdDisplay(transaction.id)}
-                          </span>
-                          {getReturnStatusBadge(transaction.return_status)}
-                          {getPaymentMethodBadge(transaction.payment_method)}
-                          {serviceInfo && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                              <Coffee className="w-3 h-3" />
-                              {serviceInfo.name}
+                  {/* Transaction Header */}
+                  <div
+                    className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => setExpandedTransaction(
+                      expandedTransaction === transaction.id ? null : transaction.id
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 flex-1">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-lg font-bold text-foreground">
+                              {getTransactionIdDisplay(transaction.id)}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-4 h-4" />
-                            {formatDate(transaction.created_at, true)}
-                          </span>
-                          {transaction.customer_name && (
+                            {getReturnStatusBadge(transaction.return_status)}
+                            {getPaymentMethodBadge(transaction.payment_method)}
+                            {serviceInfo && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                                <Coffee className="w-3 h-3" />
+                                {serviceInfo.name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                             <span className="flex items-center gap-1">
-                              <User className="w-4 h-4" />
-                              {transaction.customer_name}
+                              <Calendar className="w-4 h-4" />
+                              {formatDate(transaction.created_at, true)}
                             </span>
-                          )}
-                          {transaction.staff_name && (
-                            <span className="text-xs">
-                              Staff: {transaction.staff_name}
-                            </span>
-                          )}
+                            {transaction.customer_name && (
+                              <span className="flex items-center gap-1">
+                                <User className="w-4 h-4" />
+                                {transaction.customer_name}
+                              </span>
+                            )}
+                            {transaction.staff_name && (
+                              <span className="text-xs">
+                                Staff: {transaction.staff_name}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-foreground">
-                          £{getSafeNumber(transaction.total).toFixed(2)}
-                        </p>
-                        {getSafeNumber(transaction.returned_amount) > 0 && (
-                          <p className="text-sm text-destructive">
-                            -£{getSafeNumber(transaction.returned_amount).toFixed(2)} returned
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-foreground">
+                            £{getSafeNumber(transaction.total).toFixed(2)}
                           </p>
+                          {getSafeNumber(transaction.returned_amount) > 0 && (
+                            <p className="text-sm text-destructive">
+                              -£{getSafeNumber(transaction.returned_amount).toFixed(2)} returned
+                            </p>
+                          )}
+                        </div>
+                        {expandedTransaction === transaction.id ? (
+                          <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-muted-foreground" />
                         )}
                       </div>
-                      {expandedTransaction === transaction.id ? (
-                        <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                      )}
                     </div>
                   </div>
-                </div>
 
-                {/* Expanded Details */}
-                {expandedTransaction === transaction.id && (
-                  <div className="border-t border-border p-4">
-                    {/* Products */}
-                    <div className="mb-4">
-                      <h4 className="text-sm font-bold text-foreground mb-3">Items Purchased</h4>
-                      <div className="space-y-2">
-                        {transaction.products?.map((product: any, index: number) => (
-                          <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
-                            <div className="flex-1">
-                              <p className="font-medium text-foreground">{product.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                £{getSafeNumber(product.price).toFixed(2)} × {getSafeNumber(product.quantity)}
-                                {getSafeNumber(product.discount) > 0 && (
-                                  <span className="text-primary ml-2">
-                                    (-£{getSafeNumber(product.discount).toFixed(2)} discount)
-                                  </span>
-                                )}
+                  {/* Expanded Details */}
+                  {expandedTransaction === transaction.id && (
+                    <div className="border-t border-border p-4">
+                      {/* Products */}
+                      <div className="mb-4">
+                        <h4 className="text-sm font-bold text-foreground mb-3">Items Purchased</h4>
+                        <div className="space-y-2">
+                          {transaction.products?.map((product: any, index: number) => (
+                            <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
+                              <div className="flex-1">
+                                <p className="font-medium text-foreground">{product.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  £{getSafeNumber(product.price).toFixed(2)} × {getSafeNumber(product.quantity)}
+                                  {getSafeNumber(product.discount) > 0 && (
+                                    <span className="text-primary ml-2">
+                                      (-£{getSafeNumber(product.discount).toFixed(2)} discount)
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                              <p className="font-bold text-foreground">
+                                £{((getSafeNumber(product.price) * getSafeNumber(product.quantity)) - getSafeNumber(product.discount)).toFixed(2)}
                               </p>
                             </div>
-                            <p className="font-bold text-foreground">
-                              £{((getSafeNumber(product.price) * getSafeNumber(product.quantity)) - getSafeNumber(product.discount)).toFixed(2)}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Service Info */}
-                    {serviceInfo && (
-                      <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Coffee className="w-4 h-4 text-primary" />
-                            <span className="font-medium text-foreground">{serviceInfo.name}</span>
-                          </div>
-                          <span className="text-primary font-bold">+£{getSafeNumber(serviceInfo.fee).toFixed(2)}</span>
+                          ))}
                         </div>
                       </div>
-                    )}
 
-                    {/* Totals */}
-                    <div className="bg-muted/50 rounded-lg p-4 mb-4">
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Subtotal</span>
-                          <span className="font-medium text-foreground">£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
-                        </div>
-                        {getSafeNumber(transaction.vat) > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">VAT (20%)</span>
-                            <span className="font-medium text-foreground">£{getSafeNumber(transaction.vat).toFixed(2)}</span>
+                      {/* Service Info */}
+                      {serviceInfo && (
+                        <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Coffee className="w-4 h-4 text-primary" />
+                              <span className="font-medium text-foreground">{serviceInfo.name}</span>
+                            </div>
+                            <span className="text-primary font-bold">+£{getSafeNumber(serviceInfo.fee).toFixed(2)}</span>
                           </div>
-                        )}
-                        {getSafeNumber(transaction.balance_deducted) > 0 && (
-                          <div className="flex justify-between text-purple-600">
-                            <span>Balance Used</span>
-                            <span className="font-medium">£{getSafeNumber(transaction.balance_deducted).toFixed(2)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between pt-2 border-t border-border">
-                          <span className="font-bold text-foreground">Total</span>
-                          <span className="font-bold text-foreground text-lg">£{getSafeNumber(transaction.total).toFixed(2)}</span>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Notes */}
-                    {transaction.notes && (
-                      <div className="mb-4 p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
-                        <p className="text-sm text-foreground">
-                          <span className="font-medium">Note:</span> {transaction.notes}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => reprintReceipt(transaction)}
-                        className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Printer className="w-4 h-4" />
-                        Print Receipt
-                      </button>
-                      {transaction.return_status !== 'full' && (
-                        <button
-                          onClick={() => initiateReturn(transaction)}
-                          className="flex-1 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors flex items-center justify-center gap-2 border border-primary/20"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          Process Return
-                        </button>
                       )}
+
+                      {/* Totals */}
+                      <div className="bg-muted/50 rounded-lg p-4 mb-4">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Subtotal</span>
+                            <span className="font-medium text-foreground">£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
+                          </div>
+                          {getSafeNumber(transaction.vat) > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">VAT (20%)</span>
+                              <span className="font-medium text-foreground">£{getSafeNumber(transaction.vat).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {getSafeNumber(transaction.balance_deducted) > 0 && (
+                            <div className="flex justify-between text-purple-600">
+                              <span>Balance Used</span>
+                              <span className="font-medium">£{getSafeNumber(transaction.balance_deducted).toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-2 border-t border-border">
+                            <span className="font-bold text-foreground">Total</span>
+                            <span className="font-bold text-foreground text-lg">£{getSafeNumber(transaction.total).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Notes */}
+                      {transaction.notes && (
+                        <div className="mb-4 p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                          <p className="text-sm text-foreground">
+                            <span className="font-medium">Note:</span> {transaction.notes}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => reprintReceipt(transaction)}
+                          className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Printer className="w-4 h-4" />
+                          Print Receipt
+                        </button>
+                        {transaction.return_status !== 'full' && (
+                          <button
+                            onClick={() => initiateReturn(transaction)}
+                            className="flex-1 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors flex items-center justify-center gap-2 border border-primary/20"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            Process Return
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="border-t border-border p-4 flex items-center justify-between">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+            >
+              <ChevronLeftIcon className="w-4 h-4" />
+              Previous
+            </button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -1279,7 +1371,7 @@ export default function Transactions() {
         </div>
       )}
 
-      {/* Returns History Modal - FIXED with search and staff names */}
+      {/* Returns History Modal */}
       {showReturnsHistory && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-card border border-border rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -1362,7 +1454,9 @@ export default function Transactions() {
                       <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                         <div>
                           <p className="text-muted-foreground">Processed By</p>
-                          <p className="font-medium text-foreground">{returnItem.processed_by || returnItem.staff_name || 'System'}</p>
+                          <p className="font-medium text-foreground">
+                            {returnItem.processed_by || returnItem.staff?.name || returnItem.staff_name || 'System'}
+                          </p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Inventory Restored</p>
@@ -1404,4 +1498,3 @@ export default function Transactions() {
     </div>
   );
 }
-
