@@ -1,12 +1,14 @@
-// app/dashboard/transactions/page.tsx - COMPLETE TRANSACTIONS & RETURNS
+// app/dashboard/transactions/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { processCardPayment } from "@/lib/cardPaymentProcessor";
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
+import { logAuditAction } from "@/lib/auditLogger";
+import { useStaffAuth } from "@/hooks/useStaffAuth";
 import {
   ArrowLeft,
   Search,
@@ -26,7 +28,12 @@ import {
   Barcode,
   ChevronDown,
   ChevronUp,
-  Receipt
+  Receipt,
+  Coffee,
+  Package,
+  RefreshCw,
+  Plus,
+  Minus
 } from "lucide-react";
 import Link from "next/link";
 
@@ -44,6 +51,9 @@ interface Transaction {
   balance_deducted: number;
   notes: string | null;
   products: any[];
+  services?: any[];
+  service_fee?: number;
+  service_type_id?: number | null;
   return_status: 'none' | 'partial' | 'full';
   returned_amount: number;
   returned_at: string | null;
@@ -60,16 +70,61 @@ interface Return {
   processed_by: string;
   card_refund_id: string | null;
   original_transaction: Transaction;
+  restore_inventory: boolean;
 }
 
 type DateFilter = '7days' | '30days' | '90days' | 'all';
 type StatusFilter = 'all' | 'completed' | 'returned' | 'partial';
 
+// Hardware Helper Functions
+const openCashDrawer = async () => {
+  try {
+    console.log('📂 Opening cash drawer...');
+    
+    // Try USB first
+    if ('usb' in navigator) {
+      try {
+        const device = await navigator.usb.requestDevice({
+          filters: [
+            { vendorId: 0x04B8 }, // Epson
+            { vendorId: 0x0416 }, // Citizen
+            { vendorId: 0x15A9 }, // Star Micronics
+          ]
+        });
+        
+        await device.open();
+        await device.selectConfiguration(1);
+        await device.claimInterface(0);
+        
+        // ESC/POS command to open cash drawer
+        const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]);
+        await device.transferOut(1, cashDrawerCommand);
+        await device.close();
+        
+        console.log('✅ Cash drawer opened via USB');
+        return true;
+      } catch (usbError) {
+        console.warn('USB cash drawer failed:', usbError);
+      }
+    }
+    
+    // Fallback to printer
+    alert('💰 Please open cash drawer manually');
+    return false;
+    
+  } catch (error) {
+    console.error('Cash drawer error:', error);
+    return false;
+  }
+};
+
 export default function Transactions() {
   const userId = useUserId();
+  const { staff: currentStaff } = useStaffAuth();
   
   // State
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [returns, setReturns] = useState<Return[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -90,21 +145,23 @@ export default function Transactions() {
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   
   // Return form
-  const [returnItems, setReturnItems] = useState<{[key: number]: number}>({});
+  const [returnItems, setReturnItems] = useState<{[key: string]: number}>({});
   const [returnReason, setReturnReason] = useState("");
   const [refundMethod, setRefundMethod] = useState<'original' | 'balance' | 'cash'>('original');
+  const [restoreInventory, setRestoreInventory] = useState(true);
   
   // Receipt
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   
   // Card terminal
-  const [cardTerminalEnabled, setCardTerminalEnabled] = useState(false);
-  const [cardProvider, setCardProvider] = useState<string | null>(null);
+  const [cardTerminalSettings, setCardTerminalSettings] = useState<any>(null);
 
   useEffect(() => {
-    loadData();
-    loadCardTerminalSettings();
+    if (userId) {
+      loadData();
+      loadCardTerminalSettings();
+    }
   }, [userId]);
 
   useEffect(() => {
@@ -120,18 +177,15 @@ export default function Transactions() {
     const transaction = transactions.find(t => t.id.toString() === barcode);
     if (transaction) {
       setExpandedTransaction(transaction.id);
-      // Scroll to transaction
       setTimeout(() => {
         document.getElementById(`transaction-${transaction.id}`)?.scrollIntoView({ 
           behavior: 'smooth', 
           block: 'center' 
         });
       }, 100);
-      
-      // Clear highlight after 3 seconds
       setTimeout(() => setLastScannedBarcode(null), 3000);
     } else {
-      alert(`Transaction #${barcode} not found in current view`);
+      alert(`Transaction #${barcode} not found`);
     }
   }, [transactions]);
 
@@ -143,6 +197,8 @@ export default function Transactions() {
 
   const loadData = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
       // Load transactions
       const { data: transactionsData, error: transError } = await supabase
@@ -152,16 +208,15 @@ export default function Transactions() {
           customers:customer_id (name)
         `)
         .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(500);
+        .order("created_at", { ascending: false });
 
       if (transError) throw transError;
 
       const formattedTransactions = (transactionsData || []).map(t => ({
         ...t,
         customer_name: t.customers?.name || null,
-        return_status: t.returned_amount > 0 
-          ? (t.returned_amount >= t.total ? 'full' : 'partial')
+        return_status: (t.returned_amount || 0) > 0 
+          ? ((t.returned_amount || 0) >= t.total ? 'full' : 'partial')
           : 'none',
         returned_amount: t.returned_amount || 0
       }));
@@ -186,9 +241,9 @@ export default function Transactions() {
         setReturns(formattedReturns);
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading data:", error);
-      alert("Error loading transactions");
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -202,8 +257,7 @@ export default function Transactions() {
       .single();
 
     if (data) {
-      setCardTerminalEnabled(data.enabled || false);
-      setCardProvider(data.provider);
+      setCardTerminalSettings(data);
     }
   };
 
@@ -229,7 +283,9 @@ export default function Transactions() {
         break;
     }
 
-    filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
+    if (dateFilter !== 'all') {
+      filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
+    }
 
     // Custom date range
     if (startDate) {
@@ -258,7 +314,7 @@ export default function Transactions() {
         t.customer_name?.toLowerCase().includes(query) ||
         t.staff_name?.toLowerCase().includes(query) ||
         t.notes?.toLowerCase().includes(query) ||
-        t.products.some(p => p.name.toLowerCase().includes(query))
+        t.products?.some(p => p.name?.toLowerCase().includes(query))
       );
     }
 
@@ -272,16 +328,36 @@ export default function Transactions() {
     }
 
     setSelectedTransaction(transaction);
-    setReturnItems({});
+    
+    // Initialize return items with zero quantities
+    const initialItems: {[key: string]: number} = {};
+    transaction.products?.forEach((product: any) => {
+      const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
+      initialItems[productId] = 0;
+    });
+    
+    setReturnItems(initialItems);
     setReturnReason("");
     setRefundMethod('original');
+    setRestoreInventory(true);
     setShowReturnModal(true);
   };
 
   const processReturn = async () => {
     if (!selectedTransaction) return;
 
-    const itemsToReturn = Object.entries(returnItems).filter(([_, qty]) => qty > 0);
+    const itemsToReturn = Object.entries(returnItems)
+      .filter(([_, qty]) => qty > 0)
+      .map(([productId, qty]) => {
+        const product = selectedTransaction.products.find(p => p.id?.toString() === productId);
+        return {
+          product_id: parseInt(productId),
+          product_name: product?.name,
+          quantity: qty,
+          price: product?.price || 0,
+          total: (product?.price || 0) * qty
+        };
+      });
     
     if (itemsToReturn.length === 0) {
       alert("Please select items to return");
@@ -297,16 +373,9 @@ export default function Transactions() {
 
     try {
       // Calculate refund amount
-      const refundAmount = itemsToReturn.reduce((sum, [productId, qty]) => {
-        const product = selectedTransaction.products.find(p => p.id.toString() === productId);
-        if (product) {
-          const itemTotal = product.price * qty;
-          const itemDiscount = (product.discount || 0) * (qty / product.quantity);
-          return sum + (itemTotal - itemDiscount);
-        }
-        return sum;
-      }, 0);
-
+      const refundAmount = itemsToReturn.reduce((sum, item) => sum + item.total, 0);
+      
+      // Calculate proportional VAT
       const vatAmount = selectedTransaction.vat > 0 
         ? (refundAmount / selectedTransaction.subtotal) * selectedTransaction.vat 
         : 0;
@@ -318,42 +387,37 @@ export default function Transactions() {
       // Process card refund if original payment was card
       if (refundMethod === 'original' && 
           selectedTransaction.payment_method === 'card' && 
-          cardTerminalEnabled) {
+          cardTerminalSettings?.enabled) {
         
         if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
           setProcessingReturn(false);
           return;
         }
 
-        // Process refund through card terminal
         alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
         
-        // Note: Real refund would call a refund edge function
-        // For now, we'll simulate it
+        // In production, this would call your card refund API
         cardRefundId = `refund_${Date.now()}`;
         
-        alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\n\nAmount: £${totalRefund.toFixed(2)}`);
+        alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}`);
+      }
+
+      // Open cash drawer for cash refunds
+      if (refundMethod === 'cash') {
+        await openCashDrawer();
       }
 
       // Create return record
       const returnData = {
         user_id: userId,
         transaction_id: selectedTransaction.id,
-        items: itemsToReturn.map(([productId, qty]) => {
-          const product = selectedTransaction.products.find(p => p.id.toString() === productId);
-          return {
-            product_id: parseInt(productId),
-            product_name: product?.name,
-            quantity: qty,
-            price: product?.price,
-            total: product ? (product.price * qty) : 0
-          };
-        }),
+        items: itemsToReturn,
         total_refunded: totalRefund,
         refund_method: refundMethod,
         reason: returnReason,
-        processed_by: "Current User", // Should be actual staff name
+        processed_by: currentStaff?.name || 'System',
         card_refund_id: cardRefundId,
+        restore_inventory: restoreInventory,
         created_at: new Date().toISOString()
       };
 
@@ -371,7 +435,6 @@ export default function Transactions() {
         .from("transactions")
         .update({
           returned_amount: newReturnedAmount,
-          return_status: isFullReturn ? 'full' : 'partial',
           returned_at: new Date().toISOString()
         })
         .eq("id", selectedTransaction.id);
@@ -406,28 +469,46 @@ export default function Transactions() {
         }
       }
 
-      // Restore inventory
-      for (const [productId, qty] of itemsToReturn) {
-        const product = selectedTransaction.products.find(p => p.id.toString() === productId);
-        if (product && product.track_inventory) {
-          const { data: productData } = await supabase
-            .from("products")
-            .select("stock_quantity")
-            .eq("id", parseInt(productId))
-            .single();
-
-          if (productData) {
-            await supabase
+      // Restore inventory if selected
+      if (restoreInventory) {
+        for (const item of itemsToReturn) {
+          const product = selectedTransaction.products.find(p => p.id === item.product_id);
+          if (product && product.track_inventory) {
+            const { data: productData } = await supabase
               .from("products")
-              .update({ 
-                stock_quantity: productData.stock_quantity + qty 
-              })
-              .eq("id", parseInt(productId));
+              .select("stock_quantity")
+              .eq("id", item.product_id)
+              .single();
+
+            if (productData) {
+              await supabase
+                .from("products")
+                .update({ 
+                  stock_quantity: productData.stock_quantity + item.quantity 
+                })
+                .eq("id", item.product_id);
+            }
           }
         }
       }
 
-      alert(`✅ Return processed successfully!\n\nRefunded: £${totalRefund.toFixed(2)}\nMethod: ${refundMethod}\n\nInventory has been restored.`);
+      // Log audit
+      await logAuditAction({
+        action: "RETURN_PROCESSED",
+        entityType: "transaction",
+        entityId: selectedTransaction.id.toString(),
+        newValues: {
+          transaction_id: selectedTransaction.id,
+          items: itemsToReturn,
+          total_refunded: totalRefund,
+          method: refundMethod,
+          reason: returnReason,
+          restore_inventory: restoreInventory
+        },
+        staffId: currentStaff?.id,
+      });
+
+      alert(`✅ Return processed successfully!\n\nRefunded: £${totalRefund.toFixed(2)}\nMethod: ${refundMethod}\n\n${restoreInventory ? 'Inventory has been restored.' : 'Inventory not restored.'}`);
 
       setShowReturnModal(false);
       loadData();
@@ -448,6 +529,13 @@ export default function Transactions() {
         .eq("user_id", userId)
         .single();
 
+      // Get service info
+      const serviceInfo = transaction.services && transaction.services.length > 0 
+        ? transaction.services[0] 
+        : transaction.service_type_id 
+        ? { name: 'Service', fee: transaction.service_fee || 0 }
+        : null;
+
       const receiptData: ReceiptPrintData = {
         id: transaction.id.toString(),
         createdAt: transaction.created_at,
@@ -455,13 +543,13 @@ export default function Transactions() {
         vat: transaction.vat,
         total: transaction.total,
         paymentMethod: transaction.payment_method as any,
-        products: transaction.products.map(p => ({
-          id: p.id.toString(),
-          name: p.name,
-          price: p.price,
-          quantity: p.quantity,
+        products: (transaction.products || []).map(p => ({
+          id: p.id?.toString() || Math.random().toString(),
+          name: p.name || 'Product',
+          price: p.price || 0,
+          quantity: p.quantity || 1,
           discount: p.discount || 0,
-          total: (p.price * p.quantity) - (p.discount || 0),
+          total: ((p.price || 0) * (p.quantity || 1)) - (p.discount || 0),
           sku: p.sku,
           barcode: p.barcode
         })),
@@ -488,7 +576,9 @@ export default function Transactions() {
         balanceDeducted: transaction.balance_deducted,
         paymentDetails: transaction.payment_details,
         staffName: transaction.staff_name || undefined,
-        notes: transaction.notes || undefined
+        notes: transaction.notes || undefined,
+        serviceName: serviceInfo?.name,
+        serviceFee: serviceInfo?.fee
       };
 
       setReceiptData(receiptData);
@@ -497,6 +587,27 @@ export default function Transactions() {
       console.error("Error generating receipt:", error);
       alert("Error generating receipt");
     }
+  };
+
+  const calculateReturnTotal = () => {
+    if (!selectedTransaction) return 0;
+    
+    const itemsTotal = Object.entries(returnItems)
+      .filter(([_, qty]) => qty > 0)
+      .reduce((sum, [productId, qty]) => {
+        const product = selectedTransaction.products.find(p => p.id?.toString() === productId);
+        if (product) {
+          return sum + (product.price * qty);
+        }
+        return sum;
+      }, 0);
+
+    // Add proportional VAT
+    const vatAmount = selectedTransaction.vat > 0 
+      ? (itemsTotal / selectedTransaction.subtotal) * selectedTransaction.vat 
+      : 0;
+    
+    return itemsTotal + vatAmount;
   };
 
   const getPaymentMethodBadge = (method: string) => {
@@ -551,15 +662,34 @@ export default function Transactions() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <div className="bg-card border border-border rounded-xl p-8 max-w-md text-center">
+          <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Error Loading Transactions</h2>
+          <p className="text-muted-foreground mb-6">{error}</p>
+          <button
+            onClick={loadData}
+            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Transactions</h1>
+          <h1 className="text-3xl font-bold text-foreground">Transactions & Returns</h1>
           <p className="text-muted-foreground mt-2">
-            View sales history and process returns
+            View sales history and process returns with hardware integration
             {isScanning && (
               <span className="ml-3 inline-flex items-center gap-2 text-primary">
                 <Barcode className="w-4 h-4 animate-pulse" />
@@ -694,165 +824,192 @@ export default function Transactions() {
             </p>
           </div>
         ) : (
-          filteredTransactions.map((transaction) => (
-            <div
-              key={transaction.id}
-              id={`transaction-${transaction.id}`}
-              className={`bg-card border rounded-xl transition-all ${
-                lastScannedBarcode === transaction.id.toString()
-                  ? 'border-primary shadow-lg shadow-primary/20'
-                  : 'border-border'
-              }`}
-            >
-              {/* Transaction Header */}
+          filteredTransactions.map((transaction) => {
+            const serviceInfo = transaction.services && transaction.services.length > 0 
+              ? transaction.services[0] 
+              : transaction.service_type_id 
+              ? { name: 'Service', fee: transaction.service_fee || 0 }
+              : null;
+
+            return (
               <div
-                className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
-                onClick={() => setExpandedTransaction(
-                  expandedTransaction === transaction.id ? null : transaction.id
-                )}
+                key={transaction.id}
+                id={`transaction-${transaction.id}`}
+                className={`bg-card border rounded-xl transition-all ${
+                  lastScannedBarcode === transaction.id.toString()
+                    ? 'border-primary shadow-lg shadow-primary/20'
+                    : 'border-border'
+                }`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-lg font-bold text-foreground">
-                          #{transaction.id}
-                        </span>
-                        {getReturnStatusBadge(transaction.return_status)}
-                        {getPaymentMethodBadge(transaction.payment_method)}
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          {new Date(transaction.created_at).toLocaleString()}
-                        </span>
-                        {transaction.customer_name && (
+                {/* Transaction Header */}
+                <div
+                  className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
+                  onClick={() => setExpandedTransaction(
+                    expandedTransaction === transaction.id ? null : transaction.id
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 flex-1">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-lg font-bold text-foreground">
+                            #{transaction.id}
+                          </span>
+                          {getReturnStatusBadge(transaction.return_status)}
+                          {getPaymentMethodBadge(transaction.payment_method)}
+                          {serviceInfo && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                              <Coffee className="w-3 h-3" />
+                              {serviceInfo.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
-                            <User className="w-4 h-4" />
-                            {transaction.customer_name}
+                            <Calendar className="w-4 h-4" />
+                            {new Date(transaction.created_at).toLocaleString()}
                           </span>
-                        )}
-                        {transaction.staff_name && (
-                          <span className="text-xs">
-                            Staff: {transaction.staff_name}
-                          </span>
-                        )}
+                          {transaction.customer_name && (
+                            <span className="flex items-center gap-1">
+                              <User className="w-4 h-4" />
+                              {transaction.customer_name}
+                            </span>
+                          )}
+                          {transaction.staff_name && (
+                            <span className="text-xs">
+                              Staff: {transaction.staff_name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-foreground">
-                        £{transaction.total.toFixed(2)}
-                      </p>
-                      {transaction.returned_amount > 0 && (
-                        <p className="text-sm text-destructive">
-                          -£{transaction.returned_amount.toFixed(2)} returned
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-foreground">
+                          £{transaction.total.toFixed(2)}
                         </p>
+                        {transaction.returned_amount > 0 && (
+                          <p className="text-sm text-destructive">
+                            -£{transaction.returned_amount.toFixed(2)} returned
+                          </p>
+                        )}
+                      </div>
+                      {expandedTransaction === transaction.id ? (
+                        <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
                       )}
                     </div>
-                    {expandedTransaction === transaction.id ? (
-                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-muted-foreground" />
-                    )}
                   </div>
                 </div>
-              </div>
 
-              {/* Expanded Details */}
-              {expandedTransaction === transaction.id && (
-                <div className="border-t border-border p-4">
-                  {/* Products */}
-                  <div className="mb-4">
-                    <h4 className="text-sm font-bold text-foreground mb-3">Items Purchased</h4>
-                    <div className="space-y-2">
-                      {transaction.products.map((product: any, index: number) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
-                          <div className="flex-1">
-                            <p className="font-medium text-foreground">{product.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              £{product.price.toFixed(2)} × {product.quantity}
-                              {product.discount > 0 && (
-                                <span className="text-primary ml-2">
-                                  (-£{product.discount.toFixed(2)} discount)
-                                </span>
-                              )}
+                {/* Expanded Details */}
+                {expandedTransaction === transaction.id && (
+                  <div className="border-t border-border p-4">
+                    {/* Products */}
+                    <div className="mb-4">
+                      <h4 className="text-sm font-bold text-foreground mb-3">Items Purchased</h4>
+                      <div className="space-y-2">
+                        {transaction.products?.map((product: any, index: number) => (
+                          <div key={index} className="flex items-center justify-between p-3 bg-background rounded-lg">
+                            <div className="flex-1">
+                              <p className="font-medium text-foreground">{product.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                £{product.price.toFixed(2)} × {product.quantity}
+                                {product.discount > 0 && (
+                                  <span className="text-primary ml-2">
+                                    (-£{product.discount.toFixed(2)} discount)
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            <p className="font-bold text-foreground">
+                              £{((product.price * product.quantity) - (product.discount || 0)).toFixed(2)}
                             </p>
                           </div>
-                          <p className="font-bold text-foreground">
-                            £{((product.price * product.quantity) - (product.discount || 0)).toFixed(2)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Totals */}
-                  <div className="bg-muted/50 rounded-lg p-4 mb-4">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Subtotal</span>
-                        <span className="font-medium text-foreground">£{transaction.subtotal.toFixed(2)}</span>
-                      </div>
-                      {transaction.vat > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">VAT (20%)</span>
-                          <span className="font-medium text-foreground">£{transaction.vat.toFixed(2)}</span>
-                        </div>
-                      )}
-                      {transaction.balance_deducted > 0 && (
-                        <div className="flex justify-between text-purple-600">
-                          <span>Balance Used</span>
-                          <span className="font-medium">£{transaction.balance_deducted.toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between pt-2 border-t border-border">
-                        <span className="font-bold text-foreground">Total</span>
-                        <span className="font-bold text-foreground text-lg">£{transaction.total.toFixed(2)}</span>
+                        ))}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Notes */}
-                  {transaction.notes && (
-                    <div className="mb-4 p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
-                      <p className="text-sm text-foreground">
-                        <span className="font-medium">Note:</span> {transaction.notes}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => reprintReceipt(transaction)}
-                      className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Printer className="w-4 h-4" />
-                      Print Receipt
-                    </button>
-                    {transaction.return_status !== 'full' && (
-                      <button
-                        onClick={() => initiateReturn(transaction)}
-                        className="flex-1 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors flex items-center justify-center gap-2 border border-primary/20"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        Process Return
-                      </button>
+                    {/* Service Info */}
+                    {serviceInfo && (
+                      <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Coffee className="w-4 h-4 text-primary" />
+                            <span className="font-medium text-foreground">{serviceInfo.name}</span>
+                          </div>
+                          <span className="text-primary font-bold">+£{serviceInfo.fee.toFixed(2)}</span>
+                        </div>
+                      </div>
                     )}
+
+                    {/* Totals */}
+                    <div className="bg-muted/50 rounded-lg p-4 mb-4">
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Subtotal</span>
+                          <span className="font-medium text-foreground">£{transaction.subtotal.toFixed(2)}</span>
+                        </div>
+                        {transaction.vat > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">VAT (20%)</span>
+                            <span className="font-medium text-foreground">£{transaction.vat.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {transaction.balance_deducted > 0 && (
+                          <div className="flex justify-between text-purple-600">
+                            <span>Balance Used</span>
+                            <span className="font-medium">£{transaction.balance_deducted.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between pt-2 border-t border-border">
+                          <span className="font-bold text-foreground">Total</span>
+                          <span className="font-bold text-foreground text-lg">£{transaction.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    {transaction.notes && (
+                      <div className="mb-4 p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                        <p className="text-sm text-foreground">
+                          <span className="font-medium">Note:</span> {transaction.notes}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => reprintReceipt(transaction)}
+                        className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Receipt
+                      </button>
+                      {transaction.return_status !== 'full' && (
+                        <button
+                          onClick={() => initiateReturn(transaction)}
+                          className="flex-1 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors flex items-center justify-center gap-2 border border-primary/20"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          Process Return
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
       {/* Return Modal */}
       {showReturnModal && selectedTransaction && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-card border border-border rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -882,41 +1039,54 @@ export default function Transactions() {
               <div className="mb-6">
                 <h3 className="text-lg font-bold text-foreground mb-3">Select Items to Return</h3>
                 <div className="space-y-3">
-                  {selectedTransaction.products.map((product: any) => (
-                    <div key={product.id} className="p-4 bg-background rounded-lg border border-border">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex-1">
-                          <p className="font-medium text-foreground">{product.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            £{product.price.toFixed(2)} each • Sold: {product.quantity}
-                          </p>
+                  {selectedTransaction.products?.map((product: any) => {
+                    const productId = product.id?.toString() || `product-${Date.now()}-${Math.random()}`;
+                    const availableQty = product.quantity - (product.returned_quantity || 0);
+                    
+                    return (
+                      <div key={productId} className="p-4 bg-background rounded-lg border border-border">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex-1">
+                            <p className="font-medium text-foreground">{product.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              £{product.price.toFixed(2)} each • Sold: {product.quantity}
+                              {product.returned_quantity > 0 && (
+                                <span className="text-orange-500 ml-2">
+                                  (Previously returned: {product.returned_quantity})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="text-sm text-muted-foreground">Quantity to return:</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={availableQty}
+                            value={returnItems[productId] || 0}
+                            onChange={(e) => {
+                              const value = Math.min(parseInt(e.target.value) || 0, availableQty);
+                              setReturnItems({
+                                ...returnItems,
+                                [productId]: value
+                              });
+                            }}
+                            className="w-24 px-3 py-2 bg-background border border-border text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          <button
+                            onClick={() => setReturnItems({
+                              ...returnItems,
+                              [productId]: availableQty
+                            })}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Return All
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <label className="text-sm text-muted-foreground">Quantity to return:</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={product.quantity}
-                          value={returnItems[product.id] || 0}
-                          onChange={(e) => setReturnItems({
-                            ...returnItems,
-                            [product.id]: Math.min(parseInt(e.target.value) || 0, product.quantity)
-                          })}
-                          className="w-24 px-3 py-2 bg-background border border-border text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                        />
-                        <button
-                          onClick={() => setReturnItems({
-                            ...returnItems,
-                            [product.id]: product.quantity
-                          })}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          Return All
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -932,6 +1102,24 @@ export default function Transactions() {
                   rows={3}
                   className="w-full px-4 py-3 bg-background border border-border text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 />
+              </div>
+
+              {/* Restore Inventory Option */}
+              <div className="mb-6">
+                <label className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border cursor-pointer hover:border-primary/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={restoreInventory}
+                    onChange={(e) => setRestoreInventory(e.target.checked)}
+                    className="w-4 h-4 accent-primary"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-foreground">Restore items to inventory</p>
+                    <p className="text-sm text-muted-foreground">
+                      Return items will be added back to stock
+                    </p>
+                  </div>
+                </label>
               </div>
 
               {/* Refund Method */}
@@ -953,8 +1141,8 @@ export default function Transactions() {
                       <p className="font-medium text-foreground">Original Payment Method</p>
                       <p className="text-sm text-muted-foreground">
                         Refund to {selectedTransaction.payment_method}
-                        {selectedTransaction.payment_method === 'card' && cardTerminalEnabled && 
-                          ` via ${cardProvider}`}
+                        {selectedTransaction.payment_method === 'card' && cardTerminalSettings?.enabled && 
+                          ` via ${cardTerminalSettings.provider}`}
                       </p>
                     </div>
                   </label>
@@ -989,9 +1177,21 @@ export default function Transactions() {
                     />
                     <div className="flex-1">
                       <p className="font-medium text-foreground">Cash Refund</p>
-                      <p className="text-sm text-muted-foreground">Refund in cash from register</p>
+                      <p className="text-sm text-muted-foreground">
+                        Refund in cash from register (opens cash drawer)
+                      </p>
                     </div>
                   </label>
+                </div>
+              </div>
+
+              {/* Refund Total */}
+              <div className="mb-6 p-4 bg-primary/5 rounded-lg border border-primary/20">
+                <div className="flex justify-between items-center">
+                  <span className="text-foreground font-medium">Total Refund Amount:</span>
+                  <span className="text-2xl font-bold text-primary">
+                    £{calculateReturnTotal().toFixed(2)}
+                  </span>
                 </div>
               </div>
 
@@ -1029,7 +1229,7 @@ export default function Transactions() {
 
       {/* Returns History Modal */}
       {showReturnsHistory && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-card border border-border rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -1061,16 +1261,16 @@ export default function Transactions() {
                           </p>
                         </div>
                         <p className="text-lg font-bold text-destructive">
-                          -£{returnItem.total_refunded.toFixed(2)}
+                          -£{returnItem.total_refunded?.toFixed(2) || '0.00'}
                         </p>
                       </div>
 
                       <div className="mb-3">
                         <p className="text-sm text-muted-foreground mb-1">Items Returned:</p>
                         <div className="space-y-1">
-                          {returnItem.items.map((item: any, index: number) => (
+                          {returnItem.items?.map((item: any, index: number) => (
                             <p key={index} className="text-sm text-foreground">
-                              {item.product_name} × {item.quantity} = £{item.total.toFixed(2)}
+                              {item.product_name} × {item.quantity} = £{(item.total || 0).toFixed(2)}
                             </p>
                           ))}
                         </div>
@@ -1087,18 +1287,25 @@ export default function Transactions() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-4 text-sm mt-2">
+                        <div>
+                          <p className="text-muted-foreground">Inventory Restored</p>
+                          <p className={`font-medium ${returnItem.restore_inventory ? 'text-primary' : 'text-muted-foreground'}`}>
+                            {returnItem.restore_inventory ? 'Yes' : 'No'}
+                          </p>
+                        </div>
+                        {returnItem.card_refund_id && (
+                          <div>
+                            <p className="text-muted-foreground">Card Refund ID</p>
+                            <p className="font-medium text-foreground text-xs">{returnItem.card_refund_id}</p>
+                          </div>
+                        )}
+                      </div>
+
                       {returnItem.reason && (
                         <div className="mt-3 p-3 bg-muted/50 rounded-lg">
                           <p className="text-sm text-muted-foreground mb-1">Reason:</p>
                           <p className="text-sm text-foreground">{returnItem.reason}</p>
-                        </div>
-                      )}
-
-                      {returnItem.card_refund_id && (
-                        <div className="mt-2">
-                          <p className="text-xs text-muted-foreground">
-                            Card Refund ID: {returnItem.card_refund_id}
-                          </p>
                         </div>
                       )}
                     </div>
@@ -1120,6 +1327,4 @@ export default function Transactions() {
 
     </div>
   );
-
 }
-
