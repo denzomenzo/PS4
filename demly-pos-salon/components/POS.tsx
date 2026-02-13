@@ -301,17 +301,23 @@ export default function POS() {
 
   // Filter customers based on search query
 useEffect(() => {
+  if (!customers.length) {
+    setFilteredCustomers([]);
+    return;
+  }
+
   if (customerSearchQuery.trim()) {
     const query = customerSearchQuery.toLowerCase().trim();
-    setFilteredCustomers(
-      customers.filter(c => 
-        (c.name && c.name.toLowerCase().includes(query)) ||
-        (c.phone && c.phone.toLowerCase().includes(query)) ||
-        (c.email && c.email.toLowerCase().includes(query)) ||
-        (c.business_name && c.business_name.toLowerCase().includes(query)) ||
-        (c.address && c.address.toLowerCase().includes(query))
-      )
-    );
+    const filtered = customers.filter(c => {
+      const nameMatch = c.name?.toLowerCase().includes(query) || false;
+      const phoneMatch = c.phone?.toLowerCase().includes(query) || false;
+      const emailMatch = c.email?.toLowerCase().includes(query) || false;
+      const businessMatch = c.business_name?.toLowerCase().includes(query) || false;
+      const addressMatch = c.address?.toLowerCase().includes(query) || false;
+      
+      return nameMatch || phoneMatch || emailMatch || businessMatch || addressMatch;
+    });
+    setFilteredCustomers(filtered);
   } else {
     setFilteredCustomers(customers);
   }
@@ -753,22 +759,22 @@ useEffect(() => {
       }
 
       // Load customers
-      const { data: customersData } = await supabase
-        .from("customers")
-        .select("id, name, phone, email, address, business_name, balance")
-        .eq("user_id", userId)
-        .order("name");
-      
-      if (customersData) {
-        setCustomers(customersData.map(c => ({
-          ...c,
-          balance: getBalance(c.balance)
-        })));
-        setFilteredCustomers(customersData.map(c => ({
-          ...c,
-          balance: getBalance(c.balance)
-        })));
-      }
+const { data: customersData } = await supabase
+  .from("customers")
+  .select("id, name, phone, email, address, business_name, balance") // 
+  .eq("user_id", userId)
+  .order("name");
+
+if (customersData) {
+  setCustomers(customersData.map(c => ({
+    ...c,
+    balance: getBalance(c.balance)
+  })));
+  setFilteredCustomers(customersData.map(c => ({
+    ...c,
+    balance: getBalance(c.balance)
+  })));
+}
 
       // Load recent transactions
       const { data: transactionsData } = await supabase
@@ -2797,4 +2803,5 @@ useEffect(() => {
     </div>
   );
 }
+
 
