@@ -13,7 +13,7 @@ import {
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
   Wallet, RefreshCw, History, ZoomOut,
   Calculator, Edit, Pencil, AlertCircle,
-  User, Store, Receipt, Coffee
+  User, Store, Receipt, Coffee, ChevronDown
 } from "lucide-react";
 
 // Types
@@ -44,6 +44,8 @@ interface Customer {
   name: string;
   phone: string | null;
   email: string | null;
+  address?: string | null;
+  business_name?: string | null;
   balance: number;
 }
 
@@ -63,7 +65,7 @@ interface Transaction {
   createdAt: number;
   serviceTypeId?: number | null;
   serviceFee?: number;
-  serviceName?: string
+  serviceName?: string;
 }
 
 interface SplitPayment {
@@ -152,7 +154,8 @@ const useLocalStorageTransactions = (currentStaff: any) => {
       customerId: "",
       createdAt: Date.now(),
       serviceTypeId: null,
-      serviceFee: 0
+      serviceFee: 0,
+      serviceName: undefined
     };
     setTransactions([defaultTransaction]);
     setActiveTransactionId("1");
@@ -181,6 +184,10 @@ export default function POS() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [vatEnabled, setVatEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -291,6 +298,35 @@ export default function POS() {
     serviceTypes.find(s => s.id === selectedServiceId),
     [serviceTypes, selectedServiceId]
   );
+
+  // Filter customers based on search query
+  useEffect(() => {
+    if (customerSearchQuery.trim()) {
+      const query = customerSearchQuery.toLowerCase();
+      setFilteredCustomers(
+        customers.filter(c => 
+          c.name.toLowerCase().includes(query) ||
+          (c.phone && c.phone.toLowerCase().includes(query)) ||
+          (c.email && c.email.toLowerCase().includes(query)) ||
+          (c.business_name && c.business_name.toLowerCase().includes(query)) ||
+          (c.address && c.address.toLowerCase().includes(query))
+        )
+      );
+    } else {
+      setFilteredCustomers(customers);
+    }
+  }, [customerSearchQuery, customers]);
+
+  // Close customer dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Hardware Functions
   const playBeep = () => {
@@ -627,11 +663,12 @@ export default function POS() {
         ? { 
             ...t, 
             serviceTypeId: selectedServiceId,
-            serviceFee: serviceFee
+            serviceFee: serviceFee,
+            serviceName: selectedService?.name
           }
         : t
     ));
-  }, [selectedServiceId, serviceFee, activeTransactionId, setTransactions]);
+  }, [selectedServiceId, serviceFee, selectedService, activeTransactionId, setTransactions]);
 
   // Barcode scanner
   const handleBarcodeScan = useCallback((barcode: string) => {
@@ -718,12 +755,16 @@ export default function POS() {
       // Load customers
       const { data: customersData } = await supabase
         .from("customers")
-        .select("id, name, phone, email, balance")
+        .select("id, name, phone, email, address, business_name, balance")
         .eq("user_id", userId)
         .order("name");
       
       if (customersData) {
         setCustomers(customersData.map(c => ({
+          ...c,
+          balance: getBalance(c.balance)
+        })));
+        setFilteredCustomers(customersData.map(c => ({
           ...c,
           balance: getBalance(c.balance)
         })));
@@ -765,6 +806,8 @@ export default function POS() {
     setTransactions(prev => prev.map(t => 
       t.id === activeTransactionId ? { ...t, customerId: id, lastUpdated: Date.now() } : t
     ));
+    setShowCustomerDropdown(false);
+    setCustomerSearchQuery("");
   };
 
   const addToCart = (product: Product) => {
@@ -962,16 +1005,15 @@ export default function POS() {
     setShowTransactionMenu(false);
   };
 
-const switchTransaction = (id: string) => {
-  const transaction = transactions.find(t => t.id === id);
-  if (transaction) {
-    setActiveTransactionId(id);
-    setSelectedServiceId(transaction.serviceTypeId || null);
-    setServiceFee(transaction.serviceFee || 0);
-    
-  }
-  setShowTransactionMenu(false);
-};
+  const switchTransaction = (id: string) => {
+    const transaction = transactions.find(t => t.id === id);
+    if (transaction) {
+      setActiveTransactionId(id);
+      setSelectedServiceId(transaction.serviceTypeId || null);
+      setServiceFee(transaction.serviceFee || 0);
+    }
+    setShowTransactionMenu(false);
+  };
 
   const deleteTransaction = (id: string) => {
     if (transactions.length === 1) {
@@ -1332,10 +1374,9 @@ const switchTransaction = (id: string) => {
           balanceDeducted: balanceDeducted,
           paymentDetails: paymentDetails,
           staffName: currentStaff?.name,
-          notes: selectedService 
-         ? `${transactionNotes}${transactionNotes ? ' • ' : ''}${selectedService.name}${serviceFee > 0 ? ` (+£${serviceFee.toFixed(2)} fee)` : ''}`.trim()
-         : transactionNotes,
-
+          notes: transactionNotes,
+          serviceName: selectedService?.name,
+          serviceFee: serviceFee
         };
         
         setReceiptData(receiptData);
@@ -1817,20 +1858,75 @@ const switchTransaction = (id: string) => {
         {/* Checkout Panel */}
         <div className="p-3 border-t border-border bg-card/50 space-y-3 flex-shrink-0">
           
-          {/* Customer Selection */}
-          <div className="flex gap-1.5">
-            <select 
-              value={customerId} 
-              onChange={(e) => setCustomerId(e.target.value)} 
-              className="flex-1 bg-background border border-border text-foreground p-2 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            >
-              <option value="">Select Customer (Optional)</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} {c.balance > 0 ? `(£${c.balance.toFixed(2)} bal)` : ''}
-                </option>
-              ))}
-            </select>
+          {/* Customer Search - Replaced dropdown with searchable input */}
+          <div className="relative" ref={customerDropdownRef}>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={customerSearchQuery}
+                onChange={(e) => {
+                  setCustomerSearchQuery(e.target.value);
+                  setShowCustomerDropdown(true);
+                }}
+                onFocus={() => setShowCustomerDropdown(true)}
+                placeholder="Search customer by name, phone, email, business..."
+                className="w-full bg-background border border-border pl-9 pr-8 py-2 rounded text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+              {selectedCustomer && (
+                <button
+                  onClick={() => {
+                    setCustomerId("");
+                    setCustomerSearchQuery("");
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Customer Dropdown */}
+            {showCustomerDropdown && (
+              <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                <button
+                  onClick={() => {
+                    setCustomerId("");
+                    setCustomerSearchQuery("");
+                    setShowCustomerDropdown(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-foreground hover:bg-muted border-b border-border flex items-center gap-2"
+                >
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm">No Customer</span>
+                </button>
+                {filteredCustomers.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-muted-foreground text-sm">
+                    No customers found
+                  </div>
+                ) : (
+                  filteredCustomers.map((customer) => (
+                    <button
+                      key={customer.id}
+                      onClick={() => setCustomerId(customer.id.toString())}
+                      className={`w-full px-3 py-2 text-left hover:bg-muted border-b border-border last:border-0 ${
+                        customerId === customer.id.toString() ? 'bg-primary/10' : ''
+                      }`}
+                    >
+                      <div className="font-medium text-foreground text-sm">{customer.name}</div>
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        {customer.phone && <span>{customer.phone}</span>}
+                        {customer.email && <span>{customer.email}</span>}
+                        {customer.business_name && <span>{customer.business_name}</span>}
+                        {customer.balance > 0 && (
+                          <span className="text-primary">Balance: £{customer.balance.toFixed(2)}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Customer Balance Display */}
@@ -1855,7 +1951,7 @@ const switchTransaction = (id: string) => {
             </div>
           )}
 
-          {/* Totals - Updated to show service fee */}
+          {/* Totals */}
           <div className="space-y-1.5 bg-muted/30 rounded-lg p-3 border border-border">
             <div className="flex justify-between text-foreground text-sm">
               <span className="font-medium">Subtotal</span>
@@ -1956,7 +2052,7 @@ const switchTransaction = (id: string) => {
             className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary disabled:from-muted disabled:to-muted text-primary-foreground font-bold py-3 rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-1.5"
           >
             <CreditCard className="w-4 h-4" />
-            PAY £{grandTotal.toFixed(2)}
+            Pay £{grandTotal.toFixed(2)}
           </button>
         </div>
       </div>
@@ -2576,7 +2672,7 @@ const switchTransaction = (id: string) => {
                     Processing...
                   </>
                 ) : (
-                  `Pay £{(parseFloat(customAmount) || grandTotal).toFixed(2)}`
+                  `Pay £${(parseFloat(customAmount) || grandTotal).toFixed(2)}`
                 )}
               </button>
             </div>
@@ -2584,7 +2680,7 @@ const switchTransaction = (id: string) => {
         </div>
       )}
 
-      {/* Recent Transactions Modal - Updated with full receipt format and service info */}
+      {/* Recent Transactions Modal */}
       {showTransactionsModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-lg p-4 max-w-2xl w-full max-h-[70vh] flex flex-col shadow-lg">
@@ -2701,6 +2797,3 @@ const switchTransaction = (id: string) => {
     </div>
   );
 }
-
-
-
