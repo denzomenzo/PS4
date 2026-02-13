@@ -78,7 +78,7 @@ interface Transaction {
   staff?: {
     name: string;
   };
-  status?: 'completed' | 'pending' | 'refunded'; 
+  status?: 'completed' | 'pending' | 'refunded';
 }
 
 interface BalanceHistory {
@@ -90,6 +90,7 @@ interface BalanceHistory {
   new_balance: number;
   note: string | null;
   transaction_id: number | null;
+  staff_id?: number;
   staff_name?: string;
 }
 
@@ -124,8 +125,12 @@ const formatDate = (dateString: string, includeTime: boolean = true) => {
 
 const getSafeNumber = (value: any): number => {
   if (value === null || value === undefined) return 0;
-  const num = Number(value);
-  return isNaN(num) ? 0 : num;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
 };
 
 const getTransactionIdDisplay = (id: number): string => {
@@ -311,36 +316,36 @@ function CustomersContent() {
     }
   };
 
-const fetchCustomerTransactions = async (customerId: string) => {
-  try {
-    setLoadingTransactions(true);
-    
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*, staff:staff_id(name)')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    
-    const formattedTransactions = (data || []).map(t => ({
-      ...t,
-      staff_name: t.staff?.name || null,
-      status: t.status || 'completed' // Set default status if missing
-    }));
-    
-    setCustomerTransactions(formattedTransactions);
-    setFilteredTransactions(formattedTransactions);
-    setCurrentPage(1);
-    
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    setCustomerTransactions([]);
-    setFilteredTransactions([]);
-  } finally {
-    setLoadingTransactions(false);
-  }
-};
+  const fetchCustomerTransactions = async (customerId: string) => {
+    try {
+      setLoadingTransactions(true);
+      
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*, staff:staff_id(name)')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      const formattedTransactions = (data || []).map(t => ({
+        ...t,
+        staff_name: t.staff?.name || null,
+        status: t.status || 'completed'
+      }));
+      
+      setCustomerTransactions(formattedTransactions);
+      setFilteredTransactions(formattedTransactions);
+      setCurrentPage(1);
+      
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      setCustomerTransactions([]);
+      setFilteredTransactions([]);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
 
   const fetchBalanceHistory = async (customerId: string) => {
     try {
@@ -354,17 +359,24 @@ const fetchCustomerTransactions = async (customerId: string) => {
       
       if (error) throw error;
       
-      // Try to get staff names for manual adjustments
+      // Get staff names for manual adjustments
       const historyWithStaff = await Promise.all((data || []).map(async (item) => {
+        let staffName = null;
         if (item.staff_id) {
           const { data: staffData } = await supabase
             .from('staff')
             .select('name')
             .eq('id', item.staff_id)
             .single();
-          return { ...item, staff_name: staffData?.name };
+          staffName = staffData?.name;
         }
-        return item;
+        return {
+          ...item,
+          staff_name: staffName,
+          amount: getSafeNumber(item.amount),
+          previous_balance: getSafeNumber(item.previous_balance),
+          new_balance: getSafeNumber(item.new_balance)
+        };
       }));
       
       setBalanceHistory(historyWithStaff);
@@ -385,7 +397,7 @@ const fetchCustomerTransactions = async (customerId: string) => {
     ]);
   };
 
-  // EXACT receipt function copied from transactions page
+  // FIXED receipt function with proper error handling
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       console.log('🖨️ Generating receipt for transaction:', transaction.id);
@@ -404,7 +416,7 @@ const fetchCustomerTransactions = async (customerId: string) => {
           notes: null
         };
 
-      // Fetch transaction items with product details
+      // FIXED: Transaction items fetching without foreign key issues
       let transactionItems: Array<{
         id: string | number;
         name: string;
@@ -415,40 +427,66 @@ const fetchCustomerTransactions = async (customerId: string) => {
         sku?: string;
         barcode?: string;
       }> = [];
-      
+
       try {
+        // Try to get items from transaction_items table without join
         const { data: itemsData, error: itemsError } = await supabase
           .from('transaction_items')
-          .select('*, product:product_id(name, sku, barcode)')
+          .select('*')
           .eq('transaction_id', transaction.id);
         
-        if (itemsError) throw itemsError;
+        if (itemsError) {
+          console.warn('Error fetching from transaction_items:', itemsError);
+        }
         
         if (itemsData && itemsData.length > 0) {
           transactionItems = itemsData.map(item => ({
             id: item.id || Math.random().toString(),
-            name: item.product?.name || 'Product',
+            name: item.name || item.product_name || 'Product',
             price: getSafeNumber(item.price),
             quantity: getSafeNumber(item.quantity),
             discount: getSafeNumber(item.discount) || 0,
             total: (getSafeNumber(item.price) * getSafeNumber(item.quantity)) - (getSafeNumber(item.discount) || 0),
-            sku: item.product?.sku,
-            barcode: item.product?.barcode
+            sku: item.sku,
+            barcode: item.barcode
           }));
           console.log('✅ Loaded transaction items:', transactionItems.length);
+        } 
+        // Fallback to products stored in transaction
+        else if (transaction.products && transaction.products.length > 0) {
+          transactionItems = transaction.products.map((p: any, index: number) => ({
+            id: p.id || index,
+            name: p.name || 'Product',
+            price: getSafeNumber(p.price),
+            quantity: getSafeNumber(p.quantity) || 1,
+            discount: getSafeNumber(p.discount) || 0,
+            total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
+            sku: p.sku,
+            barcode: p.barcode
+          }));
+          console.log('✅ Used transaction.products fallback:', transactionItems.length);
         }
       } catch (error) {
-        console.error('Error fetching transaction items:', error);
+        console.error('Error processing transaction items:', error);
+        // Create a single item with the total so receipt doesn't break
+        transactionItems = [{
+          id: '1',
+          name: 'Transaction Items',
+          price: getSafeNumber(transaction.total),
+          quantity: 1,
+          discount: 0,
+          total: getSafeNumber(transaction.total)
+        }];
       }
 
       // Get service info
       const serviceInfo = transaction.services && transaction.services.length > 0 
         ? transaction.services[0] 
         : transaction.service_type_id 
-        ? { name: 'Service', fee: transaction.service_fee || 0 }
+        ? { name: 'Service', fee: getSafeNumber(transaction.service_fee) }
         : null;
 
-      // Create receipt data matching POS.tsx structure
+      // Create receipt data
       const receiptSettings = {
         fontSize: businessSettings?.receipt_font_size || 12,
         footer: businessSettings?.receipt_footer || "Thank you for your business!",
@@ -486,7 +524,7 @@ const fetchCustomerTransactions = async (customerId: string) => {
         staffName: transaction.staff?.name || 'Staff',
         notes: transaction.notes || undefined,
         serviceName: serviceInfo?.name,
-        serviceFee: serviceInfo?.fee
+        serviceFee: serviceInfo ? getSafeNumber(serviceInfo.fee) : undefined
       };
       
       console.log('✅ Receipt data prepared:', {
@@ -725,19 +763,19 @@ const fetchCustomerTransactions = async (customerId: string) => {
   // View transaction items
   const viewTransactionItems = async (transaction: Transaction) => {
     try {
+      // Try to get items from transaction_items
       const { data } = await supabase
         .from('transaction_items')
-        .select('*, product:product_id(name, sku, category)')
+        .select('*')
         .eq('transaction_id', transaction.id);
       
       if (data && data.length > 0) {
         setSelectedTransactionItems(data.map(item => ({
-          name: item.product?.name || 'Product',
-          sku: item.product?.sku,
-          category: item.product?.category,
-          price: item.price,
-          quantity: item.quantity,
-          total: item.price * item.quantity
+          name: item.name || item.product_name || 'Product',
+          sku: item.sku,
+          price: getSafeNumber(item.price),
+          quantity: getSafeNumber(item.quantity),
+          total: getSafeNumber(item.price) * getSafeNumber(item.quantity)
         })));
         setShowViewItemsModal(true);
       } else if (transaction.products && transaction.products.length > 0) {
@@ -824,15 +862,14 @@ const fetchCustomerTransactions = async (customerId: string) => {
                   <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
                     <div className="flex-1">
                       <h4 className="font-medium text-foreground">{item.name || 'Unknown Product'}</h4>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                        {item.sku && <span>SKU: {item.sku}</span>}
-                        {item.category && <span>Category: {item.category}</span>}
-                      </div>
+                      {item.sku && (
+                        <div className="text-xs text-muted-foreground mt-1">SKU: {item.sku}</div>
+                      )}
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-foreground">£{item.total?.toFixed(2) || '0.00'}</div>
+                      <div className="font-medium text-foreground">£{getSafeNumber(item.total).toFixed(2)}</div>
                       <div className="text-sm text-muted-foreground">
-                        {item.quantity || 1} × £{(item.price || 0).toFixed(2)}
+                        {getSafeNumber(item.quantity)} × £{getSafeNumber(item.price).toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -857,7 +894,7 @@ const fetchCustomerTransactions = async (customerId: string) => {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-muted-foreground mt-1">Current balance: £{selectedCustomer.balance.toFixed(2)}</p>
+              <p className="text-muted-foreground mt-1">Current balance: £{getSafeNumber(selectedCustomer.balance).toFixed(2)}</p>
             </div>
             
             <div className="p-6 overflow-y-auto max-h-[60vh]">
@@ -878,11 +915,11 @@ const fetchCustomerTransactions = async (customerId: string) => {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            item.amount > 0 
+                            getSafeNumber(item.amount) > 0 
                               ? 'bg-primary/10 text-primary border border-primary/20'
                               : 'bg-destructive/10 text-destructive border border-destructive/20'
                           }`}>
-                            {item.amount > 0 ? 'Credit +' : 'Debit '}£{Math.abs(item.amount).toFixed(2)}
+                            {getSafeNumber(item.amount) > 0 ? 'Credit +' : 'Debit '}£{Math.abs(getSafeNumber(item.amount)).toFixed(2)}
                           </span>
                         </div>
                         <span className="text-xs text-muted-foreground">
@@ -895,9 +932,9 @@ const fetchCustomerTransactions = async (customerId: string) => {
                       </div>
                       
                       <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Previous: £{item.previous_balance.toFixed(2)}</span>
+                        <span>Previous: £{getSafeNumber(item.previous_balance).toFixed(2)}</span>
                         <span>→</span>
-                        <span className="font-medium">New: £{item.new_balance.toFixed(2)}</span>
+                        <span className="font-medium">New: £{getSafeNumber(item.new_balance).toFixed(2)}</span>
                       </div>
                       
                       {item.staff_name && (
@@ -1459,7 +1496,7 @@ const fetchCustomerTransactions = async (customerId: string) => {
                         const serviceInfo = transaction.services && transaction.services.length > 0 
                           ? transaction.services[0] 
                           : transaction.service_type_id 
-                          ? { name: 'Service', fee: transaction.service_fee || 0 }
+                          ? { name: 'Service', fee: getSafeNumber(transaction.service_fee) }
                           : null;
 
                         return (
@@ -1513,9 +1550,9 @@ const fetchCustomerTransactions = async (customerId: string) => {
                             <div className="mt-2 text-sm text-muted-foreground">
                               <div className="flex justify-between">
                                 <span>Items: {transaction.products?.length || 0}</span>
-                                {transaction.balance_deducted > 0 && (
+                                {getSafeNumber(transaction.balance_deducted) > 0 && (
                                   <span className="text-purple-600">
-                                    Balance used: £{transaction.balance_deducted.toFixed(2)}
+                                    Balance used: £{getSafeNumber(transaction.balance_deducted).toFixed(2)}
                                   </span>
                                 )}
                               </div>
@@ -1641,4 +1678,3 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
-
