@@ -2,7 +2,7 @@
 "use client";
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useStaffAuth } from '@/hooks/useStaffAuth';
 import type { ReceiptData } from "@/components/receipts/ReceiptPrint";
@@ -17,7 +17,6 @@ import {
   Phone,
   Calendar,
   DollarSign,
-  ShoppingBag,
   X,
   Save,
   ChevronLeft,
@@ -31,7 +30,12 @@ import {
   MapPin,
   Coffee,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  RefreshCw,
+  AlertCircle,
+  Loader2,
+  ChevronRight,
+  ChevronLeft as ChevronLeftIcon
 } from 'lucide-react';
 import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
@@ -123,10 +127,13 @@ function CustomersContent() {
   // State
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
+  const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [transactionSearch, setTransactionSearch] = useState('');
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
   const [showAddEditModal, setShowAddEditModal] = useState(false);
@@ -153,6 +160,11 @@ function CustomersContent() {
   const [businessSettings, setBusinessSettings] = useState<any>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
+  // Pagination for transactions
+  const [currentPage, setCurrentPage] = useState(1);
+  const transactionsPerPage = 10;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   // Load user ID and data
   useEffect(() => {
     const getUser = async () => {
@@ -165,6 +177,9 @@ function CustomersContent() {
     
     fetchCustomers();
     fetchBusinessSettings();
+    
+    // Run cleanup on mount
+    cleanupOldTransactions();
   }, []);
 
   // Search effect
@@ -175,6 +190,52 @@ function CustomersContent() {
     
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Filter transactions when search changes
+  useEffect(() => {
+    if (!customerTransactions.length) {
+      setFilteredTransactions([]);
+      return;
+    }
+
+    if (transactionSearch.trim()) {
+      const query = transactionSearch.toLowerCase();
+      const filtered = customerTransactions.filter(t => 
+        t.id.toString().includes(query) ||
+        formatDate(t.created_at).toLowerCase().includes(query) ||
+        t.payment_method.toLowerCase().includes(query) ||
+        t.products?.some(p => p.name?.toLowerCase().includes(query))
+      );
+      setFilteredTransactions(filtered);
+    } else {
+      setFilteredTransactions(customerTransactions);
+    }
+    setCurrentPage(1);
+  }, [transactionSearch, customerTransactions]);
+
+  // Clean up old transactions (older than 60 days)
+  const cleanupOldTransactions = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+      // Delete old transactions
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .lt('created_at', sixtyDaysAgo.toISOString());
+
+      if (error) throw error;
+      
+      console.log('✅ Cleaned up transactions older than 60 days');
+    } catch (error) {
+      console.error('Error cleaning up old transactions:', error);
+    }
+  };
 
   // Fetch business settings
   const fetchBusinessSettings = async () => {
@@ -202,9 +263,15 @@ function CustomersContent() {
   const fetchCustomers = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       let query = supabase
         .from('customers')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       
       if (searchQuery) {
@@ -223,68 +290,60 @@ function CustomersContent() {
       if (error) throw error;
       setCustomers(data || []);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching customers:', error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
 
-const fetchCustomerTransactions = async (customerId: string) => {
-  try {
-    setLoadingTransactions(true);
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*, staff:staff_id(name)')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    setCustomerTransactions(data || []);
-    
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    setCustomerTransactions([]);
-  } finally {
-    setLoadingTransactions(false);
-  }
-};
+  const fetchCustomerTransactions = async (customerId: string) => {
+    try {
+      setLoadingTransactions(true);
+      setTransactionSearch('');
+      
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*, staff:staff_id(name)')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setCustomerTransactions(data || []);
+      setFilteredTransactions(data || []);
+      setCurrentPage(1);
+      
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      setCustomerTransactions([]);
+      setFilteredTransactions([]);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
 
   const handleCustomerSelect = async (customer: Customer) => {
     setSelectedCustomer(customer);
     await fetchCustomerTransactions(customer.id);
   };
 
-const calculateCustomerStats = () => {
-  if (!selectedCustomer || customerTransactions.length === 0) {
+  const calculateCustomerStats = () => {
+    if (!selectedCustomer) {
+      return {
+        totalBalance: 0,
+        totalTransactions: 0
+      };
+    }
+    
+    const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
+    
     return {
-      totalSpent: 0,
-      totalTransactions: 0,
-      averageOrderValue: 0,
-      lastTransactionDate: null,
-      lastTransactionAmount: 0,
-      firstPurchaseDate: null
+      totalBalance: getSafeNumber(selectedCustomer.balance),
+      totalTransactions: completedTransactions.length
     };
-  }
-  
-  // Only count completed transactions for financial stats
-  const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
-  const totalSpent = completedTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
-  const totalTransactions = completedTransactions.length;
-  const averageOrderValue = totalTransactions > 0 ? totalSpent / totalTransactions : 0;
-  const lastTransaction = customerTransactions[0]; // Most recent regardless of status
-  const firstTransaction = customerTransactions[customerTransactions.length - 1];
-  
-  return {
-    totalSpent: Number(totalSpent.toFixed(2)),
-    totalTransactions,
-    averageOrderValue: Number(averageOrderValue.toFixed(2)),
-    lastTransactionDate: lastTransaction?.created_at || null,
-    lastTransactionAmount: getSafeNumber(lastTransaction?.total),
-    firstPurchaseDate: firstTransaction?.created_at || null
   };
-};
-
 
   // Print receipt with proper format matching POS.tsx
   const printTransactionReceipt = async (transaction: Transaction) => {
@@ -305,7 +364,7 @@ const calculateCustomerStats = () => {
           notes: null
         };
 
-      // Fetch transaction items
+      // Fetch transaction items with product details
       let transactionItems: Array<{
         id: string | number;
         name: string;
@@ -523,14 +582,9 @@ const calculateCustomerStats = () => {
   };
 
   const deleteCustomer = async (customerId: string) => {
-    if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
+    if (!confirm('Are you sure you want to delete this customer?')) return;
     
     try {
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('customer_id', customerId);
-      
       const { error } = await supabase
         .from('customers')
         .delete()
@@ -544,7 +598,6 @@ const calculateCustomerStats = () => {
         setCustomerTransactions([]);
       }
       
-      alert('Customer deleted successfully');
     } catch (error: any) {
       console.error('Error deleting customer:', error);
       alert(`Failed to delete customer: ${error.message}`);
@@ -642,7 +695,44 @@ const calculateCustomerStats = () => {
     }
   };
 
+  // Pagination
+  const totalPages = Math.ceil(filteredTransactions.length / transactionsPerPage);
+  const paginatedTransactions = filteredTransactions.slice(
+    (currentPage - 1) * transactionsPerPage,
+    currentPage * transactionsPerPage
+  );
+
   const stats = calculateCustomerStats();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-16 h-16 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-xl text-muted-foreground">Loading customers...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <div className="bg-card border border-border rounded-xl p-8 max-w-md text-center">
+          <AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Error Loading Customers</h2>
+          <p className="text-muted-foreground mb-6">{error}</p>
+          <button
+            onClick={fetchCustomers}
+            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -928,8 +1018,8 @@ const calculateCustomerStats = () => {
         <p className="text-muted-foreground mt-2">Manage your customers and view their transaction history</p>
       </div>
       
-      {/* Stats Overview - Updated with meaningful metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      {/* Stats Overview - Simplified */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
@@ -959,27 +1049,13 @@ const calculateCustomerStats = () => {
         <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Credit Customers</p>
+              <p className="text-sm font-medium text-muted-foreground">Active Accounts</p>
               <p className="text-2xl font-bold mt-1 text-foreground">
-                {customers.filter(c => getSafeNumber(c.balance) > 0).length}
+                {customers.filter(c => getSafeNumber(c.balance) !== 0).length}
               </p>
             </div>
-            <div className="p-3 bg-emerald-500/10 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-emerald-500" />
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Debt Customers</p>
-              <p className="text-2xl font-bold mt-1 text-foreground">
-                {customers.filter(c => getSafeNumber(c.balance) < 0).length}
-              </p>
-            </div>
-            <div className="p-3 bg-red-500/10 rounded-lg">
-              <TrendingDown className="w-6 h-6 text-red-500" />
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <DollarSign className="w-6 h-6 text-primary" />
             </div>
           </div>
         </div>
@@ -995,7 +1071,7 @@ const calculateCustomerStats = () => {
                 <Search className="absolute left-3 top-2.5 text-muted-foreground w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Search by name, email, phone, address, or business..."
+                  placeholder="Search by name, email, phone, address..."
                   className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -1013,12 +1089,7 @@ const calculateCustomerStats = () => {
           
           {/* Customers List */}
           <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
-            {loading ? (
-              <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                <p className="mt-2 text-muted-foreground">Loading customers...</p>
-              </div>
-            ) : customers.length === 0 ? (
+            {customers.length === 0 ? (
               <div className="p-8 text-center">
                 <UserPlus className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
                 <p className="text-muted-foreground">No customers found</p>
@@ -1116,7 +1187,7 @@ const calculateCustomerStats = () => {
                       )}
                       <span className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
-                        Customer since {formatDate(selectedCustomer.created_at, false)}
+                        Since {formatDate(selectedCustomer.created_at, false)}
                       </span>
                     </div>
                     {selectedCustomer.address && (
@@ -1159,28 +1230,16 @@ const calculateCustomerStats = () => {
                   </div>
                 </div>
                 
-                {/* Customer Stats - Updated with meaningful metrics */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {/* Customer Stats - Simplified */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
-                    <div className="text-sm font-medium text-muted-foreground">Total Spent</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.totalSpent.toFixed(2)}</div>
-                    <div className="text-xs text-muted-foreground mt-1">{stats.totalTransactions} transactions</div>
+                    <div className="text-sm font-medium text-muted-foreground">Current Balance</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.totalBalance.toFixed(2)}</div>
                   </div>
                   
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
-                    <div className="text-sm font-medium text-muted-foreground">Average Order</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.averageOrderValue.toFixed(2)}</div>
-                    <div className="text-xs text-muted-foreground mt-1">Per transaction</div>
-                  </div>
-                  
-                  <div className="bg-muted/50 p-4 rounded-lg border border-border">
-                    <div className="text-sm font-medium text-muted-foreground">Last Purchase</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">
-                      {stats.lastTransactionAmount > 0 ? `£${stats.lastTransactionAmount.toFixed(2)}` : 'None'}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {stats.lastTransactionDate ? formatDate(stats.lastTransactionDate, true) : 'No purchases'}
-                    </div>
+                    <div className="text-sm font-medium text-muted-foreground">Total Transactions</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">{stats.totalTransactions}</div>
                   </div>
                 </div>
                 
@@ -1195,131 +1254,179 @@ const calculateCustomerStats = () => {
                 )}
               </div>
               
-              {/* Transactions */}
-              <div className="bg-card rounded-xl shadow-sm border border-border">
+              {/* Transactions with Scrollable Grid */}
+              <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
                 <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-4">
                     <div>
                       <h2 className="text-xl font-bold text-foreground">Transaction History</h2>
-                      <p className="text-sm text-muted-foreground mt-1">{customerTransactions.length} completed transactions</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {filteredTransactions.length} transactions • Last 60 days
+                      </p>
                     </div>
                     <button
                       onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
-                      className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium"
+                      className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 font-medium flex items-center gap-2"
                     >
+                      <RefreshCw className="w-4 h-4" />
                       Refresh
                     </button>
+                  </div>
+                  
+                  {/* Transaction Search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={transactionSearch}
+                      onChange={(e) => setTransactionSearch(e.target.value)}
+                      placeholder="Search transactions by ID, date, payment method..."
+                      className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
                   </div>
                 </div>
                 
                 {loadingTransactions ? (
                   <div className="p-8 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                    <p className="mt-2 text-muted-foreground">Loading transactions...</p>
+                    <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
+                    <p className="text-muted-foreground">Loading transactions...</p>
                   </div>
-                ) : customerTransactions.length === 0 ? (
+                ) : filteredTransactions.length === 0 ? (
                   <div className="p-8 text-center">
                     <Receipt className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-                    <p className="text-muted-foreground">No transactions found</p>
+                    <p className="text-muted-foreground">
+                      {transactionSearch ? 'No transactions match your search' : 'No transactions found'}
+                    </p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-border">
-                    {customerTransactions.map((transaction) => {
-                      const serviceInfo = transaction.services && transaction.services.length > 0 
-                        ? transaction.services[0] 
-                        : transaction.service_type_id 
-                        ? { name: 'Service', fee: transaction.service_fee || 0 }
-                        : null;
+                  <>
+                    {/* Scrollable Grid */}
+                    <div 
+                      ref={scrollContainerRef}
+                      className="overflow-y-auto max-h-[400px] p-4 space-y-3"
+                      style={{
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: 'var(--border) var(--background)'
+                      }}
+                    >
+                      {paginatedTransactions.map((transaction) => {
+                        const serviceInfo = transaction.services && transaction.services.length > 0 
+                          ? transaction.services[0] 
+                          : transaction.service_type_id 
+                          ? { name: 'Service', fee: transaction.service_fee || 0 }
+                          : null;
 
-                      return (
-                        <div key={String(transaction.id)} className="p-4 hover:bg-muted/50">
-                          <div className="flex items-center justify-between mb-2">
-                            <div>
-                              <div className="font-semibold text-foreground flex items-center gap-2">
-                                <Hash className="w-4 h-4 text-muted-foreground" />
-                                Transaction {getTransactionIdDisplay(transaction)}
-                                {serviceInfo && (
-                                  <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs flex items-center gap-1">
-                                    <Coffee className="w-3 h-3" />
-                                    {serviceInfo.name}
+                        return (
+                          <div
+                            key={String(transaction.id)}
+                            className="bg-background border border-border rounded-lg p-4 hover:border-primary/30 transition-all"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <span className="font-bold text-foreground">
+                                    #{getTransactionIdDisplay(transaction)}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded-full text-xs ${
+                                    transaction.status === 'completed' 
+                                      ? 'bg-primary/20 text-primary'
+                                      : transaction.status === 'pending'
+                                      ? 'bg-accent text-foreground'
+                                      : 'bg-destructive/20 text-destructive'
+                                  }`}>
+                                    {transaction.status || 'unknown'}
+                                  </span>
+                                  <span className="px-2 py-0.5 bg-muted rounded-full text-xs text-muted-foreground capitalize">
+                                    {transaction.payment_method}
+                                  </span>
+                                  {serviceInfo && (
+                                    <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs flex items-center gap-1">
+                                      <Coffee className="w-3 h-3" />
+                                      {serviceInfo.name}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {formatDate(transaction.created_at, true)}
+                                  </span>
+                                  {transaction.staff?.name && (
+                                    <span>by {transaction.staff.name}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-bold text-foreground">
+                                  £{getSafeNumber(transaction.total).toFixed(2)}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Transaction Preview */}
+                            <div className="mt-2 text-sm text-muted-foreground">
+                              <div className="flex justify-between">
+                                <span>Items: {transaction.products?.length || 0}</span>
+                                {transaction.balance_deducted > 0 && (
+                                  <span className="text-purple-600">
+                                    Balance used: £{transaction.balance_deducted.toFixed(2)}
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  {formatDate(transaction.created_at, true)}
-                                </span>
-                                {transaction.staff?.name && (
-                                  <span>by {transaction.staff.name}</span>
-                                )}
-                              </div>
+                              {transaction.notes && (
+                                <div className="mt-1 text-xs italic truncate">
+                                  "{transaction.notes}"
+                                </div>
+                              )}
                             </div>
-                            <div className="text-right">
-                              <div className="font-bold text-foreground">
-                                £{getSafeNumber(transaction.total).toFixed(2)}
-                              </div>
-                              <div className="text-sm text-muted-foreground capitalize">
-                                {transaction.payment_method || 'cash'}
-                              </div>
+                            
+                            {/* Actions */}
+                            <div className="flex gap-2 mt-3">
+                              <button
+                                onClick={() => printTransactionReceipt(transaction)}
+                                className="flex-1 px-3 py-1.5 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 flex items-center justify-center gap-1 font-medium"
+                              >
+                                <Printer className="w-3 h-3" />
+                                Receipt
+                              </button>
+                              <button
+                                onClick={() => viewTransactionItems(transaction)}
+                                className="px-3 py-1.5 text-xs bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
+                              >
+                                <Package className="w-3 h-3" />
+                                Items
+                              </button>
                             </div>
                           </div>
-                          
-                          {/* Transaction Details */}
-                          <div className="mt-3 text-sm text-muted-foreground space-y-1">
-                            <div className="flex justify-between">
-                              <span>Subtotal:</span>
-                              <span>£{getSafeNumber(transaction.subtotal).toFixed(2)}</span>
-                            </div>
-                            {serviceInfo && (
-                              <div className="flex justify-between text-primary">
-                                <span className="flex items-center gap-1">
-                                  <Coffee className="w-3 h-3" />
-                                  {serviceInfo.name}:
-                                </span>
-                                <span>+£{getSafeNumber(serviceInfo.fee).toFixed(2)}</span>
-                              </div>
-                            )}
-                            {getSafeNumber(transaction.vat) > 0 && (
-                              <div className="flex justify-between">
-                                <span>VAT:</span>
-                                <span>£{getSafeNumber(transaction.vat).toFixed(2)}</span>
-                              </div>
-                            )}
-                            {transaction.notes && (
-                              <div className="mt-2 text-muted-foreground">
-                                <span className="font-medium">Note:</span> {transaction.notes}
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Transaction Actions */}
-                          <div className="flex gap-2 mt-3">
-                            <button
-                              onClick={() => printTransactionReceipt(transaction)}
-                              className="flex-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded hover:bg-primary/20 flex items-center justify-center gap-1 font-medium"
-                            >
-                              <Printer className="w-3 h-3" />
-                              Print Receipt
-                            </button>
-                            {getSafeNumber(transaction.balance_deducted) > 0 && (
-                              <div className="flex-1 px-3 py-1.5 text-sm bg-accent text-foreground rounded flex items-center justify-center gap-1 font-medium">
-                                <DollarSign className="w-3 h-3" />
-                                £{getSafeNumber(transaction.balance_deducted).toFixed(2)} balance used
-                              </div>
-                            )}
-                            <button
-                              onClick={() => viewTransactionItems(transaction)}
-                              className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
-                            >
-                              <Package className="w-3 h-3" />
-                              View Items
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="border-t border-border p-4 flex items-center justify-between">
+                        <button
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                          className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <ChevronLeftIcon className="w-4 h-4" />
+                          Previous
+                        </button>
+                        <span className="text-sm text-muted-foreground">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          disabled={currentPage === totalPages}
+                          className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-accent disabled:opacity-50 flex items-center gap-1"
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </>
@@ -1347,19 +1454,7 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
       <div className="bg-card rounded-xl shadow-lg border border-border p-8">
         <div className="flex items-center gap-4 mb-6">
           <div className="p-3 bg-destructive/10 rounded-full">
-            <svg 
-              className="w-8 h-8 text-destructive" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.73-.833-2.464 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" 
-              />
-            </svg>
+            <AlertCircle className="w-8 h-8 text-destructive" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Customer Dashboard Error</h1>
@@ -1400,4 +1495,3 @@ export default function CustomersPage() {
     </ErrorBoundary>
   );
 }
-
