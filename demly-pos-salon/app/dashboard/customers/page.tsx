@@ -22,7 +22,6 @@ import {
   Save,
   ChevronLeft,
   Plus,
-  Eye,
   Clock,
   Hash,
   Receipt,
@@ -30,7 +29,9 @@ import {
   ArrowUp,
   ArrowDown,
   MapPin,
-  Coffee
+  Coffee,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import ReceiptPrint from '@/components/receipts/ReceiptPrint';
 
@@ -68,7 +69,9 @@ interface Transaction {
   services?: ServiceInfo[];
   service_fee?: number;
   service_type_id?: number | null;
-  staff_name?: string;
+  staff?: {
+    name: string;
+  };
 }
 
 // Helper functions
@@ -112,40 +115,6 @@ const getTransactionIdDisplay = (transaction: Transaction): string => {
     return idStr.length > 6 ? `#${idStr.slice(-6)}` : `#${idStr}`;
   }
   return '#Unknown';
-};
-
-const getCustomerIdDisplay = (customer: Customer): string => {
-  if (!customer?.id) return 'Unknown';
-  const idStr = String(customer.id);
-  return idStr.length > 8 ? `${idStr.slice(0, 8)}` : idStr;
-};
-
-// Create audit log
-const createAuditLog = async (
-  userId: string,
-  staffId: number | null,
-  action: string,
-  entityType: string,
-  entityId: string,
-  oldValues?: any,
-  newValues?: any
-) => {
-  try {
-    await supabase.from('audit_logs').insert({
-      user_id: userId,
-      staff_id: staffId,
-      action: action,
-      entity_type: entityType,
-      entity_id: entityId,
-      old_values: oldValues || null,
-      new_values: newValues || null,
-      ip_address: null,
-      user_agent: navigator.userAgent,
-      created_at: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error creating audit log:', error);
-  }
 };
 
 function CustomersContent() {
@@ -198,7 +167,7 @@ function CustomersContent() {
     fetchBusinessSettings();
   }, []);
 
-  // Search effect - Include address and business name search
+  // Search effect
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchCustomers();
@@ -229,7 +198,7 @@ function CustomersContent() {
     }
   };
 
-  // Search customers by name, email, phone, address, and business name
+  // Search customers
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -268,17 +237,11 @@ function CustomersContent() {
         .from('transactions')
         .select('*, staff:staff_id(name)')
         .eq('customer_id', customerId)
-        .order('created_at', { ascending: false })
-        .limit(50);
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      
-      const formattedTransactions = (data || []).map(transaction => ({
-        ...transaction,
-        staff_name: transaction.staff?.name || 'Staff'
-      }));
-      
-      setCustomerTransactions(formattedTransactions);
+      setCustomerTransactions(data || []);
       
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -298,32 +261,30 @@ function CustomersContent() {
       return {
         totalSpent: 0,
         totalTransactions: 0,
-        lastTransaction: null,
-        itemsPurchased: 0
+        averageOrderValue: 0,
+        lastTransactionDate: null,
+        lastTransactionAmount: 0,
+        firstPurchaseDate: null
       };
     }
     
-    const completedTransactions = customerTransactions.filter(t => t.status === 'completed');
-    const totalSpent = completedTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
-    
-    let itemsPurchased = 0;
-    completedTransactions.forEach(transaction => {
-      if (transaction.products && Array.isArray(transaction.products)) {
-        transaction.products.forEach((item: any) => {
-          itemsPurchased += getSafeNumber(item.quantity);
-        });
-      }
-    });
+    const totalSpent = customerTransactions.reduce((sum, t) => sum + getSafeNumber(t.total), 0);
+    const totalTransactions = customerTransactions.length;
+    const averageOrderValue = totalTransactions > 0 ? totalSpent / totalTransactions : 0;
+    const lastTransaction = customerTransactions[0];
+    const firstTransaction = customerTransactions[customerTransactions.length - 1];
     
     return {
       totalSpent: Number(totalSpent.toFixed(2)),
-      totalTransactions: customerTransactions.length,
-      lastTransaction: customerTransactions[0] || null,
-      itemsPurchased
+      totalTransactions,
+      averageOrderValue: Number(averageOrderValue.toFixed(2)),
+      lastTransactionDate: lastTransaction?.created_at || null,
+      lastTransactionAmount: getSafeNumber(lastTransaction?.total),
+      firstPurchaseDate: firstTransaction?.created_at || null
     };
   };
 
-  // Print receipt with service support
+  // Print receipt with proper format matching POS.tsx
   const printTransactionReceipt = async (transaction: Transaction) => {
     try {
       console.log('🖨️ Generating receipt for transaction:', transaction.id);
@@ -342,7 +303,7 @@ function CustomersContent() {
           notes: null
         };
 
-      // Fetch transaction items with product details
+      // Fetch transaction items
       let transactionItems: Array<{
         id: string | number;
         name: string;
@@ -369,7 +330,7 @@ function CustomersContent() {
             price: getSafeNumber(item.price),
             quantity: getSafeNumber(item.quantity),
             discount: getSafeNumber(item.discount) || 0,
-            total: getSafeNumber(item.price) * getSafeNumber(item.quantity),
+            total: (getSafeNumber(item.price) * getSafeNumber(item.quantity)) - (getSafeNumber(item.discount) || 0),
             sku: item.product?.sku,
             barcode: item.product?.barcode
           }));
@@ -388,10 +349,10 @@ function CustomersContent() {
 
       // Create receipt data matching POS.tsx structure
       const receiptSettings = {
-        fontSize: 13,
+        fontSize: businessSettings?.receipt_font_size || 12,
         footer: businessSettings?.receipt_footer || "Thank you for your business!",
         showBarcode: businessSettings?.show_barcode_on_receipt !== false,
-        barcodeType: (businessSettings?.barcode_type || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
+        barcodeType: (businessSettings?.barcode_type?.toUpperCase() || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
         showTaxBreakdown: businessSettings?.show_tax_breakdown !== false
       };
 
@@ -421,7 +382,7 @@ function CustomersContent() {
         receiptSettings: receiptSettings,
         balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details || {},
-        staffName: transaction.staff_name || currentStaff?.name || 'Staff',
+        staffName: transaction.staff?.name || 'Staff',
         notes: transaction.notes || undefined,
         serviceName: serviceInfo?.name,
         serviceFee: serviceInfo?.fee
@@ -431,9 +392,7 @@ function CustomersContent() {
         transactionId: receiptData.id,
         itemsCount: receiptData.products.length,
         total: receiptData.total,
-        serviceName: receiptData.serviceName,
-        serviceFee: receiptData.serviceFee,
-        hasBarcode: receiptSettings.showBarcode
+        serviceName: receiptData.serviceName
       });
       
       setReceiptData(receiptData);
@@ -450,7 +409,7 @@ function CustomersContent() {
     setReceiptData(null);
   };
 
-  // Customer CRUD operations with audit logging
+  // Customer CRUD operations
   const openAddCustomerModal = () => {
     setNewCustomer({
       name: '',
@@ -493,16 +452,6 @@ function CustomersContent() {
       }
 
       if (editingCustomer) {
-        const oldValues = {
-          name: editingCustomer.name,
-          email: editingCustomer.email,
-          phone: editingCustomer.phone,
-          address: editingCustomer.address,
-          business_name: editingCustomer.business_name,
-          notes: editingCustomer.notes,
-          balance: editingCustomer.balance
-        };
-
         const { error } = await supabase
           .from('customers')
           .update({
@@ -518,18 +467,6 @@ function CustomersContent() {
           .eq('id', editingCustomer.id);
 
         if (error) throw error;
-        
-        if (userId && currentStaff) {
-          await createAuditLog(
-            userId,
-            currentStaff.id,
-            'CUSTOMER_UPDATED',
-            'customer',
-            editingCustomer.id,
-            oldValues,
-            newCustomer
-          );
-        }
         
         setCustomers(customers.map(c => 
           c.id === editingCustomer.id 
@@ -560,18 +497,6 @@ function CustomersContent() {
 
         if (error) throw error;
         
-        if (userId && currentStaff) {
-          await createAuditLog(
-            userId,
-            currentStaff.id,
-            'CUSTOMER_CREATED',
-            'customer',
-            data.id,
-            undefined,
-            data
-          );
-        }
-        
         setCustomers([data, ...customers]);
         setSelectedCustomer(data);
         await fetchCustomerTransactions(data.id);
@@ -599,20 +524,6 @@ function CustomersContent() {
     if (!confirm('Are you sure you want to delete this customer?\n\nNote: This will also delete all related transactions.')) return;
     
     try {
-      const customer = customers.find(c => c.id === customerId);
-      
-      if (userId && currentStaff && customer) {
-        await createAuditLog(
-          userId,
-          currentStaff.id,
-          'CUSTOMER_DELETED',
-          'customer',
-          customerId,
-          customer,
-          undefined
-        );
-      }
-      
       await supabase
         .from('transactions')
         .delete()
@@ -638,7 +549,7 @@ function CustomersContent() {
     }
   };
 
-  // Balance adjustment functions
+  // Balance adjustment
   const openAdjustBalanceModal = () => {
     if (!selectedCustomer) return;
     setBalanceAdjustment({
@@ -677,25 +588,6 @@ function CustomersContent() {
         .eq('id', selectedCustomer.id);
 
       if (updateError) throw updateError;
-
-      await createAuditLog(
-        userId,
-        currentStaff.id,
-        'CUSTOMER_BALANCE_ADJUSTED',
-        'customer',
-        selectedCustomer.id,
-        { balance: previousBalance },
-        { 
-          balance: newBalance,
-          adjustment: {
-            amount: adjustmentAmount,
-            type: balanceAdjustment.type,
-            reason: balanceAdjustment.reason,
-            previousBalance,
-            newBalance
-          }
-        }
-      );
 
       const updatedCustomer = { ...selectedCustomer, balance: newBalance };
       setSelectedCustomer(updatedCustomer);
@@ -754,13 +646,11 @@ function CustomersContent() {
     <div className="p-6 max-w-7xl mx-auto">
       {/* Receipt Print Component */}
       {showReceiptPrint && receiptData && (
-        <div className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-md">
-            <ReceiptPrint 
-              data={receiptData} 
-              onClose={closeReceiptPrint}
-            />
-          </div>
+        <div className="fixed inset-0 z-[9999] bg-white">
+          <ReceiptPrint 
+            data={receiptData} 
+            onClose={closeReceiptPrint}
+          />
         </div>
       )}
 
@@ -788,18 +678,12 @@ function CustomersContent() {
                     <div className="flex-1">
                       <h4 className="font-medium text-foreground">{item.name || 'Unknown Product'}</h4>
                       <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                        {item.sku && (
-                          <span>SKU: {item.sku}</span>
-                        )}
-                        {item.category && (
-                          <span>Category: {item.category}</span>
-                        )}
+                        {item.sku && <span>SKU: {item.sku}</span>}
+                        {item.category && <span>Category: {item.category}</span>}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-foreground">
-                        £{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                      </div>
+                      <div className="font-medium text-foreground">£{item.total?.toFixed(2) || '0.00'}</div>
                       <div className="text-sm text-muted-foreground">
                         {item.quantity || 1} × £{(item.price || 0).toFixed(2)}
                       </div>
@@ -812,7 +696,7 @@ function CustomersContent() {
         </div>
       )}
 
-      {/* Add/Edit Customer Modal - Added business_name field */}
+      {/* Add/Edit Customer Modal */}
       {showAddEditModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card rounded-xl shadow-xl w-full max-w-md border border-border">
@@ -832,103 +716,80 @@ function CustomersContent() {
             
             <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Name *
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
                 <input
                   type="text"
                   value={newCustomer.name}
                   onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="Customer name"
                   autoFocus
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Business Name
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Business Name</label>
                 <input
                   type="text"
                   value={newCustomer.business_name}
                   onChange={(e) => setNewCustomer({...newCustomer, business_name: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="Business name (optional)"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Customers can be searched by business name
-                </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Email
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Email</label>
                 <input
                   type="email"
                   value={newCustomer.email}
                   onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="customer@example.com"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Phone
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Phone</label>
                 <input
                   type="tel"
                   value={newCustomer.phone}
                   onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="+44 1234 567890"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Address (including postcode/ZIP)
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Address</label>
                 <textarea
                   value={newCustomer.address}
                   onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="123 Street, City, Postcode"
                   rows={3}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Customers can be searched by postcode/ZIP code
-                </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Balance (£)
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Balance (£)</label>
                 <input
                   type="number"
                   step="0.01"
                   value={newCustomer.balance}
                   onChange={(e) => setNewCustomer({...newCustomer, balance: parseFloat(e.target.value) || 0})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="0.00"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Positive balance = customer has credit, Negative balance = customer owes money
-                </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Notes
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
                 <textarea
                   value={newCustomer.notes}
                   onChange={(e) => setNewCustomer({...newCustomer, notes: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
-                  placeholder="Additional notes about this customer..."
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
+                  placeholder="Additional notes..."
                   rows={3}
                 />
               </div>
@@ -944,7 +805,7 @@ function CustomersContent() {
               <button
                 onClick={saveCustomer}
                 disabled={!newCustomer.name.trim()}
-                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
                 {editingCustomer ? 'Update' : 'Create'}
@@ -973,9 +834,7 @@ function CustomersContent() {
             
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Type
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Type</label>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setBalanceAdjustment({...balanceAdjustment, type: 'credit'})}
@@ -1003,34 +862,27 @@ function CustomersContent() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Amount (£)
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Amount (£)</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0.01"
                   value={balanceAdjustment.amount}
                   onChange={(e) => setBalanceAdjustment({...balanceAdjustment, amount: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
                   placeholder="0.00"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Reason * (Will be audit logged)
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-1">Reason *</label>
                 <textarea
                   value={balanceAdjustment.reason}
                   onChange={(e) => setBalanceAdjustment({...balanceAdjustment, reason: e.target.value})}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground"
-                  placeholder="Reason for balance adjustment..."
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground"
+                  placeholder="Reason for adjustment..."
                   rows={3}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  This action will be recorded in the audit logs
-                </p>
               </div>
               
               {balanceAdjustment.amount && !isNaN(parseFloat(balanceAdjustment.amount)) && (
@@ -1054,14 +906,13 @@ function CustomersContent() {
               </button>
               <button
                 onClick={adjustCustomerBalance}
-                disabled={!balanceAdjustment.amount || !balanceAdjustment.reason.trim() || isNaN(parseFloat(balanceAdjustment.amount))}
-                className={`flex-1 px-4 py-2 text-primary-foreground rounded-lg font-medium flex items-center justify-center gap-2 ${
+                disabled={!balanceAdjustment.amount || !balanceAdjustment.reason.trim()}
+                className={`flex-1 px-4 py-2 text-primary-foreground rounded-lg font-medium ${
                   balanceAdjustment.type === 'credit'
                     ? 'bg-primary hover:opacity-90'
                     : 'bg-destructive hover:opacity-90'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                } disabled:opacity-50`}
               >
-                <Save className="w-4 h-4" />
                 {balanceAdjustment.type === 'credit' ? 'Add Credit' : 'Add Debit'}
               </button>
             </div>
@@ -1072,11 +923,11 @@ function CustomersContent() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Customers</h1>
-        <p className="text-muted-foreground mt-2">Manage your customers and view their transactions</p>
+        <p className="text-muted-foreground mt-2">Manage your customers and view their transaction history</p>
       </div>
       
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      {/* Stats Overview - Updated with meaningful metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
@@ -1106,13 +957,27 @@ function CustomersContent() {
         <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Active Accounts</p>
+              <p className="text-sm font-medium text-muted-foreground">Credit Customers</p>
               <p className="text-2xl font-bold mt-1 text-foreground">
-                {customers.filter(c => getSafeNumber(c.balance) !== 0).length}
+                {customers.filter(c => getSafeNumber(c.balance) > 0).length}
               </p>
             </div>
-            <div className="p-3 bg-primary/10 rounded-lg">
-              <ShoppingBag className="w-6 h-6 text-primary" />
+            <div className="p-3 bg-emerald-500/10 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-emerald-500" />
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Debt Customers</p>
+              <p className="text-2xl font-bold mt-1 text-foreground">
+                {customers.filter(c => getSafeNumber(c.balance) < 0).length}
+              </p>
+            </div>
+            <div className="p-3 bg-red-500/10 rounded-lg">
+              <TrendingDown className="w-6 h-6 text-red-500" />
             </div>
           </div>
         </div>
@@ -1129,13 +994,10 @@ function CustomersContent() {
                 <input
                   type="text"
                   placeholder="Search by name, email, phone, address, or business..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-foreground placeholder:text-muted-foreground"
+                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground mt-1.5 ml-1">
-                  Tip: Search by business name or postcode/ZIP code
-                </p>
               </div>
               <button
                 onClick={openAddCustomerModal}
@@ -1176,39 +1038,31 @@ function CustomersContent() {
                     onClick={() => handleCustomerSelect(customer)}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-foreground">{customer.name || 'Unnamed Customer'}</h3>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-foreground truncate">{customer.name}</h3>
                         {customer.business_name && (
-                          <div className="text-xs text-primary mt-0.5">{customer.business_name}</div>
+                          <div className="text-xs text-primary mt-0.5 truncate">{customer.business_name}</div>
                         )}
                         <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                           {customer.phone && (
                             <span className="flex items-center gap-1">
-                              <Phone className="w-3 h-3" />
-                              {customer.phone}
+                              <Phone className="w-3 h-3 flex-shrink-0" />
+                              <span className="truncate max-w-[100px]">{customer.phone}</span>
                             </span>
                           )}
                           {customer.email && (
-                            <span className="flex items-center gap-1 truncate max-w-[180px]">
+                            <span className="flex items-center gap-1">
                               <Mail className="w-3 h-3 flex-shrink-0" />
-                              <span className="truncate">{customer.email}</span>
+                              <span className="truncate max-w-[120px]">{customer.email}</span>
                             </span>
                           )}
                         </div>
-                        {customer.address && (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            <span className="truncate">{customer.address}</span>
-                          </div>
-                        )}
                       </div>
-                      <div className="text-right">
+                      <div className="text-right ml-2">
                         <div className={`font-bold ${
-                          getSafeNumber(customer.balance) > 0 
-                            ? 'text-primary'
-                            : getSafeNumber(customer.balance) < 0 
-                            ? 'text-destructive'
-                            : 'text-muted-foreground'
+                          getSafeNumber(customer.balance) > 0 ? 'text-primary' :
+                          getSafeNumber(customer.balance) < 0 ? 'text-destructive' :
+                          'text-muted-foreground'
                         }`}>
                           £{getSafeNumber(customer.balance).toFixed(2)}
                         </div>
@@ -1231,7 +1085,7 @@ function CustomersContent() {
               {/* Customer Details Header */}
               <div className="bg-card rounded-xl shadow-sm border border-border p-6 mb-6">
                 <div className="flex justify-between items-start mb-6">
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <button
                         onClick={() => setSelectedCustomer(null)}
@@ -1240,15 +1094,12 @@ function CustomersContent() {
                       >
                         <ChevronLeft className="w-5 h-5 text-muted-foreground" />
                       </button>
-                      <h2 className="text-2xl font-bold text-foreground">{selectedCustomer.name || 'Unnamed Customer'}</h2>
-                      <span className="text-xs px-2 py-1 bg-muted text-muted-foreground rounded">
-                        ID: {getCustomerIdDisplay(selectedCustomer)}
-                      </span>
+                      <h2 className="text-2xl font-bold text-foreground truncate">{selectedCustomer.name}</h2>
                     </div>
                     {selectedCustomer.business_name && (
                       <div className="text-sm text-primary mb-2">🏢 {selectedCustomer.business_name}</div>
                     )}
-                    <div className="flex items-center gap-4 mt-2 text-muted-foreground flex-wrap">
+                    <div className="flex flex-wrap items-center gap-4 mt-2 text-muted-foreground">
                       {selectedCustomer.phone && (
                         <span className="flex items-center gap-2">
                           <Phone className="w-4 h-4" />
@@ -1258,12 +1109,12 @@ function CustomersContent() {
                       {selectedCustomer.email && (
                         <span className="flex items-center gap-2">
                           <Mail className="w-4 h-4" />
-                          {selectedCustomer.email}
+                          <span className="truncate max-w-[200px]">{selectedCustomer.email}</span>
                         </span>
                       )}
                       <span className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
-                        Since {formatDate(selectedCustomer.created_at, false)}
+                        Customer since {formatDate(selectedCustomer.created_at, false)}
                       </span>
                     </div>
                     {selectedCustomer.address && (
@@ -1278,13 +1129,11 @@ function CustomersContent() {
                       </div>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right ml-4">
                     <div className={`text-2xl font-bold ${
-                      getSafeNumber(selectedCustomer.balance) > 0 
-                        ? 'text-primary'
-                        : getSafeNumber(selectedCustomer.balance) < 0 
-                        ? 'text-destructive'
-                        : 'text-muted-foreground'
+                      getSafeNumber(selectedCustomer.balance) > 0 ? 'text-primary' :
+                      getSafeNumber(selectedCustomer.balance) < 0 ? 'text-destructive' :
+                      'text-muted-foreground'
                     }`}>
                       £{getSafeNumber(selectedCustomer.balance).toFixed(2)}
                     </div>
@@ -1292,41 +1141,43 @@ function CustomersContent() {
                     <div className="flex gap-2 mt-3">
                       <button
                         onClick={() => openEditCustomerModal(selectedCustomer)}
-                        className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center justify-center gap-1 font-medium"
+                        className="px-3 py-1.5 text-sm bg-muted text-foreground rounded hover:bg-muted/80 flex items-center gap-1 font-medium"
                       >
                         <Edit className="w-3 h-3" />
                         Edit
                       </button>
                       <button
                         onClick={openAdjustBalanceModal}
-                        className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 flex items-center justify-center gap-1 font-medium"
+                        className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 flex items-center gap-1 font-medium"
                       >
                         <DollarSign className="w-3 h-3" />
-                        Adjust Balance
+                        Adjust
                       </button>
                     </div>
                   </div>
                 </div>
                 
-                {/* Customer Stats */}
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                {/* Customer Stats - Updated with meaningful metrics */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
                     <div className="text-sm font-medium text-muted-foreground">Total Spent</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">£{(stats.totalSpent || 0).toFixed(2)}</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.totalSpent.toFixed(2)}</div>
                     <div className="text-xs text-muted-foreground mt-1">{stats.totalTransactions} transactions</div>
                   </div>
+                  
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
-                    <div className="text-sm font-medium text-muted-foreground">Items Purchased</div>
-                    <div className="text-xl font-bold mt-1 text-foreground">{stats.itemsPurchased}</div>
-                    <div className="text-xs text-muted-foreground mt-1">Total items</div>
+                    <div className="text-sm font-medium text-muted-foreground">Average Order</div>
+                    <div className="text-xl font-bold mt-1 text-foreground">£{stats.averageOrderValue.toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Per transaction</div>
                   </div>
+                  
                   <div className="bg-muted/50 p-4 rounded-lg border border-border">
-                    <div className="text-sm font-medium text-muted-foreground">Last Transaction</div>
+                    <div className="text-sm font-medium text-muted-foreground">Last Purchase</div>
                     <div className="text-xl font-bold mt-1 text-foreground">
-                      {stats.lastTransaction ? `£${getSafeNumber(stats.lastTransaction.total).toFixed(2)}` : 'None'}
+                      {stats.lastTransactionAmount > 0 ? `£${stats.lastTransactionAmount.toFixed(2)}` : 'None'}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 truncate">
-                      {stats.lastTransaction ? formatDate(stats.lastTransaction.created_at, true) : 'No transactions'}
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {stats.lastTransactionDate ? formatDate(stats.lastTransactionDate, true) : 'No purchases'}
                     </div>
                   </div>
                 </div>
@@ -1347,8 +1198,8 @@ function CustomersContent() {
                 <div className="p-6 border-b border-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-xl font-bold text-foreground">Transaction History ({customerTransactions.length})</h2>
-                      <p className="text-sm text-muted-foreground mt-1">All transactions for this customer</p>
+                      <h2 className="text-xl font-bold text-foreground">Transaction History</h2>
+                      <p className="text-sm text-muted-foreground mt-1">{customerTransactions.length} completed transactions</p>
                     </div>
                     <button
                       onClick={() => fetchCustomerTransactions(selectedCustomer.id)}
@@ -1368,7 +1219,6 @@ function CustomersContent() {
                   <div className="p-8 text-center">
                     <Receipt className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
                     <p className="text-muted-foreground">No transactions found</p>
-                    <p className="text-sm text-muted-foreground/70 mt-1">Transactions will appear here after purchases</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-border">
@@ -1398,19 +1248,8 @@ function CustomersContent() {
                                   <Calendar className="w-3 h-3" />
                                   {formatDate(transaction.created_at, true)}
                                 </span>
-                                <span className={`px-2 py-0.5 rounded-full text-xs ${
-                                  transaction.status === 'completed' 
-                                    ? 'bg-primary/20 text-primary'
-                                    : transaction.status === 'pending'
-                                    ? 'bg-accent text-foreground'
-                                    : 'bg-destructive/20 text-destructive'
-                                }`}>
-                                  {transaction.status || 'unknown'}
-                                </span>
-                                {transaction.staff_name && (
-                                  <span className="text-muted-foreground">
-                                    by {transaction.staff_name}
-                                  </span>
+                                {transaction.staff?.name && (
+                                  <span>by {transaction.staff.name}</span>
                                 )}
                               </div>
                             </div>
@@ -1419,7 +1258,7 @@ function CustomersContent() {
                                 £{getSafeNumber(transaction.total).toFixed(2)}
                               </div>
                               <div className="text-sm text-muted-foreground capitalize">
-                                {transaction.payment_method || 'unknown'}
+                                {transaction.payment_method || 'cash'}
                               </div>
                             </div>
                           </div>
@@ -1536,13 +1375,13 @@ function CustomersErrorFallback({ error, resetErrorBoundary }: any) {
         <div className="space-y-3">
           <button
             onClick={resetErrorBoundary}
-            className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 font-medium transition-colors"
+            className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 font-medium"
           >
             Try Loading Again
           </button>
           <button
             onClick={() => window.location.href = '/dashboard'}
-            className="w-full px-4 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium transition-colors"
+            className="w-full px-4 py-3 bg-muted text-foreground rounded-lg hover:bg-muted/80 font-medium"
           >
             Return to Dashboard
           </button>
