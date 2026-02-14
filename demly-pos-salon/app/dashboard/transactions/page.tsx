@@ -649,55 +649,63 @@ export default function Transactions() {
         console.log(`Original payment method: ${originalMethod}`);
 
         // Case 1: Original payment was by CARD
-        if (originalMethod === 'card') {
-          if (!cardTerminalSettings?.enabled) {
-            alert("Card terminal is not configured. Please use cash or balance refund instead.");
-            setProcessingReturn(false);
-            return;
-          }
-          
-          if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
-            setProcessingReturn(false);
-            return;
-          }
+// In the processReturn function, update the card refund section (around line 300-330):
 
-          try {
-            alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
-            
-            // Use the card refund processor
-            const refundResult = await processCardRefund({
-              amount: totalRefund,
-              currency: 'GBP',
-              userId: userId!,
-              originalTransactionId: selectedTransaction.id.toString(),
-              metadata: {
-                staffId: currentStaff?.id,
-                customerId: selectedTransaction.customer_id,
-                reason: returnReason,
-                items: itemsToReturn
-              }
-            });
+// Case 1: Original payment was by CARD
+if (originalMethod === 'card') {
+  if (!cardTerminalSettings?.enabled) {
+    alert("Card terminal is not configured. Please use cash or balance refund instead.");
+    setProcessingReturn(false);
+    return;
+  }
+  
+  if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
+    setProcessingReturn(false);
+    return;
+  }
 
-            if (refundResult.success) {
-              cardRefundId = refundResult.transactionId || `refund_${Date.now()}`;
-              refundSuccess = true;
-              refundMessage = `✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\nAmount: £${totalRefund.toFixed(2)}`;
-              
-              if (refundResult.cardBrand && refundResult.last4) {
-                refundMessage += `\nCard: ${refundResult.cardBrand} ****${refundResult.last4}`;
-              }
-              
-              alert(refundMessage);
-            } else {
-              throw new Error(refundResult.error || 'Card refund failed');
-            }
-          } catch (cardError: any) {
-            console.error('Card refund failed:', cardError);
-            alert(`❌ Card refund failed: ${cardError.message}. Please try another method.`);
-            setProcessingReturn(false);
-            return;
-          }
-        }
+  try {
+    alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
+    
+    // Use the refund processor
+    const refundResult = await processCardRefund({
+      amount: totalRefund,
+      currency: 'GBP',
+      userId: userId!,
+      transactionId: `refund_${selectedTransaction.id}_${Date.now()}`,
+      metadata: {
+        staffId: currentStaff?.id,
+        customerId: selectedTransaction.customer_id,
+        reason: returnReason,
+        items: itemsToReturn,
+        originalTransactionId: selectedTransaction.id,
+        isRefund: true
+      }
+    });
+
+    if (refundResult.success) {
+      cardRefundId = refundResult.transactionId || `refund_${Date.now()}`;
+      refundSuccess = true;
+      refundMessage = `✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\nAmount: £${totalRefund.toFixed(2)}`;
+      
+      if (refundResult.cardBrand && refundResult.last4) {
+        refundMessage += `\nCard: ${refundResult.cardBrand} ****${refundResult.last4}`;
+      }
+      if (refundResult.approvalCode) {
+        refundMessage += `\nApproval Code: ${refundResult.approvalCode}`;
+      }
+      
+      alert(refundMessage);
+    } else {
+      throw new Error(refundResult.error || 'Card refund failed');
+    }
+  } catch (cardError: any) {
+    console.error('Card refund failed:', cardError);
+    alert(`❌ Card refund failed: ${cardError.message}. Please try another method.`);
+    setProcessingReturn(false);
+    return;
+  }
+}
         
         // Case 2: Original payment was by BALANCE
         else if (originalMethod === 'balance' && selectedTransaction.customer_id) {
@@ -750,28 +758,30 @@ export default function Transactions() {
             if (splitDetails.cash > 0) {
               await openCashDrawer();
             }
-            if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
-              try {
-                const refundResult = await processCardRefund({
-                  amount: splitDetails.card,
-                  currency: 'GBP',
-                  userId: userId!,
-                  originalTransactionId: selectedTransaction.id.toString(),
-                  metadata: {
-                    staffId: currentStaff?.id,
-                    customerId: selectedTransaction.customer_id,
-                    reason: returnReason,
-                    splitRefund: true
-                  }
-                });
-                if (refundResult.success) {
-                  cardRefundId = refundResult.transactionId;
-                }
-              } catch (cardError) {
-                console.error('Card refund failed for split payment:', cardError);
-                alert('Card portion refund failed. Please process manually.');
-              }
-            }
+if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
+  try {
+    const refundResult = await processCardRefund({
+      amount: splitDetails.card,
+      currency: 'GBP',
+      userId: userId!,
+      transactionId: `refund_split_${selectedTransaction.id}_${Date.now()}`,
+      metadata: {
+        staffId: currentStaff?.id,
+        customerId: selectedTransaction.customer_id,
+        reason: returnReason,
+        originalTransactionId: selectedTransaction.id,
+        splitRefund: true,
+        isRefund: true
+      }
+    });
+    if (refundResult.success) {
+      cardRefundId = refundResult.transactionId;
+    }
+  } catch (cardError) {
+    console.error('Card refund failed for split payment:', cardError);
+    alert('Card portion refund failed. Please process manually.');
+  }
+}
             if (splitDetails.balance > 0 && selectedTransaction.customer_id) {
               await adjustCustomerBalance(
                 selectedTransaction.customer_id,
@@ -1799,3 +1809,4 @@ export default function Transactions() {
     </div>
   );
 }
+
