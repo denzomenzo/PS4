@@ -29,7 +29,8 @@ const APPS = [
       "Shopify Partner account",
       "API credentials"
     ],
-    setupType: 'oauth'
+    setupType: 'oauth' as const,
+    comingSoon: false
   },
   {
     id: "website",
@@ -48,8 +49,9 @@ const APPS = [
       "Ability to add code/webhooks",
       "HTTPS website"
     ],
-    setupType: 'custom',
-    route: '/dashboard/apps/website'
+    setupType: 'custom' as const,
+    route: '/dashboard/apps/website',
+    comingSoon: false
   },
   {
     id: "deliveroo",
@@ -68,7 +70,8 @@ const APPS = [
       "Restaurant ID",
       "API credentials"
     ],
-    setupType: 'oauth'
+    setupType: 'oauth' as const,
+    comingSoon: true
   },
   {
     id: "justeat",
@@ -87,7 +90,8 @@ const APPS = [
       "Restaurant ID",
       "API access"
     ],
-    setupType: 'oauth'
+    setupType: 'oauth' as const,
+    comingSoon: true
   },
   {
     id: "ubereats",
@@ -106,7 +110,8 @@ const APPS = [
       "Store ID",
       "API credentials"
     ],
-    setupType: 'oauth'
+    setupType: 'oauth' as const,
+    comingSoon: true
   }
 ];
 
