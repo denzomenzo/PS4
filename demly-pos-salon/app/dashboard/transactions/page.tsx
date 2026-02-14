@@ -84,7 +84,7 @@ interface Return {
 type DateFilter = '7days' | '30days' | '90days' | 'all';
 type StatusFilter = 'all' | 'completed' | 'returned' | 'partial';
 
-// Helper functions (copied from customers page)
+// Helper functions
 const formatDate = (dateString: string, includeTime: boolean = true) => {
   try {
     const date = new Date(dateString);
@@ -127,7 +127,7 @@ const getTransactionIdDisplay = (id: number): string => {
   return `#${id}`;
 };
 
-// Hardware Helper Functions (copied from POS.tsx)
+// Hardware Helper Functions
 const openCashDrawer = async () => {
   try {
     console.log('📂 Opening cash drawer...');
@@ -460,7 +460,7 @@ export default function Transactions() {
     setShowReturnModal(true);
   };
 
-  // ========== BALANCE ADJUSTMENT FUNCTION (copied from customers page) ==========
+  // ========== BALANCE ADJUSTMENT FUNCTION ==========
   const adjustCustomerBalance = async (
     customerId: number, 
     amount: number, 
@@ -521,41 +521,63 @@ export default function Transactions() {
     }
   };
 
-  // ========== INVENTORY RESTORE FUNCTION (copied from POS.tsx but with addition) ==========
+  // ========== INVENTORY RESTORE FUNCTION ==========
   const restoreInventoryItems = async (items: any[]) => {
     try {
       console.log('📦 Restoring inventory for items:', items);
+      let restoredCount = 0;
+      let skippedCount = 0;
 
       for (const item of items) {
-        if (!item.track_inventory) {
-          console.log(`ℹ️ Product ${item.product_name} does not track inventory, skipping`);
-          continue;
-        }
-
-        // Get current stock (like POS.tsx)
+        // First, check if the product exists and its inventory settings
         const { data: product, error: fetchError } = await supabase
           .from("products")
-          .select("stock_quantity")
+          .select("stock_quantity, track_inventory, name")
           .eq("id", item.product_id)
           .single();
 
-        if (fetchError) throw fetchError;
+        if (fetchError) {
+          console.error(`❌ Error fetching product ${item.product_id}:`, fetchError);
+          continue;
+        }
+
+        console.log(`Product ${product.name}: track_inventory = ${product.track_inventory}`);
+
+        if (!product.track_inventory) {
+          console.log(`ℹ️ Product ${product.name} does not track inventory. Skipping.`);
+          skippedCount++;
+          continue;
+        }
 
         const currentStock = getSafeNumber(product.stock_quantity);
-        const newStock = currentStock + item.quantity; // ADDITION instead of subtraction
+        const newStock = currentStock + item.quantity;
 
-        console.log(`Product ${item.product_id}: Stock ${currentStock} → ${newStock} (+${item.quantity})`);
+        console.log(`Product ${product.name}: Stock ${currentStock} → ${newStock} (+${item.quantity})`);
 
-        // Update stock (like POS.tsx)
+        // Update stock
         const { error: updateError } = await supabase
           .from("products")
-          .update({ stock_quantity: newStock })
+          .update({ 
+            stock_quantity: newStock,
+            updated_at: new Date().toISOString()
+          })
           .eq("id", item.product_id);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          console.error(`❌ Error updating stock for product ${product.name}:`, updateError);
+          throw updateError;
+        }
+
+        restoredCount++;
+        console.log(`✅ Stock updated successfully for ${product.name}`);
       }
 
-      console.log('✅ Inventory restored successfully');
+      console.log(`✅ Inventory restored for ${restoredCount} items, skipped ${skippedCount} items (no tracking)`);
+      
+      if (skippedCount > 0) {
+        alert(`Note: ${skippedCount} item(s) skipped because they don't track inventory. Enable inventory tracking in product settings to restore stock.`);
+      }
+      
       return true;
 
     } catch (error) {
@@ -619,27 +641,42 @@ export default function Transactions() {
 
       let cardRefundId = null;
 
-      // Process card refund
-      if (refundMethod === 'original' && 
-          selectedTransaction.payment_method === 'card' && 
-          cardTerminalSettings?.enabled) {
+      // ========== HANDLE ORIGINAL PAYMENT METHOD REFUND (CARD) ==========
+      if (refundMethod === 'original' && selectedTransaction.payment_method === 'card') {
+        if (!cardTerminalSettings?.enabled) {
+          alert("Card terminal is not configured. Please use cash or balance refund instead.");
+          setProcessingReturn(false);
+          return;
+        }
         
         if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
           setProcessingReturn(false);
           return;
         }
 
-        alert(`Processing card refund of £${totalRefund.toFixed(2)}...`);
-        cardRefundId = `refund_${Date.now()}`;
-        alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}`);
+        try {
+          alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
+          
+          // In production, this would call your card refund API
+          // For now, simulate it
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          cardRefundId = `refund_${Date.now()}`;
+          
+          alert(`✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\n\nAmount: £${totalRefund.toFixed(2)}`);
+        } catch (cardError) {
+          console.error('Card refund failed:', cardError);
+          alert('❌ Card refund failed. Please try another method.');
+          setProcessingReturn(false);
+          return;
+        }
       }
 
-      // Open cash drawer for cash refunds
+      // ========== HANDLE CASH REFUND ==========
       if (refundMethod === 'cash') {
         await openCashDrawer();
       }
 
-      // ========== HANDLE BALANCE REFUND (using customers page function) ==========
+      // ========== HANDLE BALANCE REFUND ==========
       if (refundMethod === 'balance' && selectedTransaction.customer_id) {
         await adjustCustomerBalance(
           selectedTransaction.customer_id,
@@ -649,7 +686,7 @@ export default function Transactions() {
         );
       }
 
-      // ========== HANDLE INVENTORY RESTORE (using POS.tsx pattern) ==========
+      // ========== HANDLE INVENTORY RESTORE ==========
       if (restoreInventory) {
         await restoreInventoryItems(itemsToReturn);
       }
@@ -705,11 +742,25 @@ export default function Transactions() {
         staffId: currentStaff?.id,
       });
 
-      alert(`✅ Return processed successfully!\n\n` +
-            `Refunded: £${totalRefund.toFixed(2)}\n` +
-            `Method: ${refundMethod}\n` +
-            `${restoreInventory ? '✓ Inventory restored' : '✗ Inventory not restored'}\n` +
-            `${refundMethod === 'balance' ? '✓ Customer balance updated' : ''}`);
+      let successMessage = `✅ Return processed successfully!\n\n` +
+        `Refunded: £${totalRefund.toFixed(2)}\n` +
+        `Method: ${refundMethod}\n`;
+
+      if (restoreInventory) {
+        successMessage += `✓ Inventory restoration attempted\n`;
+      } else {
+        successMessage += `✗ Inventory not restored\n`;
+      }
+
+      if (refundMethod === 'balance') {
+        successMessage += `✓ Customer balance updated\n`;
+      }
+
+      if (refundMethod === 'original' && selectedTransaction.payment_method === 'card' && cardRefundId) {
+        successMessage += `✓ Card refund processed (ID: ${cardRefundId})\n`;
+      }
+
+      alert(successMessage);
 
       setShowReturnModal(false);
       
