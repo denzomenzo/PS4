@@ -42,8 +42,10 @@ import {
   ToggleLeft,
   ToggleRight,
   Power,
-  PowerOff
+  PowerOff,
+  Smile
 } from "lucide-react";
+import EmojiPicker from 'emoji-picker-react';
 
 interface Product {
   id: number;
@@ -62,7 +64,7 @@ interface Product {
   supplier: string | null;
   image_url: string | null;
   service_type: string | null;
-  has_infinite_stock?: boolean; // New field for infinite stock
+  has_infinite_stock?: boolean;
 }
 
 interface ServiceType {
@@ -73,7 +75,7 @@ interface ServiceType {
   default_price: number;
   is_active: boolean;
   user_id: string;
-  usage_count?: number; // For displaying how often used
+  usage_count?: number;
 }
 
 export default function Inventory() {
@@ -90,6 +92,10 @@ export default function Inventory() {
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingService, setEditingService] = useState<ServiceType | null>(null);
+  
+  // Dropdown state
+  const [showNewItemDropdown, setShowNewItemDropdown] = useState(false);
+  const newItemDropdownRef = useRef<HTMLDivElement>(null);
   
   // UI State
   const [searchTerm, setSearchTerm] = useState("");
@@ -127,6 +133,8 @@ export default function Inventory() {
   const [serviceIcon, setServiceIcon] = useState("");
   const [serviceColor, setServiceColor] = useState("#3B82F6");
   const [servicePrice, setServicePrice] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   // File upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -150,6 +158,20 @@ export default function Inventory() {
     { name: "Dine In", icon: "🍽️", color: "#EF4444", price: 0 },
     { name: "Collection", icon: "📥", color: "#06B6D4", price: 0 },
   ];
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (newItemDropdownRef.current && !newItemDropdownRef.current.contains(event.target as Node)) {
+        setShowNewItemDropdown(false);
+      }
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (userId) {
@@ -177,10 +199,10 @@ export default function Inventory() {
       
       if (productsError) throw productsError;
       
-      // Add infinite stock flag to products (you may need to add this column to your DB)
+      // Add infinite stock flag to products
       const productsWithInfinite = (productsData || []).map(p => ({
         ...p,
-        has_infinite_stock: p.stock_quantity === -1 || false // -1 could represent infinite
+        has_infinite_stock: p.has_infinite_stock || p.stock_quantity === -1 || false
       }));
       
       setProducts(productsWithInfinite);
@@ -262,7 +284,7 @@ export default function Inventory() {
       p.stock_quantity === 0
     ).length;
     const infiniteStock = products.filter(p => 
-      p.has_infinite_stock
+      p.has_infinite_stock === true
     ).length;
     const totalValue = products.reduce((sum, p) => 
       sum + (p.cost * (p.has_infinite_stock ? 0 : p.stock_quantity)), 0
@@ -307,6 +329,7 @@ export default function Inventory() {
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
+    setShowNewItemDropdown(false);
   };
 
   const openAddServiceModal = () => {
@@ -316,6 +339,7 @@ export default function Inventory() {
     setServiceColor("#3B82F6");
     setServicePrice("");
     setShowServicesModal(true);
+    setShowNewItemDropdown(false);
   };
 
   const openEditModal = (product: Product) => {
@@ -351,6 +375,7 @@ export default function Inventory() {
     setServiceIcon(service.icon);
     setServiceColor(service.color);
     setServicePrice(service.default_price.toString());
+    setShowServicesModal(true);
   };
 
   const addProduct = async () => {
@@ -362,7 +387,7 @@ export default function Inventory() {
     try {
       const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
       
-      const { error } = await supabase.from("products").insert({
+      const productData = {
         user_id: userId,
         name: formName,
         description: formDescription || null,
@@ -380,7 +405,9 @@ export default function Inventory() {
         image_url: formImageUrl || null,
         service_type: null,
         has_infinite_stock: formInfiniteStock,
-      });
+      };
+
+      const { error } = await supabase.from("products").insert(productData);
 
       if (error) throw error;
 
@@ -388,7 +415,7 @@ export default function Inventory() {
       loadData();
     } catch (error) {
       console.error("Error adding product:", error);
-      alert("Error adding product");
+      alert("Error adding product: " + (error as any).message);
     }
   };
 
@@ -398,26 +425,28 @@ export default function Inventory() {
     try {
       const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
       
+      const productData = {
+        name: formName,
+        description: formDescription || null,
+        sku: formSKU || null,
+        barcode: formBarcode || null,
+        category: formCategory || null,
+        price: parseFloat(formPrice),
+        cost: parseFloat(formCost) || 0,
+        stock_quantity: stockQuantity,
+        low_stock_threshold: formInfiniteStock ? 0 : parseInt(formThreshold),
+        track_inventory: !formInfiniteStock && formTrackInventory,
+        is_service: false,
+        icon: formIcon || null,
+        supplier: formSupplier || null,
+        image_url: formImageUrl || null,
+        service_type: null,
+        has_infinite_stock: formInfiniteStock,
+      };
+
       const { error } = await supabase
         .from("products")
-        .update({
-          name: formName,
-          description: formDescription || null,
-          sku: formSKU || null,
-          barcode: formBarcode || null,
-          category: formCategory || null,
-          price: parseFloat(formPrice),
-          cost: parseFloat(formCost) || 0,
-          stock_quantity: stockQuantity,
-          low_stock_threshold: formInfiniteStock ? 0 : parseInt(formThreshold),
-          track_inventory: !formInfiniteStock && formTrackInventory,
-          is_service: false,
-          icon: formIcon || null,
-          supplier: formSupplier || null,
-          image_url: formImageUrl || null,
-          service_type: null,
-          has_infinite_stock: formInfiniteStock,
-        })
+        .update(productData)
         .eq("id", editingProduct.id);
 
       if (error) throw error;
@@ -426,7 +455,7 @@ export default function Inventory() {
       loadData();
     } catch (error) {
       console.error("Error updating product:", error);
-      alert("Error updating product");
+      alert("Error updating product: " + (error as any).message);
     }
   };
 
@@ -440,7 +469,7 @@ export default function Inventory() {
       const { error } = await supabase.from("service_types").insert({
         user_id: userId,
         name: serviceName,
-        icon: serviceIcon,
+        icon: serviceIcon || "🔧",
         color: serviceColor,
         default_price: parseFloat(servicePrice) || 0,
         is_active: true,
@@ -453,10 +482,11 @@ export default function Inventory() {
       setServiceColor("#3B82F6");
       setServicePrice("");
       setEditingService(null);
+      setShowEmojiPicker(false);
       loadData();
     } catch (error) {
       console.error("Error adding service:", error);
-      alert("Error adding service");
+      alert("Error adding service: " + (error as any).message);
     }
   };
 
@@ -468,7 +498,7 @@ export default function Inventory() {
         .from("service_types")
         .update({
           name: serviceName,
-          icon: serviceIcon,
+          icon: serviceIcon || "🔧",
           color: serviceColor,
           default_price: parseFloat(servicePrice) || 0,
         })
@@ -481,10 +511,11 @@ export default function Inventory() {
       setServiceIcon("");
       setServiceColor("#3B82F6");
       setServicePrice("");
+      setShowEmojiPicker(false);
       loadData();
     } catch (error) {
       console.error("Error updating service:", error);
-      alert("Error updating service");
+      alert("Error updating service: " + (error as any).message);
     }
   };
 
@@ -522,7 +553,7 @@ export default function Inventory() {
     let newStock = stockProduct.stock_quantity;
     
     if (infiniteStock) {
-      newStock = -1; // -1 represents infinite stock
+      newStock = -1;
     } else {
       if (!stockAdjustment) {
         alert("Please enter an adjustment amount");
@@ -549,7 +580,6 @@ export default function Inventory() {
 
       if (error) throw error;
 
-      // Log the adjustment if not infinite
       if (!infiniteStock && stockAdjustment) {
         await supabase.from("stock_adjustments").insert({
           user_id: userId,
@@ -565,7 +595,7 @@ export default function Inventory() {
       loadData();
     } catch (error) {
       console.error("Error adjusting stock:", error);
-      alert("Error adjusting stock");
+      alert("Error adjusting stock: " + (error as any).message);
     }
   };
 
@@ -687,32 +717,29 @@ export default function Inventory() {
       categoryFilter === "all" || product.category === categoryFilter;
 
     // Status filter
-
-let statusMatch = true;
-if (statusFilter !== "all") {
-  if (product.has_infinite_stock) {
-    statusMatch = statusFilter === "infinite";
-  } else if (!product.track_inventory) {
-    statusMatch = statusFilter === "no_track";
-  } else {
-    switch (statusFilter) {
-      case "in_stock":
-        statusMatch = product.stock_quantity > product.low_stock_threshold;
-        break;
-      case "low_stock":
-        statusMatch = product.stock_quantity <= product.low_stock_threshold && product.stock_quantity > 0;
-        break;
-      case "out_of_stock":
-        statusMatch = product.stock_quantity === 0;
-        break;
-      case "infinite":
-        statusMatch = product.has_infinite_stock ? true : false;
-        break;
-      default:
-        statusMatch = true;
+    let statusMatch = true;
+    if (statusFilter !== "all") {
+      if (product.has_infinite_stock) {
+        statusMatch = statusFilter === "infinite";
+      } else if (!product.track_inventory) {
+        statusMatch = statusFilter === "no_track";
+      } else {
+        switch (statusFilter) {
+          case "in_stock":
+            statusMatch = product.stock_quantity > product.low_stock_threshold;
+            break;
+          case "low_stock":
+            statusMatch = product.stock_quantity <= product.low_stock_threshold && product.stock_quantity > 0;
+            break;
+          case "out_of_stock":
+            statusMatch = product.stock_quantity === 0;
+            break;
+          case "infinite":
+            statusMatch = product.has_infinite_stock === true;
+            break;
+        }
+      }
     }
-  }
-}
 
     return searchMatch && typeMatch && categoryMatch && statusMatch;
   });
@@ -777,30 +804,40 @@ if (statusFilter !== "all") {
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
-          <div className="relative group">
+          
+          {/* New Item Dropdown - Fixed hover issue */}
+          <div className="relative" ref={newItemDropdownRef}>
             <button
-              onClick={openAddModal}
+              onClick={() => setShowNewItemDropdown(!showNewItemDropdown)}
+              onMouseEnter={() => setShowNewItemDropdown(true)}
               className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
             >
               <Plus className="w-4 h-4" />
               New Item
+              <ChevronDown className={`w-4 h-4 transition-transform ${showNewItemDropdown ? 'rotate-180' : ''}`} />
             </button>
-            <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg hidden group-hover:block z-10">
-              <button
-                onClick={openAddModal}
-                className="w-full px-4 py-2 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-t-lg"
+            
+            {showNewItemDropdown && (
+              <div 
+                className="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-50"
+                onMouseLeave={() => setShowNewItemDropdown(false)}
               >
-                <Box className="w-4 h-4" />
-                Add Product
-              </button>
-              <button
-                onClick={openAddServiceModal}
-                className="w-full px-4 py-2 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-b-lg"
-              >
-                <Coffee className="w-4 h-4" />
-                Add Service
-              </button>
-            </div>
+                <button
+                  onClick={openAddModal}
+                  className="w-full px-4 py-3 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-t-lg border-b border-border"
+                >
+                  <Box className="w-4 h-4" />
+                  Add Product
+                </button>
+                <button
+                  onClick={openAddServiceModal}
+                  className="w-full px-4 py-3 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-b-lg"
+                >
+                  <Coffee className="w-4 h-4" />
+                  Add Service
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1604,7 +1641,7 @@ if (statusFilter !== "all") {
         </div>
       )}
 
-      {/* Service Types Modal - Redesigned */}
+      {/* Service Types Modal - With Emoji Picker */}
       {showServicesModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -1620,6 +1657,7 @@ if (statusFilter !== "all") {
                   setServiceIcon("");
                   setServiceColor("#3B82F6");
                   setServicePrice("");
+                  setShowEmojiPicker(false);
                 }} 
                 className="text-muted-foreground hover:text-foreground"
               >
@@ -1659,17 +1697,43 @@ if (statusFilter !== "all") {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Icon (Emoji)</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={serviceIcon}
-                      onChange={(e) => setServiceIcon(e.target.value)}
-                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground"
-                      placeholder="🚚"
-                    />
+                  <label className="block text-sm font-medium text-foreground mb-1">Icon</label>
+                  <div className="flex gap-2 relative">
+                    <div className="flex-1 flex gap-2">
+                      <input
+                        value={serviceIcon}
+                        onChange={(e) => setServiceIcon(e.target.value)}
+                        className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground"
+                        placeholder="🚚"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className="px-3 py-2 bg-muted hover:bg-accent rounded-lg border border-border flex items-center gap-1"
+                      >
+                        <Smile className="w-4 h-4" />
+                        <span className="text-sm">Pick</span>
+                      </button>
+                    </div>
                     <span className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center text-2xl border border-border">
                       {serviceIcon || "🔧"}
                     </span>
+                    
+                    {/* Emoji Picker */}
+                    {showEmojiPicker && (
+                      <div 
+                        ref={emojiPickerRef}
+                        className="absolute top-full left-0 mt-1 z-50"
+                      >
+                        <EmojiPicker
+                          onEmojiClick={(emojiData) => {
+                            setServiceIcon(emojiData.emoji);
+                            setShowEmojiPicker(false);
+                          }}
+                          autoFocusSearch={false}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1720,6 +1784,7 @@ if (statusFilter !== "all") {
                         setServiceIcon("");
                         setServiceColor("#3B82F6");
                         setServicePrice("");
+                        setShowEmojiPicker(false);
                       }}
                       className="px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
                     >
@@ -1730,7 +1795,7 @@ if (statusFilter !== "all") {
               </div>
             </div>
 
-            {/* Services List - Redesigned with status indicators */}
+            {/* Services List */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-medium text-foreground">Available Services</h4>
@@ -1872,5 +1937,3 @@ if (statusFilter !== "all") {
     </div>
   );
 }
-
-
