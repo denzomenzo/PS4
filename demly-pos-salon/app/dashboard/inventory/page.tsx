@@ -687,29 +687,31 @@ export default function Inventory() {
       categoryFilter === "all" || product.category === categoryFilter;
 
     // Status filter
-    let statusMatch = true;
-    if (statusFilter !== "all") {
-      if (product.has_infinite_stock) {
-        statusMatch = statusFilter === "infinite";
-      } else if (!product.track_inventory) {
-        statusMatch = statusFilter === "no_track";
-      } else {
-        switch (statusFilter) {
-          case "in_stock":
-            statusMatch = product.stock_quantity > product.low_stock_threshold;
-            break;
-          case "low_stock":
-            statusMatch = product.stock_quantity <= product.low_stock_threshold && product.stock_quantity > 0;
-            break;
-          case "out_of_stock":
-            statusMatch = product.stock_quantity === 0;
-            break;
-          case "infinite":
-            statusMatch = product.has_infinite_stock;
-            break;
-        }
-      }
+let statusMatch = true;
+if (statusFilter !== "all") {
+  if (product.has_infinite_stock) {
+    statusMatch = statusFilter === "infinite";
+  } else if (!product.track_inventory) {
+    statusMatch = statusFilter === "no_track";
+  } else {
+    switch (statusFilter) {
+      case "in_stock":
+        statusMatch = product.stock_quantity > product.low_stock_threshold;
+        break;
+      case "low_stock":
+        statusMatch = product.stock_quantity <= product.low_stock_threshold && product.stock_quantity > 0;
+        break;
+      case "out_of_stock":
+        statusMatch = product.stock_quantity === 0;
+        break;
+      case "infinite":
+        statusMatch = product.has_infinite_stock === true;
+        break;
+      default:
+        statusMatch = true;
     }
+  }
+}
 
     return searchMatch && typeMatch && categoryMatch && statusMatch;
   });
@@ -1869,3 +1871,4 @@ export default function Inventory() {
     </div>
   );
 }
+
