@@ -76,7 +76,6 @@ interface Service {
   name: string;
   price: number;
   icon: string;
-  duration: number | null;
   is_service: boolean;
 }
 
@@ -170,10 +169,10 @@ export default function Appointments() {
       setStaff(staffData || []);
       console.log("Staff loaded:", staffData?.length);
 
-      // Load services (products that are services)
+      // Load services (products that are services) - WITHOUT duration column
       const { data: servicesData, error: servicesError } = await supabase
         .from("products")
-        .select("id, name, price, icon, duration, is_service")
+        .select("id, name, price, icon, is_service")
         .eq("user_id", userId)
         .eq("is_service", true)
         .order("name");
@@ -213,7 +212,7 @@ export default function Appointments() {
               .from("customers")
               .select("name, phone, email")
               .eq("id", appointment.customer_id)
-              .single();
+              .maybeSingle();
             customerData = customer;
           }
 
@@ -223,7 +222,7 @@ export default function Appointments() {
               .from("staff")
               .select("name")
               .eq("id", appointment.staff_id)
-              .single();
+              .maybeSingle();
             staffData = staffMember;
           }
 
@@ -233,7 +232,7 @@ export default function Appointments() {
               .from("products")
               .select("name, price, icon")
               .eq("id", appointment.service_id)
-              .single();
+              .maybeSingle();
             serviceData = service;
           }
 
