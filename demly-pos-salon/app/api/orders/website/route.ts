@@ -113,12 +113,12 @@ export async function POST(request: NextRequest) {
       total: total,
       notes: orderData.notes || orderData.specialInstructions || null,
       scheduled_for: orderData.scheduledFor || null,
-      external_created_at: orderData.createdAt || new Date().toISOString(),
       metadata: {
         website_url: orderData.websiteUrl || null,
         order_number: orderData.orderNumber || null,
         payment_method: orderData.paymentMethod || 'online',
         payment_status: orderData.paymentStatus || 'paid',
+        external_created_at: orderData.createdAt || new Date().toISOString(),
         ...orderData.metadata
       }
     };
