@@ -687,6 +687,7 @@ export default function Inventory() {
       categoryFilter === "all" || product.category === categoryFilter;
 
     // Status filter
+
 let statusMatch = true;
 if (statusFilter !== "all") {
   if (product.has_infinite_stock) {
@@ -705,7 +706,7 @@ if (statusFilter !== "all") {
         statusMatch = product.stock_quantity === 0;
         break;
       case "infinite":
-        statusMatch = product.has_infinite_stock === true;
+        statusMatch = product.has_infinite_stock ? true : false;
         break;
       default:
         statusMatch = true;
@@ -1871,4 +1872,5 @@ if (statusFilter !== "all") {
     </div>
   );
 }
+
 
