@@ -1,4 +1,4 @@
-// app/dashboard/hardware/page.tsx - UPDATED with thermal printer support
+// app/dashboard/hardware/page.tsx - FIXED with better toggles and saving
 "use client";
 
 import { useState, useEffect } from "react";
@@ -38,12 +38,15 @@ export default function Hardware() {
   const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
   const [displaySyncChannel, setDisplaySyncChannel] = useState("customer-display");
 
+  // Load settings on mount and when userId changes
   useEffect(() => {
-    loadSettings();
+    if (userId) {
+      loadSettings();
+    }
   }, [userId]);
 
+  // Check printer connection status
   useEffect(() => {
-    // Check printer connection status on load
     const checkPrinterConnection = async () => {
       const manager = getThermalPrinterManager();
       setPrinterConnected(manager.isConnected());
@@ -60,11 +63,13 @@ export default function Hardware() {
     setLoading(true);
     
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("hardware_settings")
         .select("*")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to avoid error when no data
+
+      if (error) throw error;
 
       if (data) {
         setCustomerDisplayEnabled(data.customer_display_enabled || false);
@@ -80,7 +85,7 @@ export default function Hardware() {
         setAutoPrint(data.auto_print_receipt !== false);
         setAutoCutPaper(data.auto_cut_paper !== false);
         setReceiptHeader(data.receipt_header || "");
-        setReceiptFooter(data.receipt_footer || "");
+        setReceiptFooter(data.receipt_footer || "Thank you for your business!");
         
         // Cash drawer
         setCashDrawerEnabled(data.cash_drawer_enabled || false);
@@ -102,7 +107,7 @@ export default function Hardware() {
     setSaving(true);
     
     try {
-      const { error } = await supabase.from("hardware_settings").upsert({
+      const settings = {
         user_id: userId,
         printer_enabled: printerEnabled,
         printer_connection_type: printerConnectionType,
@@ -120,7 +125,13 @@ export default function Hardware() {
         customer_display_enabled: customerDisplayEnabled,
         display_sync_channel: displaySyncChannel,
         updated_at: new Date().toISOString()
-      });
+      };
+
+      const { error } = await supabase
+        .from("hardware_settings")
+        .upsert(settings, {
+          onConflict: 'user_id'
+        });
 
       if (error) throw error;
       
@@ -234,6 +245,48 @@ export default function Hardware() {
     }
   };
 
+  // Toggle component with better visibility
+  const ToggleSwitch = ({ 
+    enabled, 
+    onChange, 
+    size = 'default',
+    label 
+  }: { 
+    enabled: boolean; 
+    onChange: () => void; 
+    size?: 'small' | 'default';
+    label?: string;
+  }) => {
+    const width = size === 'small' ? 'w-12' : 'w-16';
+    const height = size === 'small' ? 'h-6' : 'h-8';
+    const circleSize = size === 'small' ? 'w-5 h-5' : 'w-7 h-7';
+    const translateX = size === 'small' ? 'translate-x-6' : 'translate-x-8';
+    
+    return (
+      <button
+        onClick={onChange}
+        className={`relative ${width} ${height} rounded-full transition-all ${
+          enabled 
+            ? 'bg-green-500 hover:bg-green-600 shadow-lg shadow-green-500/30' 
+            : 'bg-red-400 hover:bg-red-500 shadow-lg shadow-red-500/30'
+        }`}
+        aria-label={label}
+      >
+        <div
+          className={`absolute top-0.5 left-0.5 ${circleSize} bg-white rounded-full shadow-md transition-transform ${
+            enabled ? translateX : 'translate-x-0'
+          }`}
+        >
+          {enabled ? (
+            <Check className={`${size === 'small' ? 'w-4 h-4' : 'w-5 h-5'} text-green-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`} />
+          ) : (
+            <X className={`${size === 'small' ? 'w-4 h-4' : 'w-5 h-5'} text-red-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`} />
+          )}
+        </div>
+      </button>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -277,20 +330,11 @@ export default function Hardware() {
                 <p className="text-muted-foreground text-sm">Configure thermal printer settings</p>
               </div>
             </div>
-            <button
-              onClick={() => setPrinterEnabled(!printerEnabled)}
-              className={`relative w-16 h-8 rounded-full transition-all ${
-                printerEnabled ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <div
-                className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
-                  printerEnabled ? 'translate-x-8' : 'translate-x-0'
-                }`}
-              >
-                {printerEnabled && <Check className="w-4 h-4 text-primary" />}
-              </div>
-            </button>
+            <ToggleSwitch 
+              enabled={printerEnabled} 
+              onChange={() => setPrinterEnabled(!printerEnabled)}
+              label="Toggle printer"
+            />
           </div>
 
           {printerEnabled && (
@@ -411,18 +455,11 @@ export default function Hardware() {
                   <h3 className="text-sm font-medium text-foreground">Auto-Cut Paper</h3>
                   <p className="text-xs text-muted-foreground">Automatically cut paper after printing</p>
                 </div>
-                <button
-                  onClick={() => setAutoCutPaper(!autoCutPaper)}
-                  className={`relative w-14 h-7 rounded-full transition-all ${
-                    autoCutPaper ? 'bg-primary' : 'bg-muted'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
-                      autoCutPaper ? 'translate-x-7' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch 
+                  enabled={autoCutPaper} 
+                  onChange={() => setAutoCutPaper(!autoCutPaper)}
+                  size="small"
+                />
               </div>
 
               {/* Auto-Print Receipts */}
@@ -431,18 +468,11 @@ export default function Hardware() {
                   <h3 className="text-sm font-medium text-foreground">Auto-Print Receipts</h3>
                   <p className="text-xs text-muted-foreground">Print after every transaction</p>
                 </div>
-                <button
-                  onClick={() => setAutoPrint(!autoPrint)}
-                  className={`relative w-14 h-7 rounded-full transition-all ${
-                    autoPrint ? 'bg-primary' : 'bg-muted'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
-                      autoPrint ? 'translate-x-7' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <ToggleSwitch 
+                  enabled={autoPrint} 
+                  onChange={() => setAutoPrint(!autoPrint)}
+                  size="small"
+                />
               </div>
 
               {/* Connect/Disconnect Buttons */}
@@ -530,20 +560,11 @@ export default function Hardware() {
                 )}
               </div>
             </div>
-            <button
-              onClick={() => setCashDrawerEnabled(!cashDrawerEnabled)}
-              className={`relative w-16 h-8 rounded-full transition-all ${
-                cashDrawerEnabled ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <div
-                className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
-                  cashDrawerEnabled ? 'translate-x-8' : 'translate-x-0'
-                }`}
-              >
-                {cashDrawerEnabled && <Check className="w-4 h-4 text-primary" />}
-              </div>
-            </button>
+            <ToggleSwitch 
+              enabled={cashDrawerEnabled} 
+              onChange={() => setCashDrawerEnabled(!cashDrawerEnabled)}
+              label="Toggle cash drawer"
+            />
           </div>
         </div>
 
@@ -559,20 +580,11 @@ export default function Hardware() {
                 <p className="text-muted-foreground text-sm">USB or Bluetooth scanner support</p>
               </div>
             </div>
-            <button
-              onClick={() => setScannerEnabled(!scannerEnabled)}
-              className={`relative w-16 h-8 rounded-full transition-all ${
-                scannerEnabled ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <div
-                className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
-                  scannerEnabled ? 'translate-x-8' : 'translate-x-0'
-                }`}
-              >
-                {scannerEnabled && <Check className="w-4 h-4 text-primary" />}
-              </div>
-            </button>
+            <ToggleSwitch 
+              enabled={scannerEnabled} 
+              onChange={() => setScannerEnabled(!scannerEnabled)}
+              label="Toggle scanner"
+            />
           </div>
 
           {scannerEnabled && (
@@ -581,18 +593,11 @@ export default function Hardware() {
                 <h3 className="text-sm font-medium text-foreground">Scan Sound</h3>
                 <p className="text-xs text-muted-foreground">Play beep on successful scan</p>
               </div>
-              <button
-                onClick={() => setScannerSound(!scannerSound)}
-                className={`relative w-14 h-7 rounded-full transition-all ${
-                  scannerSound ? 'bg-primary' : 'bg-muted'
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
-                    scannerSound ? 'translate-x-7' : 'translate-x-0'
-                  }`}
-                />
-              </button>
+              <ToggleSwitch 
+                enabled={scannerSound} 
+                onChange={() => setScannerSound(!scannerSound)}
+                size="small"
+              />
             </div>
           )}
         </div>
@@ -609,20 +614,11 @@ export default function Hardware() {
                 <p className="text-muted-foreground text-sm">Secondary screen for customers</p>
               </div>
             </div>
-            <button
-              onClick={() => setCustomerDisplayEnabled(!customerDisplayEnabled)}
-              className={`relative w-16 h-8 rounded-full transition-all ${
-                customerDisplayEnabled ? 'bg-primary' : 'bg-muted'
-              }`}
-            >
-              <div
-                className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
-                  customerDisplayEnabled ? 'translate-x-8' : 'translate-x-0'
-                }`}
-              >
-                {customerDisplayEnabled && <Check className="w-4 h-4 text-primary" />}
-              </div>
-            </button>
+            <ToggleSwitch 
+              enabled={customerDisplayEnabled} 
+              onChange={() => setCustomerDisplayEnabled(!customerDisplayEnabled)}
+              label="Toggle customer display"
+            />
           </div>
 
           {customerDisplayEnabled && (
