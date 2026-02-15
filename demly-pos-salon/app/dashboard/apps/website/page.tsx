@@ -1,12 +1,9 @@
-// app/dashboard/apps/website/page.tsx
-// Website orders integration setup
-
 "use client";
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserId } from '@/hooks/useUserId';
-import { ArrowLeft, Copy, Check, Globe, Code, Loader2 } from 'lucide-react';
+import { ArrowLeft, Copy, Check, Globe, Code, Loader2, Zap, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 export default function WebsiteIntegration() {
@@ -18,6 +15,7 @@ export default function WebsiteIntegration() {
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<'widget' | 'api'>('widget');
 
   useEffect(() => {
     loadIntegration();
@@ -101,6 +99,28 @@ export default function WebsiteIntegration() {
     ? `${window.location.origin}/api/orders/website`
     : 'https://your-domain.com/api/orders/website';
 
+  const widgetCode = `<!-- Demly POS Widget -->
+<script 
+  src="${typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'}/demly-widget.js"
+  data-api-key="${apiKey}"
+  data-theme="light"
+  data-position="bottom-right">
+</script>`;
+
+  const exampleHTML = `<!-- Example: Add to your product pages -->
+<div class="product">
+  <h2>Cappuccino</h2>
+  <p>£3.50</p>
+  
+  <!-- Add this button -->
+  <button 
+    data-demly-product='{"id":"cappuccino","name":"Cappuccino","price":3.50,"image":"https://..."}'>
+    Add to Cart
+  </button>
+</div>
+
+<!-- That's it! The widget handles everything -->`;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -110,13 +130,15 @@ export default function WebsiteIntegration() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Website Orders</h1>
-          <p className="text-muted-foreground mt-2">Receive orders from your custom website</p>
+          <p className="text-muted-foreground mt-2">
+            Add orders to your POS from any website in 60 seconds
+          </p>
         </div>
         <Link 
           href="/dashboard/apps" 
@@ -138,7 +160,7 @@ export default function WebsiteIntegration() {
             </div>
             <div>
               <h2 className="text-xl font-bold text-foreground">Website Configuration</h2>
-              <p className="text-muted-foreground text-sm">Connect your custom website</p>
+              <p className="text-muted-foreground text-sm">One-time setup, works forever</p>
             </div>
           </div>
 
@@ -151,7 +173,7 @@ export default function WebsiteIntegration() {
                 type="text"
                 value={websiteName}
                 onChange={(e) => setWebsiteName(e.target.value)}
-                placeholder="My Online Store"
+                placeholder="My Coffee Shop"
                 className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
@@ -164,7 +186,7 @@ export default function WebsiteIntegration() {
                 type="url"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                placeholder="https://mystore.com"
+                placeholder="https://mycoffeeshop.com"
                 className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
@@ -178,19 +200,16 @@ export default function WebsiteIntegration() {
                   type="text"
                   value={apiKey}
                   readOnly
-                  placeholder="Click generate to create API key"
+                  placeholder="Click generate"
                   className="flex-1 bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none"
                 />
                 <button
                   onClick={generateApiKey}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity whitespace-nowrap"
                 >
                   Generate
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Keep this secret! Use it to authenticate API requests from your website.
-              </p>
             </div>
           </div>
 
@@ -213,43 +232,182 @@ export default function WebsiteIntegration() {
           </button>
         </div>
 
-        {/* API Documentation */}
+        {/* Integration Methods */}
         {isConnected && apiKey && (
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center">
-                <Code className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-foreground">API Documentation</h2>
-                <p className="text-muted-foreground text-sm">How to send orders from your website</p>
-              </div>
+          <>
+            {/* Tab Selector */}
+            <div className="flex gap-2 border-b border-border">
+              <button
+                onClick={() => setActiveTab('widget')}
+                className={`px-4 py-3 font-medium text-sm transition-all relative ${
+                  activeTab === 'widget'
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Widget (Recommended)
+                </div>
+                {activeTab === 'widget' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('api')}
+                className={`px-4 py-3 font-medium text-sm transition-all relative ${
+                  activeTab === 'api'
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Code className="w-4 h-4" />
+                  API (Advanced)
+                </div>
+                {activeTab === 'api' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+                )}
+              </button>
             </div>
 
-            {/* API Endpoint */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-2">
-                API Endpoint
-              </label>
-              <div className="flex gap-2">
-                <code className="flex-1 bg-muted border border-border text-foreground p-3 rounded-lg text-sm font-mono overflow-x-auto">
-                  POST {apiEndpoint}
-                </code>
-                <button
-                  onClick={() => copyToClipboard(apiEndpoint)}
-                  className="px-4 py-2 bg-muted hover:bg-accent border border-border rounded-lg transition-colors"
-                >
-                  {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+            {/* Widget Tab */}
+            {activeTab === 'widget' && (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-br from-primary/10 via-blue-500/5 to-purple-500/10 border border-primary/20 rounded-xl p-6">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Zap className="w-6 h-6 text-primary-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground mb-2">
+                        ⚡ Instant Setup - Just Copy & Paste!
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Add ONE line of code to your website. That's it! The widget handles cart, checkout, and order submission automatically.
+                      </p>
+                    </div>
+                  </div>
 
-            {/* Example Request */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-2">
-                Example Request (JavaScript)
-              </label>
-              <pre className="bg-muted border border-border p-4 rounded-lg text-sm font-mono overflow-x-auto">
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Step 1: Add this to your website's &lt;head&gt; or before &lt;/body&gt;
+                        </label>
+                        <button
+                          onClick={() => copyToClipboard(widgetCode)}
+                          className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-md text-xs font-medium flex items-center gap-1.5"
+                        >
+                          {copied ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              Copy
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <pre className="bg-background border border-border p-4 rounded-lg text-xs font-mono overflow-x-auto">
+{widgetCode}</pre>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-foreground mb-2 block">
+                        Step 2: Add "Add to Cart" buttons to your products
+                      </label>
+                      <pre className="bg-background border border-border p-4 rounded-lg text-xs font-mono overflow-x-auto">
+{exampleHTML}</pre>
+                    </div>
+
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                      <h4 className="font-bold text-foreground text-sm mb-2">✨ What you get:</h4>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        <li>• 🛒 Floating cart button (customizable position)</li>
+                        <li>• 📱 Mobile-responsive cart panel</li>
+                        <li>• ✏️ Customer checkout form</li>
+                        <li>• 💾 Cart persists across page reloads</li>
+                        <li>• ✅ Orders sent directly to your POS</li>
+                        <li>• 🎨 Light/dark theme support</li>
+                        <li>• 🚀 Zero maintenance required</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                      <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                        🎯 Perfect for: WordPress, Wix, Squarespace, Shopify (yes!), or ANY website
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Widget Customization */}
+                <div className="bg-card border border-border rounded-xl p-6">
+                  <h3 className="text-lg font-bold text-foreground mb-4">Widget Options</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-foreground">Theme</p>
+                        <p className="text-xs text-muted-foreground">data-theme="light" or "dark"</p>
+                      </div>
+                      <code className="text-xs bg-background px-2 py-1 rounded border border-border">light</code>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-foreground">Position</p>
+                        <p className="text-xs text-muted-foreground">Where the cart button appears</p>
+                      </div>
+                      <code className="text-xs bg-background px-2 py-1 rounded border border-border">bottom-right</code>
+                    </div>
+                    <p className="text-xs text-muted-foreground italic">
+                      Options: bottom-right, bottom-left, top-right, top-left
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* API Tab */}
+            {activeTab === 'api' && (
+              <div className="bg-card border border-border rounded-xl p-6">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center">
+                    <Code className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">API Integration</h2>
+                    <p className="text-muted-foreground text-sm">For developers who want full control</p>
+                  </div>
+                </div>
+
+                {/* API Endpoint */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    API Endpoint
+                  </label>
+                  <div className="flex gap-2">
+                    <code className="flex-1 bg-muted border border-border text-foreground p-3 rounded-lg text-sm font-mono overflow-x-auto">
+                      POST {apiEndpoint}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(apiEndpoint)}
+                      className="px-4 py-2 bg-muted hover:bg-accent border border-border rounded-lg transition-colors"
+                    >
+                      {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Example Request */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Example Request
+                  </label>
+                  <pre className="bg-muted border border-border p-4 rounded-lg text-sm font-mono overflow-x-auto">
 {`fetch('${apiEndpoint}', {
   method: 'POST',
   headers: {
@@ -261,30 +419,21 @@ export default function WebsiteIntegration() {
     customer: {
       name: 'John Smith',
       email: 'john@example.com',
-      phone: '+44 7700 900000',
-      address: '123 High Street, London, UK'
+      phone: '+44 7700 900000'
     },
-    items: [
-      {
-        id: 'prod_1',
-        name: 'Product Name',
-        price: 19.99,
-        quantity: 2
-      }
-    ],
-    subtotal: 39.98,
-    vat: 8.00,
-    deliveryFee: 3.99,
-    total: 51.97,
-    notes: 'Please ring doorbell',
-    paymentMethod: 'card',
-    paymentStatus: 'paid'
+    items: [{
+      id: 'prod_1',
+      name: 'Product Name',
+      price: 19.99,
+      quantity: 2
+    }],
+    total: 39.98
   })
-})
-.then(res => res.json())
-.then(data => console.log('Order created:', data));`}
-              </pre>
-            </div>
+});`}
+                  </pre>
+                </div>
+              </div>
+            )}
 
             {/* Test Button */}
             <button
@@ -296,18 +445,15 @@ export default function WebsiteIntegration() {
                     email: 'test@example.com',
                     phone: '+44 7700 900000'
                   },
-                  items: [
-                    {
-                      id: 'test_1',
-                      name: 'Test Product',
-                      price: 9.99,
-                      quantity: 1
-                    }
-                  ],
+                  items: [{
+                    id: 'test_1',
+                    name: 'Test Product',
+                    price: 9.99,
+                    quantity: 1
+                  }],
                   subtotal: 9.99,
                   vat: 2.00,
-                  total: 11.99,
-                  notes: 'Test order from API'
+                  total: 11.99
                 };
 
                 fetch(apiEndpoint, {
@@ -321,72 +467,19 @@ export default function WebsiteIntegration() {
                 .then(res => res.json())
                 .then(data => {
                   if (data.success) {
-                    alert('✅ Test order created! Check your POS orders page.');
+                    alert('✅ Test order created! Check /dashboard/orders');
                   } else {
                     alert('❌ Error: ' + data.error);
                   }
                 })
                 .catch(err => alert('❌ Request failed: ' + err.message));
               }}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-medium transition-colors"
+              className="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
             >
+              <Zap className="w-5 h-5" />
               Send Test Order
             </button>
-          </div>
-        )}
-
-        {/* WordPress Plugin Example */}
-        {isConnected && (
-          <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-foreground mb-3">
-              WordPress / WooCommerce Integration
-            </h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Add this code to your theme's functions.php or create a custom plugin:
-            </p>
-            <pre className="bg-background border border-border p-4 rounded-lg text-xs font-mono overflow-x-auto">
-{`// Send order to Demly POS after WooCommerce checkout
-add_action('woocommerce_thankyou', 'send_order_to_demly');
-
-function send_order_to_demly($order_id) {
-    $order = wc_get_order($order_id);
-    
-    $items = array();
-    foreach ($order->get_items() as $item) {
-        $items[] = array(
-            'id' => $item->get_product_id(),
-            'name' => $item->get_name(),
-            'price' => $item->get_total() / $item->get_quantity(),
-            'quantity' => $item->get_quantity()
-        );
-    }
-    
-    $data = array(
-        'orderId' => $order->get_order_number(),
-        'customer' => array(
-            'name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
-            'email' => $order->get_billing_email(),
-            'phone' => $order->get_billing_phone(),
-            'address' => $order->get_formatted_billing_address()
-        ),
-        'items' => $items,
-        'subtotal' => $order->get_subtotal(),
-        'vat' => $order->get_total_tax(),
-        'deliveryFee' => $order->get_shipping_total(),
-        'total' => $order->get_total(),
-        'paymentMethod' => $order->get_payment_method_title()
-    );
-    
-    wp_remote_post('${apiEndpoint}', array(
-        'headers' => array(
-            'Content-Type' => 'application/json',
-            'x-api-key' => '${apiKey}'
-        ),
-        'body' => json_encode($data)
-    ));
-}`}
-            </pre>
-          </div>
+          </>
         )}
 
       </div>
