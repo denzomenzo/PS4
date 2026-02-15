@@ -301,7 +301,7 @@ export default function AppsPage() {
           return (
             <div
               key={app.id}
-              className="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-all group relative"
+              className="bg-card border border-border rounded-xl p-6 hover:border-primary/50 transition-all group relative flex flex-col"
             >
               {/* Status Badge */}
               {status === 'connected' && (
@@ -347,7 +347,8 @@ export default function AppsPage() {
                 </div>
               </div>
 
-              {/* Actions */}
+              {/* Actions - Push to bottom with mt-auto */}
+              <div className="mt-auto">
               {status === 'connected' ? (
                 <div className="space-y-2">
                   <div className="flex gap-2">
@@ -387,6 +388,7 @@ export default function AppsPage() {
                   )}
                 </button>
               )}
+              </div>
             </div>
           );
         })}
