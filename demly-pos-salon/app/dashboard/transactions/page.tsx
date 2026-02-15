@@ -1,7 +1,7 @@
-// app/dashboard/transactions/page.tsx
+// app/dashboard/transactions/page.tsx - COMPLETE 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -9,6 +9,7 @@ import { processCardPayment, processCardRefund } from "@/lib/cardPaymentProcesso
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import { logAuditAction } from "@/lib/auditLogger";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
+import { getThermalPrinterManager } from "@/lib/thermalPrinter";
 import {
   ArrowLeft,
   Search,
@@ -134,6 +135,17 @@ const openCashDrawer = async () => {
   try {
     console.log('📂 Opening cash drawer...');
     
+    // Try thermal printer cash drawer first
+    const manager = getThermalPrinterManager();
+    if (manager.isConnected()) {
+      const success = await manager.openCashDrawer();
+      if (success) {
+        console.log('✅ Cash drawer opened via thermal printer');
+        return true;
+      }
+    }
+    
+    // Fallback to USB method
     if ('usb' in navigator) {
       try {
         const device = await navigator.usb.requestDevice({
@@ -206,19 +218,23 @@ export default function Transactions() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const transactionsPerPage = 10;
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   // Receipt
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
+  const [printing, setPrinting] = useState(false);
   
   // Card terminal
   const [cardTerminalSettings, setCardTerminalSettings] = useState<any>(null);
+
+  // Hardware settings
+  const [hardwareSettings, setHardwareSettings] = useState<any>(null);
 
   useEffect(() => {
     if (userId) {
       loadData();
       loadCardTerminalSettings();
+      loadHardwareSettings();
     }
   }, [userId]);
 
@@ -279,7 +295,35 @@ export default function Transactions() {
     playSoundOnScan: true,
   });
 
+  const loadHardwareSettings = async () => {
+    try {
+      const { data } = await supabase
+        .from("hardware_settings")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+      
+      setHardwareSettings(data);
+    } catch (error) {
+      console.error("Error loading hardware settings:", error);
+    }
+  };
+
+  const loadCardTerminalSettings = async () => {
+    const { data } = await supabase
+      .from("card_terminal_settings")
+      .select("enabled, provider")
+      .eq("user_id", userId)
+      .single();
+
+    if (data) {
+      setCardTerminalSettings(data);
+    }
+  };
+
   const loadData = async () => {
+    if (!userId) return;
+    
     setLoading(true);
     setError(null);
     
@@ -359,18 +403,6 @@ export default function Transactions() {
     }
   };
 
-  const loadCardTerminalSettings = async () => {
-    const { data } = await supabase
-      .from("card_terminal_settings")
-      .select("enabled, provider")
-      .eq("user_id", userId)
-      .single();
-
-    if (data) {
-      setCardTerminalSettings(data);
-    }
-  };
-
   const applyFilters = () => {
     let filtered = [...transactions];
 
@@ -404,7 +436,7 @@ export default function Transactions() {
       filtered = filtered.filter(t => new Date(t.created_at) <= new Date(endDate + 'T23:59:59'));
     }
 
-    // Status filter - FIXED
+    // Status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter(t => {
         if (statusFilter === 'completed') {
@@ -966,7 +998,82 @@ export default function Transactions() {
     }
   };
 
-  const reprintReceipt = async (transaction: Transaction) => {
+  // ========== THERMAL PRINTER RECEIPT PRINTING ==========
+  const printThermalReceipt = async (transaction: Transaction) => {
+    if (!hardwareSettings?.printer_enabled) {
+      return false;
+    }
+
+    try {
+      const manager = getThermalPrinterManager();
+
+      if (!manager.isConnected()) {
+        console.warn('Thermal printer not connected');
+        return false;
+      }
+
+      // Get business settings
+      const { data: settings } = await supabase
+        .from("settings")
+        .select("business_name, business_address, business_phone, business_email, tax_number, receipt_footer")
+        .eq("user_id", userId)
+        .single();
+
+      // Prepare items
+      const items = (transaction.products || []).map((p: any) => ({
+        name: p.name || 'Product',
+        quantity: getSafeNumber(p.quantity) || 1,
+        price: getSafeNumber(p.price) || 0,
+        total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
+        sku: p.sku
+      }));
+
+      // Get service info
+      const serviceInfo = transaction.services && transaction.services.length > 0 
+        ? transaction.services[0] 
+        : transaction.service_type_id 
+        ? { name: 'Service', fee: transaction.service_fee || 0 }
+        : null;
+
+      // Update printer settings
+      await (manager as any).initialize({
+        width: hardwareSettings.printer_width || 80,
+        connectionType: manager.getConnectionType() || 'usb',
+        autoCut: hardwareSettings.auto_cut_paper !== false
+      });
+
+      const success = await manager.print({
+        shopName: settings?.business_name || 'Your Business',
+        shopAddress: settings?.business_address,
+        shopPhone: settings?.business_phone,
+        shopEmail: settings?.business_email,
+        taxNumber: settings?.tax_number,
+        transactionId: transaction.id.toString(),
+        date: new Date(transaction.created_at),
+        items: items,
+        subtotal: getSafeNumber(transaction.subtotal) || 0,
+        vat: getSafeNumber(transaction.vat) || 0,
+        total: getSafeNumber(transaction.total) || 0,
+        paymentMethod: transaction.payment_method || 'cash',
+        staffName: transaction.staff_name,
+        customerName: transaction.customer_name,
+        customerBalance: getSafeNumber(transaction.balance_deducted) || 0,
+        notes: transaction.notes || undefined,
+        footer: settings?.receipt_footer || 'Thank you for your business!',
+        serviceName: serviceInfo?.name,
+        serviceFee: serviceInfo?.fee
+      });
+
+      return success;
+
+    } catch (error) {
+      console.error("Thermal print error:", error);
+      return false;
+    }
+  };
+
+  // ========== BROWSER PRINT RECEIPT ==========
+  const printBrowserReceipt = async (transaction: Transaction) => {
     try {
       const { data: settings } = await supabase
         .from("settings")
@@ -1027,9 +1134,63 @@ export default function Transactions() {
 
       setReceiptData(receiptData);
       setShowReceiptPrint(true);
+      return true;
+
     } catch (error) {
-      console.error("Error generating receipt:", error);
-      alert("Error generating receipt");
+      console.error("Browser print error:", error);
+      return false;
+    }
+  };
+
+  // ========== MAIN REPRINT FUNCTION ==========
+  const reprintReceipt = async (transaction: Transaction) => {
+    setPrinting(true);
+    
+    try {
+      // Check if thermal printer is enabled and connected
+      const shouldUseThermalPrinter = hardwareSettings?.printer_enabled;
+
+      if (shouldUseThermalPrinter) {
+        const manager = getThermalPrinterManager();
+
+        if (!manager.isConnected()) {
+          const connectNow = confirm(
+            '⚠️ Thermal printer not connected.\n\n' +
+            'Would you like to connect now?\n' +
+            '(Click OK to go to Hardware Settings)'
+          );
+          
+          if (connectNow) {
+            window.location.href = '/dashboard/hardware';
+          }
+          return;
+        }
+
+        const success = await printThermalReceipt(transaction);
+        
+        if (success) {
+          alert('✅ Receipt printed successfully!');
+        } else {
+          // Fallback to browser print
+          const useBrowser = confirm(
+            '❌ Thermal print failed.\n\n' +
+            'Would you like to print using browser instead?'
+          );
+          
+          if (useBrowser) {
+            await printBrowserReceipt(transaction);
+          }
+        }
+      } else {
+        // Use browser print
+        await printBrowserReceipt(transaction);
+      }
+
+    } catch (error: any) {
+      console.error("Print error:", error);
+      alert("❌ Print failed: " + (error.message || 'Unknown error'));
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -1124,6 +1285,12 @@ export default function Transactions() {
               <span className="ml-3 inline-flex items-center gap-2 text-primary">
                 <Barcode className="w-4 h-4 animate-pulse" />
                 Scanner Active
+              </span>
+            )}
+            {hardwareSettings?.printer_enabled && (
+              <span className="ml-3 inline-flex items-center gap-2 text-emerald-600">
+                <Printer className="w-4 h-4" />
+                Thermal Printer Ready
               </span>
             )}
           </p>
@@ -1245,14 +1412,7 @@ export default function Transactions() {
 
       {/* Transactions List - Scrollable Grid */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div 
-          ref={scrollContainerRef}
-          className="overflow-y-auto max-h-[600px] p-4 space-y-3"
-          style={{
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'var(--border) var(--background)'
-          }}
-        >
+        <div className="overflow-y-auto max-h-[600px] p-4 space-y-3">
           {paginatedTransactions.length === 0 ? (
             <div className="p-12 text-center">
               <Receipt className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
@@ -1433,10 +1593,23 @@ export default function Transactions() {
                       <div className="flex gap-3">
                         <button
                           onClick={() => reprintReceipt(transaction)}
-                          className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
+                          disabled={printing}
+                          className="flex-1 px-4 py-2 bg-muted hover:bg-accent text-foreground rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                          <Printer className="w-4 h-4" />
-                          Print Receipt
+                          {printing ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Printing...
+                            </>
+                          ) : (
+                            <>
+                              <Printer className="w-4 h-4" />
+                              Print Receipt
+                              {hardwareSettings?.printer_enabled && (
+                                <span className="text-xs text-emerald-600 ml-1">(Thermal)</span>
+                              )}
+                            </>
+                          )}
                         </button>
                         {transaction.return_status !== 'full' && (
                           <button
