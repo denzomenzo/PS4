@@ -1,70 +1,117 @@
-// app/dashboard/hardware/page.tsx - COMPLETE DARK THEME VERSION
+// app/dashboard/hardware/page.tsx - UPDATED with thermal printer support
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor } from "lucide-react";
+import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor, Wifi, Usb, PowerOff, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { getThermalPrinterManager } from "@/lib/thermalPrinter";
 
 export default function Hardware() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Printer settings
   const [printerEnabled, setPrinterEnabled] = useState(false);
+  const [printerConnectionType, setPrinterConnectionType] = useState<'usb' | 'network'>('usb');
+  const [printerIpAddress, setPrinterIpAddress] = useState('');
+  const [printerPort, setPrinterPort] = useState(9100);
   const [printerName, setPrinterName] = useState("");
   const [printerWidth, setPrinterWidth] = useState(80);
   const [autoPrint, setAutoPrint] = useState(true);
+  const [autoCutPaper, setAutoCutPaper] = useState(true);
   const [receiptHeader, setReceiptHeader] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("");
+  const [printerConnected, setPrinterConnected] = useState(false);
+  const [printerTesting, setPrinterTesting] = useState(false);
 
+  // Cash drawer
   const [cashDrawerEnabled, setCashDrawerEnabled] = useState(false);
 
+  // Barcode scanner
   const [scannerEnabled, setScannerEnabled] = useState(true);
   const [scannerSound, setScannerSound] = useState(true);
 
+  // Customer display
   const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
   const [displaySyncChannel, setDisplaySyncChannel] = useState("customer-display");
 
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [userId]);
+
+  useEffect(() => {
+    // Check printer connection status on load
+    const checkPrinterConnection = async () => {
+      const manager = getThermalPrinterManager();
+      setPrinterConnected(manager.isConnected());
+    };
+    
+    if (printerEnabled) {
+      checkPrinterConnection();
+    }
+  }, [printerEnabled]);
 
   const loadSettings = async () => {
+    if (!userId) return;
+    
     setLoading(true);
-    const { data } = await supabase
-      .from("hardware_settings")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
+    
+    try {
+      const { data } = await supabase
+        .from("hardware_settings")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
 
-    if (data) {
-      setCustomerDisplayEnabled(data.customer_display_enabled || false);
-      setDisplaySyncChannel(data.display_sync_channel || "customer-display");
-      setPrinterEnabled(data.printer_enabled || false);
-      setPrinterName(data.printer_name || "");
-      setPrinterWidth(data.printer_width || 80);
-      setAutoPrint(data.auto_print_receipt !== false);
-      setReceiptHeader(data.receipt_header || "");
-      setReceiptFooter(data.receipt_footer || "");
-      setCashDrawerEnabled(data.cash_drawer_enabled || false);
-      setScannerEnabled(data.barcode_scanner_enabled !== false);
-      setScannerSound(data.scanner_sound_enabled !== false);
+      if (data) {
+        setCustomerDisplayEnabled(data.customer_display_enabled || false);
+        setDisplaySyncChannel(data.display_sync_channel || "customer-display");
+        
+        // Printer settings
+        setPrinterEnabled(data.printer_enabled || false);
+        setPrinterConnectionType(data.printer_connection_type || 'usb');
+        setPrinterIpAddress(data.printer_ip_address || '');
+        setPrinterPort(data.printer_port || 9100);
+        setPrinterName(data.printer_name || "");
+        setPrinterWidth(data.printer_width || 80);
+        setAutoPrint(data.auto_print_receipt !== false);
+        setAutoCutPaper(data.auto_cut_paper !== false);
+        setReceiptHeader(data.receipt_header || "");
+        setReceiptFooter(data.receipt_footer || "");
+        
+        // Cash drawer
+        setCashDrawerEnabled(data.cash_drawer_enabled || false);
+        
+        // Scanner
+        setScannerEnabled(data.barcode_scanner_enabled !== false);
+        setScannerSound(data.scanner_sound_enabled !== false);
+      }
+    } catch (error) {
+      console.error("Error loading settings:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const saveSettings = async () => {
+    if (!userId) return;
+    
     setSaving(true);
     
     try {
       const { error } = await supabase.from("hardware_settings").upsert({
         user_id: userId,
         printer_enabled: printerEnabled,
+        printer_connection_type: printerConnectionType,
+        printer_ip_address: printerConnectionType === 'network' ? printerIpAddress : null,
+        printer_port: printerConnectionType === 'network' ? printerPort : null,
         printer_name: printerName,
         printer_width: printerWidth,
         auto_print_receipt: autoPrint,
+        auto_cut_paper: autoCutPaper,
         receipt_header: receiptHeader,
         receipt_footer: receiptFooter,
         cash_drawer_enabled: cashDrawerEnabled,
@@ -83,6 +130,107 @@ export default function Hardware() {
       alert("❌ Error saving settings: " + error.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const connectPrinter = async () => {
+    if (!printerEnabled) return;
+    
+    try {
+      const manager = getThermalPrinterManager();
+
+      const success = await manager.initialize({
+        width: printerWidth as 58 | 80,
+        connectionType: printerConnectionType,
+        ipAddress: printerConnectionType === 'network' ? printerIpAddress : undefined,
+        port: printerConnectionType === 'network' ? printerPort : undefined,
+        autoCut: autoCutPaper,
+        openDrawer: cashDrawerEnabled,
+      });
+
+      if (success) {
+        setPrinterConnected(true);
+        alert(`✅ ${printerConnectionType === 'usb' ? 'USB' : 'Network'} printer connected successfully!`);
+      }
+    } catch (error: any) {
+      console.error("Printer connection error:", error);
+      alert(`❌ Failed to connect printer: ${error.message}`);
+    }
+  };
+
+  const disconnectPrinter = async () => {
+    const manager = getThermalPrinterManager();
+    await manager.disconnect();
+    setPrinterConnected(false);
+    alert("🔌 Printer disconnected");
+  };
+
+  const testPrint = async () => {
+    if (!printerConnected) {
+      alert("⚠️ Please connect printer first");
+      return;
+    }
+
+    setPrinterTesting(true);
+    
+    try {
+      const manager = getThermalPrinterManager();
+
+      // Get business settings for test receipt
+      const { data: settings } = await supabase
+        .from("settings")
+        .select("business_name, business_address, business_phone, business_email, tax_number")
+        .eq("user_id", userId)
+        .single();
+
+      const success = await manager.print({
+        shopName: settings?.business_name || 'Test Business',
+        shopAddress: settings?.business_address,
+        shopPhone: settings?.business_phone,
+        shopEmail: settings?.business_email,
+        taxNumber: settings?.tax_number,
+        transactionId: 'TEST-' + Date.now().toString().slice(-6),
+        date: new Date(),
+        items: [
+          { 
+            name: 'Test Product 1', 
+            quantity: 2, 
+            price: 5.99, 
+            total: 11.98,
+            sku: 'TEST-001'
+          },
+          { 
+            name: 'Test Product 2', 
+            quantity: 1, 
+            price: 3.50, 
+            total: 3.50,
+            sku: 'TEST-002'
+          }
+        ],
+        subtotal: 15.48,
+        vat: 3.10,
+        total: 18.58,
+        paymentMethod: 'cash',
+        staffName: 'Test Staff',
+        footer: receiptFooter || 'Thank you for your business!'
+      });
+
+      if (success) {
+        alert('✅ Test receipt printed successfully!');
+        
+        // Test cash drawer if enabled
+        if (cashDrawerEnabled) {
+          const drawerSuccess = await manager.openCashDrawer();
+          if (drawerSuccess) {
+            alert('💰 Cash drawer opened!');
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error("Test print error:", error);
+      alert(`❌ Test print failed: ${error.message}`);
+    } finally {
+      setPrinterTesting(false);
     }
   };
 
@@ -147,6 +295,20 @@ export default function Hardware() {
 
           {printerEnabled && (
             <div className="space-y-4">
+              {/* Connection Status */}
+              {printerConnected && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-green-600 font-medium">Printer Connected</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {printerConnectionType === 'usb' ? 'USB Mode' : `Network: ${printerIpAddress}`}
+                  </span>
+                </div>
+              )}
+
+              {/* Printer Name */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Printer Name</label>
                 <input
@@ -157,6 +319,7 @@ export default function Hardware() {
                 />
               </div>
 
+              {/* Paper Width */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Paper Width</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -168,7 +331,7 @@ export default function Hardware() {
                         : 'bg-muted text-foreground hover:bg-accent'
                     }`}
                   >
-                    58mm
+                    58mm (2.25")
                   </button>
                   <button
                     onClick={() => setPrinterWidth(80)}
@@ -178,11 +341,91 @@ export default function Hardware() {
                         : 'bg-muted text-foreground hover:bg-accent'
                     }`}
                   >
-                    80mm
+                    80mm (3.125")
                   </button>
                 </div>
               </div>
 
+              {/* Connection Type */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Connection Type</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setPrinterConnectionType('usb')}
+                    className={`p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                      printerConnectionType === 'usb'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    <Usb className="w-4 h-4" />
+                    USB
+                  </button>
+                  <button
+                    onClick={() => setPrinterConnectionType('network')}
+                    className={`p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                      printerConnectionType === 'network'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    <Wifi className="w-4 h-4" />
+                    Network
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {printerConnectionType === 'usb' 
+                    ? 'USB connection works in Chrome/Edge browsers only (WebUSB)' 
+                    : 'Network connection works on all browsers (TCP/IP port 9100)'}
+                </p>
+              </div>
+
+              {/* Network Settings */}
+              {printerConnectionType === 'network' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Printer IP Address</label>
+                    <input
+                      value={printerIpAddress}
+                      onChange={(e) => setPrinterIpAddress(e.target.value)}
+                      placeholder="192.168.1.100"
+                      className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Port</label>
+                    <input
+                      type="number"
+                      value={printerPort}
+                      onChange={(e) => setPrinterPort(parseInt(e.target.value))}
+                      className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Default: 9100 (ESC/POS network port)</p>
+                  </div>
+                </>
+              )}
+
+              {/* Auto-Cut Paper */}
+              <div className="flex items-center justify-between bg-muted/50 border border-border p-4 rounded-lg">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Auto-Cut Paper</h3>
+                  <p className="text-xs text-muted-foreground">Automatically cut paper after printing</p>
+                </div>
+                <button
+                  onClick={() => setAutoCutPaper(!autoCutPaper)}
+                  className={`relative w-14 h-7 rounded-full transition-all ${
+                    autoCutPaper ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
+                      autoCutPaper ? 'translate-x-7' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Auto-Print Receipts */}
               <div className="flex items-center justify-between bg-muted/50 border border-border p-4 rounded-lg">
                 <div>
                   <h3 className="text-sm font-medium text-foreground">Auto-Print Receipts</h3>
@@ -202,6 +445,47 @@ export default function Hardware() {
                 </button>
               </div>
 
+              {/* Connect/Disconnect Buttons */}
+              <div className="flex gap-3">
+                {!printerConnected ? (
+                  <button
+                    onClick={connectPrinter}
+                    className="flex-1 bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Connect Printer
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={disconnectPrinter}
+                      className="flex-1 bg-red-500/10 text-red-600 border border-red-500/20 py-3 rounded-lg font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <PowerOff className="w-4 h-4" />
+                      Disconnect
+                    </button>
+                    <button
+                      onClick={testPrint}
+                      disabled={printerTesting}
+                      className="flex-1 bg-primary/10 text-primary border border-primary/20 py-3 rounded-lg font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {printerTesting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4" />
+                          Test Print
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Receipt Header */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Receipt Header (Optional)</label>
                 <textarea
@@ -213,12 +497,13 @@ export default function Hardware() {
                 />
               </div>
 
+              {/* Receipt Footer */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Receipt Footer (Optional)</label>
                 <textarea
                   value={receiptFooter}
                   onChange={(e) => setReceiptFooter(e.target.value)}
-                  placeholder="Optional footer text..."
+                  placeholder="Thank you for your business!"
                   rows={2}
                   className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                 />
@@ -237,6 +522,12 @@ export default function Hardware() {
               <div>
                 <h2 className="text-xl font-bold text-foreground">Cash Drawer</h2>
                 <p className="text-muted-foreground text-sm">Open drawer automatically after cash payment</p>
+                {printerConnected && cashDrawerEnabled && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <Check className="w-3 h-3" />
+                    Connected via printer
+                  </p>
+                )}
               </div>
             </div>
             <button
@@ -339,7 +630,7 @@ export default function Hardware() {
               <p className="text-sm text-primary font-medium mb-2">
                 Display URL: 
               </p>
-              <code className="block bg-background border border-border text-foreground p-3 rounded text-xs font-mono">
+              <code className="block bg-background border border-border text-foreground p-3 rounded text-xs font-mono break-all">
                 {typeof window !== 'undefined' ? window.location.origin : ''}/dashboard/display
               </code>
               <p className="text-xs text-muted-foreground mt-2">
@@ -358,7 +649,11 @@ export default function Hardware() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Ensure your printer is connected via USB or network</span>
+                  <span>USB printers require Chrome/Edge and WebUSB permission</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Network printers need static IP address and port 9100 open</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
@@ -366,15 +661,11 @@ export default function Hardware() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Cash drawer opens via printer RJ11/RJ12 connection</span>
+                  <span>Cash drawer opens via printer's RJ11/RJ12 connection</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Test hardware before enabling in production</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-primary">•</span>
-                  <span>Customer display requires a second screen or tablet</span>
+                  <span>Test hardware with "Test Print" before enabling auto-print</span>
                 </li>
               </ul>
             </div>
