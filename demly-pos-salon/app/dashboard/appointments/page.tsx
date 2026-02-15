@@ -50,9 +50,13 @@ interface Appointment {
   appointment_time: string;
   status: "scheduled" | "completed" | "cancelled" | "no_show";
   notes: string | null;
-  customers?: { name: string; phone: string | null; email: string | null } | null;
-  staff?: { name: string } | null;
-  products?: { name: string; price: number; icon: string } | null;
+  user_id: string;
+}
+
+interface AppointmentWithRelations extends Appointment {
+  customers: { name: string; phone: string | null; email: string | null } | null;
+  staff: { name: string } | null;
+  products: { name: string; price: number; icon: string } | null;
 }
 
 interface Customer {
@@ -72,24 +76,25 @@ interface Service {
   name: string;
   price: number;
   icon: string;
-  duration: number;
+  duration: number | null;
   is_service: boolean;
 }
 
 export default function Appointments() {
   const userId = useUserId();
 
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [filteredAppointments, setFilteredAppointments] = useState<AppointmentWithRelations[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithRelations | null>(null);
 
   const [formCustomerId, setFormCustomerId] = useState("");
   const [formStaffId, setFormStaffId] = useState("");
@@ -115,45 +120,27 @@ export default function Appointments() {
   useEffect(() => {
     if (userId) {
       loadData();
-      setupRealtimeSubscription();
     }
   }, [userId]);
 
   useEffect(() => {
-    filterAppointments();
-    calculateStats();
+    if (appointments.length > 0) {
+      filterAppointments();
+      calculateStats();
+    } else {
+      setFilteredAppointments([]);
+    }
   }, [appointments, searchTerm, statusFilter, dateFilter]);
-
-  const setupRealtimeSubscription = () => {
-    const channel = supabase
-      .channel('appointments-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'appointments',
-          filter: `user_id=eq.${userId}`
-        },
-        () => {
-          loadData(); // Reload data on any change
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
 
   const loadData = async () => {
     if (!userId) return;
     
     setLoading(true);
     setError(null);
+    setDataLoaded(false);
 
     try {
-      const today = new Date().toISOString().split('T')[0];
+      console.log("Loading data for user:", userId);
 
       // Load customers
       const { data: customersData, error: customersError } = await supabase
@@ -162,8 +149,12 @@ export default function Appointments() {
         .eq("user_id", userId)
         .order("name");
 
-      if (customersError) throw customersError;
+      if (customersError) {
+        console.error("Customers error:", customersError);
+        throw customersError;
+      }
       setCustomers(customersData || []);
+      console.log("Customers loaded:", customersData?.length);
 
       // Load staff
       const { data: staffData, error: staffError } = await supabase
@@ -172,8 +163,12 @@ export default function Appointments() {
         .eq("user_id", userId)
         .order("name");
 
-      if (staffError) throw staffError;
+      if (staffError) {
+        console.error("Staff error:", staffError);
+        throw staffError;
+      }
       setStaff(staffData || []);
+      console.log("Staff loaded:", staffData?.length);
 
       // Load services (products that are services)
       const { data: servicesData, error: servicesError } = await supabase
@@ -183,47 +178,80 @@ export default function Appointments() {
         .eq("is_service", true)
         .order("name");
 
-      if (servicesError) throw servicesError;
+      if (servicesError) {
+        console.error("Services error:", servicesError);
+        throw servicesError;
+      }
       setServices(servicesData || []);
+      console.log("Services loaded:", servicesData?.length);
 
-      // Load appointments with proper joins
+      // First, get the appointments without joins
       const { data: appointmentsData, error: appointmentsError } = await supabase
         .from("appointments")
-        .select(`
-          *,
-          customers:customer_id (
-            name,
-            phone,
-            email
-          ),
-          staff:staff_id (
-            name
-          ),
-          products:service_id (
-            name,
-            price,
-            icon
-          )
-        `)
+        .select("*")
         .eq("user_id", userId)
         .order("appointment_date", { ascending: true })
         .order("appointment_time", { ascending: true });
 
-      if (appointmentsError) throw appointmentsError;
+      if (appointmentsError) {
+        console.error("Appointments error:", appointmentsError);
+        throw appointmentsError;
+      }
 
-      // Process appointments to handle null values properly
-      const processedAppointments = (appointmentsData || []).map((apt: any) => ({
-        ...apt,
-        customers: apt.customers || null,
-        staff: apt.staff || null,
-        products: apt.products || null
-      }));
+      console.log("Appointments loaded:", appointmentsData?.length);
 
-      setAppointments(processedAppointments);
+      // Now manually join the data
+      const appointmentsWithRelations: AppointmentWithRelations[] = await Promise.all(
+        (appointmentsData || []).map(async (appointment) => {
+          let customerData = null;
+          let staffData = null;
+          let serviceData = null;
 
-    } catch (error) {
+          // Get customer data if customer_id exists
+          if (appointment.customer_id) {
+            const { data: customer } = await supabase
+              .from("customers")
+              .select("name, phone, email")
+              .eq("id", appointment.customer_id)
+              .single();
+            customerData = customer;
+          }
+
+          // Get staff data if staff_id exists
+          if (appointment.staff_id) {
+            const { data: staffMember } = await supabase
+              .from("staff")
+              .select("name")
+              .eq("id", appointment.staff_id)
+              .single();
+            staffData = staffMember;
+          }
+
+          // Get service data if service_id exists
+          if (appointment.service_id) {
+            const { data: service } = await supabase
+              .from("products")
+              .select("name, price, icon")
+              .eq("id", appointment.service_id)
+              .single();
+            serviceData = service;
+          }
+
+          return {
+            ...appointment,
+            customers: customerData,
+            staff: staffData,
+            products: serviceData
+          };
+        })
+      );
+
+      setAppointments(appointmentsWithRelations);
+      setDataLoaded(true);
+
+    } catch (error: any) {
       console.error("Error loading appointments data:", error);
-      setError("Failed to load data. Please try again.");
+      setError(error.message || "Failed to load data. Please try again.");
     }
 
     setLoading(false);
@@ -307,7 +335,7 @@ export default function Appointments() {
     setShowAddModal(true);
   };
 
-  const openEditModal = (appointment: Appointment) => {
+  const openEditModal = (appointment: AppointmentWithRelations) => {
     setSelectedAppointment(appointment);
     setFormDate(appointment.appointment_date);
     setFormTime(appointment.appointment_time);
@@ -348,7 +376,7 @@ export default function Appointments() {
 
       const { error } = await supabase
         .from("appointments")
-        .insert(appointmentData);
+        .insert([appointmentData]);
 
       if (error) {
         console.error("Error creating appointment:", error);
@@ -358,9 +386,10 @@ export default function Appointments() {
 
       alert("Appointment created successfully!");
       setShowAddModal(false);
-    } catch (error) {
+      loadData(); // Reload data to show the new appointment
+    } catch (error: any) {
       console.error("Error:", error);
-      alert("Error creating appointment");
+      alert("Error creating appointment: " + error.message);
     }
   };
 
@@ -406,9 +435,10 @@ export default function Appointments() {
 
       alert("Appointment updated successfully!");
       setShowEditModal(false);
-    } catch (error) {
+      loadData(); // Reload data to show the updated appointment
+    } catch (error: any) {
       console.error("Error:", error);
-      alert("Error updating appointment");
+      alert("Error updating appointment: " + error.message);
     }
   };
 
@@ -426,9 +456,10 @@ export default function Appointments() {
       }
 
       alert("Status updated successfully!");
-    } catch (error) {
+      loadData(); // Reload data to show the updated status
+    } catch (error: any) {
       console.error("Error:", error);
-      alert("Error updating status");
+      alert("Error updating status: " + error.message);
     }
   };
 
@@ -446,9 +477,10 @@ export default function Appointments() {
 
       alert("Appointment deleted successfully!");
       setShowEditModal(false);
-    } catch (error) {
+      loadData(); // Reload data to remove the deleted appointment
+    } catch (error: any) {
       console.error("Error:", error);
-      alert("Error deleting appointment");
+      alert("Error deleting appointment: " + error.message);
     }
   };
 
