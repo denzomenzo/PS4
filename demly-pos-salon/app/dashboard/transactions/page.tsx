@@ -75,6 +75,8 @@ interface Return {
   card_refund_id: string | null;
   original_transaction: Transaction;
   restore_inventory: boolean;
+  refund_service_fee?: boolean;
+  service_fee_refunded?: number;
   staff?: {
     name: string;
   };
@@ -199,6 +201,7 @@ export default function Transactions() {
   const [returnReason, setReturnReason] = useState("");
   const [refundMethod, setRefundMethod] = useState<'original' | 'balance' | 'cash'>('original');
   const [restoreInventory, setRestoreInventory] = useState(true);
+  const [refundServiceFee, setRefundServiceFee] = useState(false);
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -374,25 +377,26 @@ export default function Transactions() {
     const now = new Date();
     const filterDate = new Date();
     
+    // Date filter
     switch (dateFilter) {
       case '7days':
         filterDate.setDate(now.getDate() - 7);
+        filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
         break;
       case '30days':
         filterDate.setDate(now.getDate() - 30);
+        filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
         break;
       case '90days':
         filterDate.setDate(now.getDate() - 90);
+        filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
         break;
       case 'all':
-        filterDate.setFullYear(2000);
+        // No date filtering
         break;
     }
 
-    if (dateFilter !== 'all') {
-      filtered = filtered.filter(t => new Date(t.created_at) >= filterDate);
-    }
-
+    // Custom date range
     if (startDate) {
       filtered = filtered.filter(t => new Date(t.created_at) >= new Date(startDate));
     }
@@ -400,16 +404,21 @@ export default function Transactions() {
       filtered = filtered.filter(t => new Date(t.created_at) <= new Date(endDate + 'T23:59:59'));
     }
 
+    // Status filter - FIXED
     if (statusFilter !== 'all') {
-      if (statusFilter === 'completed') {
-        filtered = filtered.filter(t => t.return_status === 'none');
-      } else if (statusFilter === 'returned') {
-        filtered = filtered.filter(t => t.return_status === 'full');
-      } else if (statusFilter === 'partial') {
-        filtered = filtered.filter(t => t.return_status === 'partial');
-      }
+      filtered = filtered.filter(t => {
+        if (statusFilter === 'completed') {
+          return t.return_status === 'none';
+        } else if (statusFilter === 'returned') {
+          return t.return_status === 'full';
+        } else if (statusFilter === 'partial') {
+          return t.return_status === 'partial';
+        }
+        return true;
+      });
     }
 
+    // Search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(t => 
@@ -417,7 +426,7 @@ export default function Transactions() {
         t.customer_name?.toLowerCase().includes(query) ||
         t.staff_name?.toLowerCase().includes(query) ||
         t.notes?.toLowerCase().includes(query) ||
-        t.products?.some(p => p.name?.toLowerCase().includes(query))
+        t.products?.some((p: any) => p.name?.toLowerCase().includes(query))
       );
     }
 
@@ -457,6 +466,7 @@ export default function Transactions() {
     setReturnReason("");
     setRefundMethod('original');
     setRestoreInventory(true);
+    setRefundServiceFee(false);
     setShowReturnModal(true);
   };
 
@@ -586,6 +596,28 @@ export default function Transactions() {
     }
   };
 
+  const calculateReturnTotal = () => {
+    if (!selectedTransaction) return 0;
+    
+    const itemsTotal = Object.entries(returnItems)
+      .filter(([_, qty]) => qty > 0)
+      .reduce((sum, [productId, qty]) => {
+        const product = selectedTransaction.products.find(p => p.id?.toString() === productId);
+        if (product) {
+          return sum + (product.price * qty);
+        }
+        return sum;
+      }, 0);
+
+    const vatAmount = selectedTransaction.vat > 0 
+      ? (itemsTotal / selectedTransaction.subtotal) * selectedTransaction.vat 
+      : 0;
+    
+    const serviceFeeAmount = refundServiceFee && selectedTransaction.service_fee ? selectedTransaction.service_fee : 0;
+    
+    return itemsTotal + vatAmount + serviceFeeAmount;
+  };
+
   const processReturn = async () => {
     if (!selectedTransaction || !currentStaff) return;
 
@@ -610,8 +642,8 @@ export default function Transactions() {
         };
       });
     
-    if (itemsToReturn.length === 0) {
-      alert("Please select items to return");
+    if (itemsToReturn.length === 0 && !refundServiceFee) {
+      alert("Please select items to return or enable service fee refund");
       return;
     }
 
@@ -627,16 +659,19 @@ export default function Transactions() {
       const vatAmount = selectedTransaction.vat > 0 
         ? (refundAmount / selectedTransaction.subtotal) * selectedTransaction.vat 
         : 0;
-      const totalRefund = refundAmount + vatAmount;
+      const serviceFeeAmount = refundServiceFee && selectedTransaction.service_fee ? selectedTransaction.service_fee : 0;
+      const totalRefund = refundAmount + vatAmount + serviceFeeAmount;
 
       console.log('💰 Return processing started:', {
         transactionId: selectedTransaction.id,
         itemsToReturn,
         refundAmount,
         vatAmount,
+        serviceFeeAmount,
         totalRefund,
         refundMethod,
-        restoreInventory
+        restoreInventory,
+        refundServiceFee
       });
 
       let cardRefundId = null;
@@ -649,63 +684,61 @@ export default function Transactions() {
         console.log(`Original payment method: ${originalMethod}`);
 
         // Case 1: Original payment was by CARD
-// In the processReturn function, update the card refund section (around line 300-330):
+        if (originalMethod === 'card') {
+          if (!cardTerminalSettings?.enabled) {
+            alert("Card terminal is not configured. Please use cash or balance refund instead.");
+            setProcessingReturn(false);
+            return;
+          }
+          
+          if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
+            setProcessingReturn(false);
+            return;
+          }
 
-// Case 1: Original payment was by CARD
-if (originalMethod === 'card') {
-  if (!cardTerminalSettings?.enabled) {
-    alert("Card terminal is not configured. Please use cash or balance refund instead.");
-    setProcessingReturn(false);
-    return;
-  }
-  
-  if (!confirm(`Process card refund of £${totalRefund.toFixed(2)}?\n\nThis will refund to the original card used.`)) {
-    setProcessingReturn(false);
-    return;
-  }
+          try {
+            alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
+            
+            // Use the refund processor
+            const refundResult = await processCardRefund({
+              amount: totalRefund,
+              currency: 'GBP',
+              userId: userId!,
+              transactionId: `refund_${selectedTransaction.id}_${Date.now()}`,
+              metadata: {
+                staffId: currentStaff?.id,
+                customerId: selectedTransaction.customer_id,
+                reason: returnReason,
+                items: itemsToReturn,
+                refundServiceFee,
+                originalTransactionId: selectedTransaction.id,
+                isRefund: true
+              }
+            });
 
-  try {
-    alert(`Processing card refund of £${totalRefund.toFixed(2)}...\n\nPlease wait for terminal confirmation.`);
-    
-    // Use the refund processor
-    const refundResult = await processCardRefund({
-      amount: totalRefund,
-      currency: 'GBP',
-      userId: userId!,
-      transactionId: `refund_${selectedTransaction.id}_${Date.now()}`,
-      metadata: {
-        staffId: currentStaff?.id,
-        customerId: selectedTransaction.customer_id,
-        reason: returnReason,
-        items: itemsToReturn,
-        originalTransactionId: selectedTransaction.id,
-        isRefund: true
-      }
-    });
-
-    if (refundResult.success) {
-      cardRefundId = refundResult.transactionId || `refund_${Date.now()}`;
-      refundSuccess = true;
-      refundMessage = `✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\nAmount: £${totalRefund.toFixed(2)}`;
-      
-      if (refundResult.cardBrand && refundResult.last4) {
-        refundMessage += `\nCard: ${refundResult.cardBrand} ****${refundResult.last4}`;
-      }
-      if (refundResult.approvalCode) {
-        refundMessage += `\nApproval Code: ${refundResult.approvalCode}`;
-      }
-      
-      alert(refundMessage);
-    } else {
-      throw new Error(refundResult.error || 'Card refund failed');
-    }
-  } catch (cardError: any) {
-    console.error('Card refund failed:', cardError);
-    alert(`❌ Card refund failed: ${cardError.message}. Please try another method.`);
-    setProcessingReturn(false);
-    return;
-  }
-}
+            if (refundResult.success) {
+              cardRefundId = refundResult.transactionId || `refund_${Date.now()}`;
+              refundSuccess = true;
+              refundMessage = `✅ Card refund processed successfully!\n\nRefund ID: ${cardRefundId}\nAmount: £${totalRefund.toFixed(2)}`;
+              
+              if (refundResult.cardBrand && refundResult.last4) {
+                refundMessage += `\nCard: ${refundResult.cardBrand} ****${refundResult.last4}`;
+              }
+              if (refundResult.approvalCode) {
+                refundMessage += `\nApproval Code: ${refundResult.approvalCode}`;
+              }
+              
+              alert(refundMessage);
+            } else {
+              throw new Error(refundResult.error || 'Card refund failed');
+            }
+          } catch (cardError: any) {
+            console.error('Card refund failed:', cardError);
+            alert(`❌ Card refund failed: ${cardError.message}. Please try another method.`);
+            setProcessingReturn(false);
+            return;
+          }
+        }
         
         // Case 2: Original payment was by BALANCE
         else if (originalMethod === 'balance' && selectedTransaction.customer_id) {
@@ -758,30 +791,30 @@ if (originalMethod === 'card') {
             if (splitDetails.cash > 0) {
               await openCashDrawer();
             }
-if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
-  try {
-    const refundResult = await processCardRefund({
-      amount: splitDetails.card,
-      currency: 'GBP',
-      userId: userId!,
-      transactionId: `refund_split_${selectedTransaction.id}_${Date.now()}`,
-      metadata: {
-        staffId: currentStaff?.id,
-        customerId: selectedTransaction.customer_id,
-        reason: returnReason,
-        originalTransactionId: selectedTransaction.id,
-        splitRefund: true,
-        isRefund: true
-      }
-    });
-    if (refundResult.success) {
-      cardRefundId = refundResult.transactionId;
-    }
-  } catch (cardError) {
-    console.error('Card refund failed for split payment:', cardError);
-    alert('Card portion refund failed. Please process manually.');
-  }
-}
+            if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
+              try {
+                const refundResult = await processCardRefund({
+                  amount: splitDetails.card,
+                  currency: 'GBP',
+                  userId: userId!,
+                  transactionId: `refund_split_${selectedTransaction.id}_${Date.now()}`,
+                  metadata: {
+                    staffId: currentStaff?.id,
+                    customerId: selectedTransaction.customer_id,
+                    reason: returnReason,
+                    originalTransactionId: selectedTransaction.id,
+                    splitRefund: true,
+                    isRefund: true
+                  }
+                });
+                if (refundResult.success) {
+                  cardRefundId = refundResult.transactionId;
+                }
+              } catch (cardError) {
+                console.error('Card refund failed for split payment:', cardError);
+                alert('Card portion refund failed. Please process manually.');
+              }
+            }
             if (splitDetails.balance > 0 && selectedTransaction.customer_id) {
               await adjustCustomerBalance(
                 selectedTransaction.customer_id,
@@ -825,51 +858,55 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
         refundSuccess = true;
       }
 
-      if (!refundSuccess) {
+      if (!refundSuccess && itemsToReturn.length > 0) {
         alert("No refund was processed. Please try again.");
         setProcessingReturn(false);
         return;
       }
 
       // ========== HANDLE INVENTORY RESTORE ==========
-      if (restoreInventory) {
+      if (restoreInventory && itemsToReturn.length > 0) {
         await restoreInventoryItems(itemsToReturn);
       }
 
-      // Create return record
-      const returnData = {
-        user_id: userId,
-        transaction_id: selectedTransaction.id,
-        staff_id: currentStaff.id,
-        items: itemsToReturn,
-        total_refunded: totalRefund,
-        refund_method: refundMethod === 'original' ? selectedTransaction.payment_method : refundMethod,
-        reason: returnReason,
-        processed_by: currentStaff.name,
-        card_refund_id: cardRefundId,
-        restore_inventory: restoreInventory,
-        created_at: new Date().toISOString()
-      };
+      // Create return record (only if there are items or service fee refund)
+      if (itemsToReturn.length > 0 || refundServiceFee) {
+        const returnData = {
+          user_id: userId,
+          transaction_id: selectedTransaction.id,
+          staff_id: currentStaff.id,
+          items: itemsToReturn,
+          total_refunded: totalRefund,
+          refund_method: refundMethod === 'original' ? selectedTransaction.payment_method : refundMethod,
+          reason: returnReason,
+          processed_by: currentStaff.name,
+          card_refund_id: cardRefundId,
+          restore_inventory: restoreInventory,
+          refund_service_fee: refundServiceFee,
+          service_fee_refunded: refundServiceFee ? selectedTransaction.service_fee : 0,
+          created_at: new Date().toISOString()
+        };
 
-      const { error: returnError } = await supabase
-        .from("transaction_returns")
-        .insert(returnData);
+        const { error: returnError } = await supabase
+          .from("transaction_returns")
+          .insert(returnData);
 
-      if (returnError) throw returnError;
+        if (returnError) throw returnError;
 
-      // Update transaction with return info
-      const newReturnedAmount = (selectedTransaction.returned_amount || 0) + totalRefund;
-      const isFullReturn = Math.abs(newReturnedAmount - selectedTransaction.total) < 0.01;
+        // Update transaction with return info
+        const newReturnedAmount = (selectedTransaction.returned_amount || 0) + totalRefund;
+        const isFullReturn = Math.abs(newReturnedAmount - selectedTransaction.total) < 0.01;
 
-      const { error: updateError } = await supabase
-        .from("transactions")
-        .update({
-          returned_amount: newReturnedAmount,
-          returned_at: new Date().toISOString()
-        })
-        .eq("id", selectedTransaction.id);
+        const { error: updateError } = await supabase
+          .from("transactions")
+          .update({
+            returned_amount: newReturnedAmount,
+            returned_at: new Date().toISOString()
+          })
+          .eq("id", selectedTransaction.id);
 
-      if (updateError) throw updateError;
+        if (updateError) throw updateError;
+      }
 
       // Log audit
       await logAuditAction({
@@ -883,6 +920,8 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
           method: refundMethod === 'original' ? selectedTransaction.payment_method : refundMethod,
           reason: returnReason,
           restore_inventory: restoreInventory,
+          refund_service_fee: refundServiceFee,
+          service_fee_refunded: refundServiceFee ? selectedTransaction.service_fee : 0,
           card_refund_id: cardRefundId
         },
         staffId: currentStaff?.id,
@@ -892,7 +931,11 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
         `Refunded: £${totalRefund.toFixed(2)}\n` +
         `Method: ${refundMethod === 'original' ? selectedTransaction.payment_method : refundMethod}\n`;
 
-      if (restoreInventory) {
+      if (refundServiceFee && selectedTransaction.service_fee) {
+        successMessage += `✓ Service fee refunded: £${selectedTransaction.service_fee.toFixed(2)}\n`;
+      }
+
+      if (restoreInventory && itemsToReturn.length > 0) {
         successMessage += `✓ Inventory restoration attempted\n`;
       }
 
@@ -990,28 +1033,8 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
     }
   };
 
-  const calculateReturnTotal = () => {
-    if (!selectedTransaction) return 0;
-    
-    const itemsTotal = Object.entries(returnItems)
-      .filter(([_, qty]) => qty > 0)
-      .reduce((sum, [productId, qty]) => {
-        const product = selectedTransaction.products.find(p => p.id?.toString() === productId);
-        if (product) {
-          return sum + (product.price * qty);
-        }
-        return sum;
-      }, 0);
-
-    const vatAmount = selectedTransaction.vat > 0 
-      ? (itemsTotal / selectedTransaction.subtotal) * selectedTransaction.vat 
-      : 0;
-    
-    return itemsTotal + vatAmount;
-  };
-
   const getPaymentMethodBadge = (method: string) => {
-    const badges: any = {
+    const badges: Record<string, { icon: any, color: string, label: string }> = {
       cash: { icon: DollarSign, color: 'emerald', label: 'Cash' },
       card: { icon: CreditCard, color: 'blue', label: 'Card' },
       balance: { icon: User, color: 'purple', label: 'Balance' },
@@ -1030,7 +1053,7 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
   };
 
   const getReturnStatusBadge = (status: string) => {
-    const badges: any = {
+    const badges: Record<string, { icon: any, color: string, label: string }> = {
       none: { icon: CheckCircle, color: 'primary', label: 'Completed' },
       partial: { icon: AlertCircle, color: 'orange', label: 'Partial Return' },
       full: { icon: XCircle, color: 'destructive', label: 'Returned' }
@@ -1171,7 +1194,7 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
               className="w-full px-4 py-2 bg-background border border-border text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="all">All Transactions</option>
-              <option value="completed">Completed</option>
+              <option value="completed">Completed (No Returns)</option>
               <option value="partial">Partial Returns</option>
               <option value="returned">Fully Returned</option>
             </select>
@@ -1545,6 +1568,30 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
                 </div>
               </div>
 
+              {/* Service Fee Refund Option */}
+              {selectedTransaction.service_fee && selectedTransaction.service_fee > 0 && (
+                <div className="mb-6">
+                  <label className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20 cursor-pointer hover:border-primary/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={refundServiceFee}
+                      onChange={(e) => setRefundServiceFee(e.target.checked)}
+                      className="w-4 h-4 accent-primary"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Coffee className="w-4 h-4 text-primary" />
+                        <p className="font-medium text-foreground">Refund Service Fee</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Refund the service fee of £{getSafeNumber(selectedTransaction.service_fee).toFixed(2)}
+                        {selectedTransaction.services?.[0]?.name && ` for ${selectedTransaction.services[0].name}`}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
               {/* Return Reason */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-foreground mb-2">
@@ -1648,6 +1695,11 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
                     £{calculateReturnTotal().toFixed(2)}
                   </span>
                 </div>
+                {refundServiceFee && selectedTransaction.service_fee && (
+                  <p className="text-xs text-primary mt-1 text-right">
+                    Includes service fee: £{selectedTransaction.service_fee.toFixed(2)}
+                  </p>
+                )}
               </div>
 
               {/* Actions */}
@@ -1777,6 +1829,18 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
                         </div>
                       </div>
 
+                      {/* Service Fee Refund Display */}
+                      {returnItem.refund_service_fee && returnItem.service_fee_refunded && returnItem.service_fee_refunded > 0 && (
+                        <div className="mb-3 p-2 bg-primary/5 rounded-lg border border-primary/20">
+                          <div className="flex items-center gap-2">
+                            <Coffee className="w-4 h-4 text-primary" />
+                            <span className="text-sm text-foreground">
+                              Service fee refunded: £{returnItem.service_fee_refunded.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       {returnItem.reason && (
                         <div className="mb-3 p-3 bg-muted/50 rounded-lg">
                           <p className="text-xs text-muted-foreground mb-1">Reason:</p>
@@ -1809,4 +1873,3 @@ if (splitDetails.card > 0 && cardTerminalSettings?.enabled) {
     </div>
   );
 }
-
