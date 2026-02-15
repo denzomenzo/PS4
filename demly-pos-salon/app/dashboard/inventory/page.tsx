@@ -1,3 +1,4 @@
+// app/dashboard/inventory/page.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -36,7 +37,12 @@ import {
   Copy,
   Zap,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Infinity,
+  ToggleLeft,
+  ToggleRight,
+  Power,
+  PowerOff
 } from "lucide-react";
 
 interface Product {
@@ -56,6 +62,7 @@ interface Product {
   supplier: string | null;
   image_url: string | null;
   service_type: string | null;
+  has_infinite_stock?: boolean; // New field for infinite stock
 }
 
 interface ServiceType {
@@ -66,6 +73,7 @@ interface ServiceType {
   default_price: number;
   is_active: boolean;
   user_id: string;
+  usage_count?: number; // For displaying how often used
 }
 
 export default function Inventory() {
@@ -90,11 +98,13 @@ export default function Inventory() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
   
   // Stock adjustment
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
   const [stockAdjustment, setStockAdjustment] = useState("");
   const [stockReason, setStockReason] = useState("");
+  const [infiniteStock, setInfiniteStock] = useState(false);
 
   // Form states
   const [formName, setFormName] = useState("");
@@ -107,6 +117,7 @@ export default function Inventory() {
   const [formStock, setFormStock] = useState("");
   const [formThreshold, setFormThreshold] = useState("10");
   const [formTrackInventory, setFormTrackInventory] = useState(true);
+  const [formInfiniteStock, setFormInfiniteStock] = useState(false);
   const [formIcon, setFormIcon] = useState("");
   const [formSupplier, setFormSupplier] = useState("");
   const [formImageUrl, setFormImageUrl] = useState("");
@@ -126,11 +137,12 @@ export default function Inventory() {
     totalServices: 0,
     lowStock: 0,
     outOfStock: 0,
+    infiniteStock: 0,
     totalValue: 0,
     categories: 0
   });
 
-  // Default service types (no emojis)
+  // Default service types
   const defaultServices = [
     { name: "Eat In", icon: "🏠", color: "#10B981", price: 0 },
     { name: "Takeaway", icon: "📦", color: "#F59E0B", price: 0 },
@@ -164,7 +176,14 @@ export default function Inventory() {
         .order("name");
       
       if (productsError) throw productsError;
-      if (productsData) setProducts(productsData);
+      
+      // Add infinite stock flag to products (you may need to add this column to your DB)
+      const productsWithInfinite = (productsData || []).map(p => ({
+        ...p,
+        has_infinite_stock: p.stock_quantity === -1 || false // -1 could represent infinite
+      }));
+      
+      setProducts(productsWithInfinite);
 
       // Load service types
       const { data: servicesData } = await supabase
@@ -174,7 +193,29 @@ export default function Inventory() {
         .order("name");
 
       if (servicesData && servicesData.length > 0) {
-        setServiceTypes(servicesData);
+        // Get usage counts for each service
+        const { data: transactionsData } = await supabase
+          .from("transactions")
+          .select("services")
+          .eq("user_id", userId);
+
+        const usageCounts: { [key: string]: number } = {};
+        transactionsData?.forEach(t => {
+          if (t.services && Array.isArray(t.services)) {
+            t.services.forEach((s: any) => {
+              if (s.id) {
+                usageCounts[s.id] = (usageCounts[s.id] || 0) + 1;
+              }
+            });
+          }
+        });
+
+        const servicesWithUsage = servicesData.map(s => ({
+          ...s,
+          usage_count: usageCounts[s.id] || 0
+        }));
+
+        setServiceTypes(servicesWithUsage);
       } else {
         // Create default services if none exist
         await createDefaultServices();
@@ -211,14 +252,20 @@ export default function Inventory() {
     const totalServices = products.filter(p => p.is_service).length;
     const lowStock = products.filter(p => 
       p.track_inventory && 
+      !p.has_infinite_stock &&
       p.stock_quantity <= p.low_stock_threshold && 
       p.stock_quantity > 0
     ).length;
     const outOfStock = products.filter(p => 
-      p.track_inventory && p.stock_quantity === 0
+      p.track_inventory && 
+      !p.has_infinite_stock &&
+      p.stock_quantity === 0
+    ).length;
+    const infiniteStock = products.filter(p => 
+      p.has_infinite_stock
     ).length;
     const totalValue = products.reduce((sum, p) => 
-      sum + (p.cost * p.stock_quantity), 0
+      sum + (p.cost * (p.has_infinite_stock ? 0 : p.stock_quantity)), 0
     );
     const categories = [...new Set(products.map(p => p.category).filter(Boolean))].length;
 
@@ -227,6 +274,7 @@ export default function Inventory() {
       totalServices,
       lowStock,
       outOfStock,
+      infiniteStock,
       totalValue,
       categories
     });
@@ -250,6 +298,7 @@ export default function Inventory() {
     setFormStock("");
     setFormThreshold("10");
     setFormTrackInventory(true);
+    setFormInfiniteStock(false);
     setFormIcon("");
     setFormSupplier("");
     setFormImageUrl("");
@@ -281,6 +330,7 @@ export default function Inventory() {
     setFormStock(product.stock_quantity.toString());
     setFormThreshold(product.low_stock_threshold.toString());
     setFormTrackInventory(product.track_inventory);
+    setFormInfiniteStock(product.has_infinite_stock || false);
     setFormIcon(product.icon || "");
     setFormSupplier(product.supplier || "");
     setFormImageUrl(product.image_url || "");
@@ -291,6 +341,7 @@ export default function Inventory() {
     setStockProduct(product);
     setStockAdjustment("");
     setStockReason("");
+    setInfiniteStock(product.has_infinite_stock || false);
     setShowStockModal(true);
   };
 
@@ -309,6 +360,8 @@ export default function Inventory() {
     }
 
     try {
+      const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
+      
       const { error } = await supabase.from("products").insert({
         user_id: userId,
         name: formName,
@@ -318,14 +371,15 @@ export default function Inventory() {
         category: formCategory || null,
         price: parseFloat(formPrice),
         cost: parseFloat(formCost) || 0,
-        stock_quantity: parseInt(formStock) || 0,
-        low_stock_threshold: parseInt(formThreshold),
-        track_inventory: formTrackInventory,
+        stock_quantity: stockQuantity,
+        low_stock_threshold: formInfiniteStock ? 0 : parseInt(formThreshold),
+        track_inventory: !formInfiniteStock && formTrackInventory,
         is_service: false,
         icon: formIcon || null,
         supplier: formSupplier || null,
         image_url: formImageUrl || null,
         service_type: null,
+        has_infinite_stock: formInfiniteStock,
       });
 
       if (error) throw error;
@@ -342,6 +396,8 @@ export default function Inventory() {
     if (!editingProduct) return;
 
     try {
+      const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
+      
       const { error } = await supabase
         .from("products")
         .update({
@@ -352,14 +408,15 @@ export default function Inventory() {
           category: formCategory || null,
           price: parseFloat(formPrice),
           cost: parseFloat(formCost) || 0,
-          stock_quantity: parseInt(formStock) || 0,
-          low_stock_threshold: parseInt(formThreshold),
-          track_inventory: formTrackInventory,
+          stock_quantity: stockQuantity,
+          low_stock_threshold: formInfiniteStock ? 0 : parseInt(formThreshold),
+          track_inventory: !formInfiniteStock && formTrackInventory,
           is_service: false,
           icon: formIcon || null,
           supplier: formSupplier || null,
           image_url: formImageUrl || null,
           service_type: null,
+          has_infinite_stock: formInfiniteStock,
         })
         .eq("id", editingProduct.id);
 
@@ -460,33 +517,49 @@ export default function Inventory() {
   };
 
   const adjustStock = async () => {
-    if (!stockProduct || !stockAdjustment) return;
+    if (!stockProduct) return;
 
-    const adjustment = parseInt(stockAdjustment);
-    const newStock = stockProduct.stock_quantity + adjustment;
+    let newStock = stockProduct.stock_quantity;
+    
+    if (infiniteStock) {
+      newStock = -1; // -1 represents infinite stock
+    } else {
+      if (!stockAdjustment) {
+        alert("Please enter an adjustment amount");
+        return;
+      }
+      
+      const adjustment = parseInt(stockAdjustment);
+      newStock = stockProduct.stock_quantity + adjustment;
 
-    if (newStock < 0) {
-      alert("Stock cannot be negative");
-      return;
+      if (newStock < 0) {
+        alert("Stock cannot be negative");
+        return;
+      }
     }
 
     try {
       const { error } = await supabase
         .from("products")
-        .update({ stock_quantity: newStock })
+        .update({ 
+          stock_quantity: newStock,
+          has_infinite_stock: infiniteStock 
+        })
         .eq("id", stockProduct.id);
 
       if (error) throw error;
 
-      // Log the adjustment
-      await supabase.from("stock_adjustments").insert({
-        user_id: userId,
-        product_id: stockProduct.id,
-        adjustment: adjustment,
-        reason: stockReason || "Manual adjustment",
-        previous_quantity: stockProduct.stock_quantity,
-        new_quantity: newStock,
-      });
+      // Log the adjustment if not infinite
+      if (!infiniteStock && stockAdjustment) {
+        await supabase.from("stock_adjustments").insert({
+          user_id: userId,
+          product_id: stockProduct.id,
+          adjustment: parseInt(stockAdjustment),
+          reason: stockReason || "Manual adjustment",
+          previous_quantity: stockProduct.stock_quantity,
+          new_quantity: newStock,
+        });
+      }
 
       setShowStockModal(false);
       loadData();
@@ -510,7 +583,7 @@ export default function Inventory() {
   };
 
   const exportToCSV = () => {
-    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Image URL", "Supplier"];
+    const headers = ["Name", "Description", "SKU", "Barcode", "Category", "Price", "Cost", "Stock", "Threshold", "Track Inventory", "Infinite Stock", "Image URL", "Supplier"];
     
     const rows = products.map(p => [
       p.name,
@@ -520,9 +593,10 @@ export default function Inventory() {
       p.category || "",
       p.price,
       p.cost,
-      p.stock_quantity,
+      p.has_infinite_stock ? "∞" : p.stock_quantity,
       p.low_stock_threshold,
       p.track_inventory,
+      p.has_infinite_stock ? "Yes" : "No",
       p.image_url || "",
       p.supplier || ""
     ]);
@@ -554,6 +628,8 @@ export default function Inventory() {
       if (!lines[i].trim()) continue;
       
       const values = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
+      const hasInfiniteStock = values[10] === "Yes" || values[10] === "true" || values[10] === "TRUE";
+      
       const product: any = {
         user_id: userId,
         name: values[0],
@@ -563,12 +639,13 @@ export default function Inventory() {
         category: values[4] || null,
         price: parseFloat(values[5]) || 0,
         cost: parseFloat(values[6]) || 0,
-        stock_quantity: parseInt(values[7]) || 0,
-        low_stock_threshold: parseInt(values[8]) || 10,
-        track_inventory: values[9] === "true" || values[9] === "TRUE",
+        stock_quantity: hasInfiniteStock ? -1 : (parseInt(values[7]) || 0),
+        low_stock_threshold: hasInfiniteStock ? 0 : (parseInt(values[8]) || 10),
+        track_inventory: !hasInfiniteStock && (values[9] === "true" || values[9] === "TRUE"),
         is_service: false,
-        image_url: values[10] || null,
-        supplier: values[11] || null,
+        has_infinite_stock: hasInfiniteStock,
+        image_url: values[11] || null,
+        supplier: values[12] || null,
       };
       productsToImport.push(product);
     }
@@ -612,7 +689,9 @@ export default function Inventory() {
     // Status filter
     let statusMatch = true;
     if (statusFilter !== "all") {
-      if (!product.track_inventory) {
+      if (product.has_infinite_stock) {
+        statusMatch = statusFilter === "infinite";
+      } else if (!product.track_inventory) {
         statusMatch = statusFilter === "no_track";
       } else {
         switch (statusFilter) {
@@ -625,6 +704,9 @@ export default function Inventory() {
           case "out_of_stock":
             statusMatch = product.stock_quantity === 0;
             break;
+          case "infinite":
+            statusMatch = product.has_infinite_stock;
+            break;
         }
       }
     }
@@ -633,10 +715,11 @@ export default function Inventory() {
   });
 
   const getStockStatus = (product: Product) => {
-    if (!product.track_inventory) return { text: "No Track", color: "bg-gray-100 text-gray-800 border-gray-200" };
-    if (product.stock_quantity === 0) return { text: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
-    if (product.stock_quantity <= product.low_stock_threshold) return { text: "Low Stock", color: "bg-orange-100 text-orange-800 border-orange-200" };
-    return { text: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+    if (product.has_infinite_stock) return { text: "Infinite Stock", color: "bg-purple-100 text-purple-800 border-purple-200", icon: Infinity };
+    if (!product.track_inventory) return { text: "No Track", color: "bg-gray-100 text-gray-800 border-gray-200", icon: Tag };
+    if (product.stock_quantity === 0) return { text: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200", icon: AlertCircle };
+    if (product.stock_quantity <= product.low_stock_threshold) return { text: "Low Stock", color: "bg-orange-100 text-orange-800 border-orange-200", icon: TrendingDown };
+    return { text: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200", icon: Check };
   };
 
   if (!userId) {
@@ -681,7 +764,7 @@ export default function Inventory() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
-          <p className="text-muted-foreground">Manage your products</p>
+          <p className="text-muted-foreground">Manage your products and services</p>
         </div>
         <div className="flex items-center gap-3">
           <Link 
@@ -699,7 +782,7 @@ export default function Inventory() {
               <Plus className="w-4 h-4" />
               New Item
             </button>
-            <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg hidden group-hover:block">
+            <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border rounded-lg shadow-lg hidden group-hover:block z-10">
               <button
                 onClick={openAddModal}
                 className="w-full px-4 py-2 text-left text-foreground hover:bg-muted flex items-center gap-2 text-sm rounded-t-lg"
@@ -719,8 +802,8 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Stats Cards - Updated to show only product stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -729,6 +812,18 @@ export default function Inventory() {
             </div>
             <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
               <Box className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Services</p>
+              <p className="text-2xl font-bold text-foreground">{stats.totalServices}</p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg flex items-center justify-center">
+              <Coffee className="w-5 h-5 text-white" />
             </div>
           </div>
         </div>
@@ -760,11 +855,11 @@ export default function Inventory() {
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Total Value</p>
-              <p className="text-2xl font-bold text-foreground">£{stats.totalValue.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted-foreground">Infinite Stock</p>
+              <p className="text-2xl font-bold text-foreground">{stats.infiniteStock}</p>
             </div>
             <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-white" />
+              <Infinity className="w-5 h-5 text-white" />
             </div>
           </div>
         </div>
@@ -772,11 +867,11 @@ export default function Inventory() {
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Categories</p>
-              <p className="text-2xl font-bold text-foreground">{stats.categories}</p>
+              <p className="text-sm font-medium text-muted-foreground">Total Value</p>
+              <p className="text-2xl font-bold text-foreground">£{stats.totalValue.toFixed(2)}</p>
             </div>
             <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-rose-500 rounded-lg flex items-center justify-center">
-              <Tag className="w-5 h-5 text-white" />
+              <DollarSign className="w-5 h-5 text-white" />
             </div>
           </div>
         </div>
@@ -864,6 +959,7 @@ export default function Inventory() {
                 <option value="in_stock">In Stock</option>
                 <option value="low_stock">Low Stock</option>
                 <option value="out_of_stock">Out of Stock</option>
+                <option value="infinite">Infinite Stock</option>
                 <option value="no_track">No Tracking</option>
               </select>
             </div>
@@ -891,6 +987,7 @@ export default function Inventory() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredProducts.map((product) => {
             const stockStatus = getStockStatus(product);
+            const StatusIcon = stockStatus.icon;
             return (
               <div
                 key={product.id}
@@ -918,7 +1015,8 @@ export default function Inventory() {
                     <div>
                       <h3 className="font-semibold text-foreground line-clamp-1">{product.name}</h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${stockStatus.color}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border flex items-center gap-1 ${stockStatus.color}`}>
+                          <StatusIcon className="w-3 h-3" />
                           {stockStatus.text}
                         </span>
                       </div>
@@ -946,10 +1044,19 @@ export default function Inventory() {
                       <p className="font-medium text-foreground">Price</p>
                       <p className="text-emerald-500 font-bold">£{product.price.toFixed(2)}</p>
                     </div>
-                    {product.track_inventory && (
+                    {product.track_inventory && !product.has_infinite_stock && (
                       <div className="text-right">
                         <p className="font-medium text-foreground">Stock</p>
                         <p className="font-bold text-foreground">{product.stock_quantity}</p>
+                      </div>
+                    )}
+                    {product.has_infinite_stock && (
+                      <div className="text-right">
+                        <p className="font-medium text-foreground">Stock</p>
+                        <p className="font-bold text-purple-500 flex items-center gap-1">
+                          <Infinity className="w-4 h-4" />
+                          ∞
+                        </p>
                       </div>
                     )}
                   </div>
@@ -970,12 +1077,21 @@ export default function Inventory() {
                   >
                     Edit
                   </button>
-                  {product.track_inventory && (
+                  {product.track_inventory && !product.has_infinite_stock && (
                     <button
                       onClick={() => openStockModal(product)}
                       className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
                     >
                       Stock
+                    </button>
+                  )}
+                  {product.has_infinite_stock && (
+                    <button
+                      onClick={() => openStockModal(product)}
+                      className="flex-1 bg-purple-500 text-white py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm flex items-center justify-center gap-1"
+                    >
+                      <Infinity className="w-4 h-4" />
+                      Infinite
                     </button>
                   )}
                 </div>
@@ -1001,6 +1117,7 @@ export default function Inventory() {
               <tbody>
                 {filteredProducts.map((product) => {
                   const stockStatus = getStockStatus(product);
+                  const StatusIcon = stockStatus.icon;
                   return (
                     <tr key={product.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <td className="py-4 px-4">
@@ -1037,7 +1154,12 @@ export default function Inventory() {
                         )}
                       </td>
                       <td className="py-4 px-4">
-                        {product.track_inventory ? (
+                        {product.has_infinite_stock ? (
+                          <div className="flex items-center gap-1 text-purple-500 font-bold">
+                            <Infinity className="w-4 h-4" />
+                            ∞
+                          </div>
+                        ) : product.track_inventory ? (
                           <div>
                             <div className="font-bold text-foreground">{product.stock_quantity}</div>
                             <div className="text-xs text-muted-foreground">Min: {product.low_stock_threshold}</div>
@@ -1047,7 +1169,8 @@ export default function Inventory() {
                         )}
                       </td>
                       <td className="py-4 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${stockStatus.color}`}>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${stockStatus.color}`}>
+                          <StatusIcon className="w-3 h-3" />
                           {stockStatus.text}
                         </span>
                       </td>
@@ -1060,13 +1183,22 @@ export default function Inventory() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          {product.track_inventory && (
+                          {product.track_inventory && !product.has_infinite_stock && (
                             <button
                               onClick={() => openStockModal(product)}
                               className="p-2 text-muted-foreground hover:text-primary transition-colors"
                               title="Adjust Stock"
                             >
                               <BarChart3 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {product.has_infinite_stock && (
+                            <button
+                              onClick={() => openStockModal(product)}
+                              className="p-2 text-purple-500 hover:text-purple-600 transition-colors"
+                              title="Infinite Stock Settings"
+                            >
+                              <Infinity className="w-4 h-4" />
                             </button>
                           )}
                           <button
@@ -1104,7 +1236,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Add/Edit Product Modal - Removed service checkbox */}
+      {/* Add/Edit Product Modal */}
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -1202,61 +1334,93 @@ export default function Inventory() {
                   <p className="text-xs text-muted-foreground mt-1">Add a product image URL to display in POS</p>
                 </div>
 
-                {/* Inventory Settings */}
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Initial Stock</label>
-                  <input
-                    type="number"
-                    value={formStock}
-                    onChange={(e) => setFormStock(e.target.value)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Low Stock Alert</label>
-                  <input
-                    type="number"
-                    value={formThreshold}
-                    onChange={(e) => setFormThreshold(e.target.value)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="10"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Barcode</label>
-                  <input
-                    value={formBarcode}
-                    onChange={(e) => setFormBarcode(e.target.value)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="1234567890123"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Supplier</label>
-                  <input
-                    value={formSupplier}
-                    onChange={(e) => setFormSupplier(e.target.value)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="Supplier name"
-                  />
-                </div>
-
-                {/* Track Inventory Toggle */}
+                {/* Infinite Stock Toggle */}
                 <div className="md:col-span-2">
-                  <label className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg border border-border cursor-pointer">
+                  <label className="flex items-center gap-3 p-4 bg-purple-500/10 rounded-lg border border-purple-500/30 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={formTrackInventory}
-                      onChange={(e) => setFormTrackInventory(e.target.checked)}
-                      className="w-4 h-4 accent-primary"
+                      checked={formInfiniteStock}
+                      onChange={(e) => {
+                        setFormInfiniteStock(e.target.checked);
+                        if (e.target.checked) {
+                          setFormTrackInventory(false);
+                          setFormStock("0");
+                          setFormThreshold("0");
+                        }
+                      }}
+                      className="w-4 h-4 accent-purple-500"
                     />
-                    <span className="text-sm text-foreground font-medium">Track Inventory</span>
+                    <div className="flex-1">
+                      <span className="text-sm text-foreground font-medium flex items-center gap-2">
+                        <Infinity className="w-4 h-4 text-purple-500" />
+                        Infinite Stock
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Product never runs out of stock (no tracking needed)
+                      </p>
+                    </div>
                   </label>
                 </div>
+
+                {/* Inventory Settings - Only show if not infinite stock */}
+                {!formInfiniteStock && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Initial Stock</label>
+                      <input
+                        type="number"
+                        value={formStock}
+                        onChange={(e) => setFormStock(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Low Stock Alert</label>
+                      <input
+                        type="number"
+                        value={formThreshold}
+                        onChange={(e) => setFormThreshold(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="10"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Barcode</label>
+                      <input
+                        value={formBarcode}
+                        onChange={(e) => setFormBarcode(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="1234567890123"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1">Supplier</label>
+                      <input
+                        value={formSupplier}
+                        onChange={(e) => setFormSupplier(e.target.value)}
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        placeholder="Supplier name"
+                      />
+                    </div>
+
+                    {/* Track Inventory Toggle */}
+                    <div className="md:col-span-2">
+                      <label className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg border border-border cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formTrackInventory}
+                          onChange={(e) => setFormTrackInventory(e.target.checked)}
+                          className="w-4 h-4 accent-primary"
+                        />
+                        <span className="text-sm text-foreground font-medium">Track Inventory</span>
+                      </label>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1286,7 +1450,9 @@ export default function Inventory() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Adjust Stock</h3>
+              <h3 className="text-lg font-semibold text-foreground">
+                {stockProduct.has_infinite_stock ? "Infinite Stock Settings" : "Adjust Stock"}
+              </h3>
               <button 
                 onClick={() => setShowStockModal(false)} 
                 className="text-muted-foreground hover:text-foreground"
@@ -1312,61 +1478,104 @@ export default function Inventory() {
                 )}
                 <div>
                   <p className="font-medium text-foreground">{stockProduct.name}</p>
-                  <p className="text-sm text-muted-foreground">Current Stock: {stockProduct.stock_quantity}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {stockProduct.has_infinite_stock 
+                      ? "Current: Infinite Stock" 
+                      : `Current Stock: ${stockProduct.stock_quantity}`}
+                  </p>
                 </div>
               </div>
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Adjustment Amount
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setStockAdjustment("-10")}
-                    className="flex-1 bg-red-500/10 text-red-600 border border-red-200 py-2 rounded-lg font-medium hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
-                  >
-                    <TrendingDown className="w-4 h-4" />
-                    -10
-                  </button>
-                  <button
-                    onClick={() => setStockAdjustment("+10")}
-                    className="flex-1 bg-emerald-500/10 text-emerald-600 border border-emerald-200 py-2 rounded-lg font-medium hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
-                  >
-                    <TrendingUp className="w-4 h-4" />
-                    +10
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Manual Adjustment</label>
-                <input
-                  type="number"
-                  value={stockAdjustment}
-                  onChange={(e) => setStockAdjustment(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-center font-bold"
-                  placeholder="0"
-                />
-                {stockAdjustment && (
-                  <p className="mt-2 text-center text-sm text-muted-foreground">
-                    New stock: <span className="font-bold text-foreground">
-                      {stockProduct.stock_quantity + parseInt(stockAdjustment || "0")}
+              {/* Infinite Stock Toggle */}
+              <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={infiniteStock}
+                    onChange={(e) => {
+                      setInfiniteStock(e.target.checked);
+                      if (!e.target.checked && stockProduct.stock_quantity === -1) {
+                        setStockAdjustment("0");
+                      }
+                    }}
+                    className="w-4 h-4 accent-purple-500"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm text-foreground font-medium flex items-center gap-2">
+                      <Infinity className="w-4 h-4 text-purple-500" />
+                      Infinite Stock
                     </span>
-                  </p>
-                )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Product never runs out of stock
+                    </p>
+                  </div>
+                </label>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Reason</label>
-                <input
-                  value={stockReason}
-                  onChange={(e) => setStockReason(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="e.g., Restock, Damaged, Sold"
-                />
-              </div>
+              {/* Stock Adjustment - Only show if not infinite */}
+              {!infiniteStock && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">
+                      Adjustment Amount
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setStockAdjustment("-10")}
+                        className="flex-1 bg-red-500/10 text-red-600 border border-red-200 py-2 rounded-lg font-medium hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+                      >
+                        <TrendingDown className="w-4 h-4" />
+                        -10
+                      </button>
+                      <button
+                        onClick={() => setStockAdjustment("+10")}
+                        className="flex-1 bg-emerald-500/10 text-emerald-600 border border-emerald-200 py-2 rounded-lg font-medium hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                      >
+                        <TrendingUp className="w-4 h-4" />
+                        +10
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">Manual Adjustment</label>
+                    <input
+                      type="number"
+                      value={stockAdjustment}
+                      onChange={(e) => setStockAdjustment(e.target.value)}
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-center font-bold"
+                      placeholder="0"
+                    />
+                    {stockAdjustment && (
+                      <p className="mt-2 text-center text-sm text-muted-foreground">
+                        New stock: <span className="font-bold text-foreground">
+                          {stockProduct.stock_quantity + parseInt(stockAdjustment || "0")}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">Reason</label>
+                    <input
+                      value={stockReason}
+                      onChange={(e) => setStockReason(e.target.value)}
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="e.g., Restock, Damaged, Sold"
+                    />
+                  </div>
+                </>
+              )}
+
+              {infiniteStock && (
+                <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+                  <p className="text-sm text-foreground">
+                    This product will be marked as having infinite stock and will not be tracked in inventory.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -1378,23 +1587,27 @@ export default function Inventory() {
               </button>
               <button
                 onClick={adjustStock}
-                disabled={!stockAdjustment}
-                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                disabled={!infiniteStock && !stockAdjustment}
+                className={`flex-1 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 ${
+                  infiniteStock 
+                    ? 'bg-purple-500 text-white' 
+                    : 'bg-primary text-primary-foreground'
+                }`}
               >
-                Adjust Stock
+                {infiniteStock ? 'Set Infinite Stock' : 'Adjust Stock'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Service Types Modal - Now only for managing service types */}
+      {/* Service Types Modal - Redesigned */}
       {showServicesModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-foreground">
-                {editingService ? "Edit Service" : "Add Service"}
+                {editingService ? "Edit Service" : "Manage Services"}
               </h3>
               <button 
                 onClick={() => {
@@ -1412,13 +1625,23 @@ export default function Inventory() {
             </div>
 
             <p className="text-muted-foreground mb-6">
-              Create services like "Eat In", "Takeaway", "Delivery". These will appear as tick options in the POS.
+              Create and manage service types like "Eat In", "Takeaway", "Delivery". These will appear as tick options in the POS.
             </p>
 
             {/* Add/Edit Service Form */}
             <div className="bg-muted/30 rounded-lg p-4 mb-6 border border-border">
-              <h4 className="font-medium text-foreground mb-3">
-                {editingService ? "Edit Service Type" : "Add New Service Type"}
+              <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                {editingService ? (
+                  <>
+                    <Edit2 className="w-4 h-4" />
+                    Edit Service Type
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Add New Service Type
+                  </>
+                )}
               </h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1433,7 +1656,7 @@ export default function Inventory() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Icon</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Icon (Emoji)</label>
                   <div className="flex gap-2">
                     <input
                       value={serviceIcon}
@@ -1478,110 +1701,164 @@ export default function Inventory() {
                   <p className="text-xs text-muted-foreground mt-1">Fixed fee added to order</p>
                 </div>
 
-                <div className="flex items-end">
+                <div className="md:col-span-2 flex items-end gap-2">
                   <button
                     onClick={editingService ? updateServiceType : addServiceType}
                     disabled={!serviceName}
-                    className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     {editingService ? "Update Service" : "Add Service"}
                   </button>
+                  {editingService && (
+                    <button
+                      onClick={() => {
+                        setEditingService(null);
+                        setServiceName("");
+                        setServiceIcon("");
+                        setServiceColor("#3B82F6");
+                        setServicePrice("");
+                      }}
+                      className="px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </div>
-
-              {editingService && (
-                <button
-                  onClick={() => {
-                    setEditingService(null);
-                    setServiceName("");
-                    setServiceIcon("");
-                    setServiceColor("#3B82F6");
-                    setServicePrice("");
-                  }}
-                  className="w-full bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity mt-3 text-sm"
-                >
-                  Cancel Edit
-                </button>
-              )}
             </div>
 
-            {/* Services List */}
+            {/* Services List - Redesigned with status indicators */}
             <div className="space-y-3">
-              <h4 className="font-medium text-foreground">Available Services</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-foreground">Available Services</h4>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    Active
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                    Inactive
+                  </span>
+                </div>
+              </div>
               
               {serviceTypes.length === 0 ? (
-                <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed border-border">
-                  <Coffee className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
+                <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
+                  <Coffee className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
                   <p className="text-muted-foreground">No services created yet</p>
                   <p className="text-xs text-muted-foreground mt-1">Add your first service above</p>
                 </div>
               ) : (
-                serviceTypes.map(service => (
-                  <div 
-                    key={service.id}
-                    className={`bg-background border border-border rounded-lg p-4 flex items-center justify-between ${
-                      !service.is_active ? 'opacity-60' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div 
-                        className="w-10 h-10 rounded-lg flex items-center justify-center text-2xl"
-                        style={{ backgroundColor: service.color + '20' }}
-                      >
-                        {service.icon || "🔧"}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h5 className="font-medium text-foreground">{service.name}</h5>
-                          {!service.is_active && (
-                            <span className="px-2 py-0.5 bg-muted rounded-full text-xs text-muted-foreground">
-                              Inactive
-                            </span>
-                          )}
+                <div className="grid grid-cols-1 gap-3">
+                  {serviceTypes.map(service => (
+                    <div 
+                      key={service.id}
+                      className={`bg-background border rounded-lg p-4 transition-all ${
+                        service.is_active 
+                          ? 'border-l-4 border-l-green-500 border-border' 
+                          : 'border-border opacity-70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          {/* Service Icon with color */}
+                          <div 
+                            className="w-12 h-12 rounded-lg flex items-center justify-center text-3xl"
+                            style={{ backgroundColor: service.color + '20' }}
+                          >
+                            {service.icon || "🔧"}
+                          </div>
+                          
+                          {/* Service Details */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <h5 className="font-semibold text-foreground text-lg">{service.name}</h5>
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                service.is_active 
+                                  ? 'bg-green-500/10 text-green-600 border border-green-500/20' 
+                                  : 'bg-gray-500/10 text-gray-600 border border-gray-500/20'
+                              }`}>
+                                {service.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="text-muted-foreground">
+                                Fee: <span className="font-semibold text-foreground">£{service.default_price.toFixed(2)}</span>
+                              </span>
+                              <span className="text-muted-foreground">
+                                Used: <span className="font-semibold text-foreground">{service.usage_count || 0} times</span>
+                              </span>
+                              <span 
+                                className="w-4 h-4 rounded-full" 
+                                style={{ backgroundColor: service.color }}
+                              />
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          <span className="text-muted-foreground">
-                            Fee: <span className="font-medium text-foreground">£{service.default_price.toFixed(2)}</span>
-                          </span>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => toggleServiceActive(service)}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
+                              service.is_active
+                                ? 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20'
+                                : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border border-emerald-500/20'
+                            }`}
+                            title={service.is_active ? 'Deactivate' : 'Activate'}
+                          >
+                            {service.is_active ? (
+                              <>
+                                <PowerOff className="w-3.5 h-3.5" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <Power className="w-3.5 h-3.5" />
+                                Activate
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => {
+                              openEditServiceModal(service);
+                            }}
+                            className="px-3 py-1.5 bg-blue-500/10 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-500/20 transition-all border border-blue-500/20 flex items-center gap-1.5"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteServiceType(service.id)}
+                            className="px-3 py-1.5 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
                         </div>
                       </div>
+
+                      {/* Usage Preview (if used in transactions) */}
+                      {service.usage_count && service.usage_count > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Package className="w-3 h-3" />
+                            <span>Used in {service.usage_count} transaction{service.usage_count !== 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => toggleServiceActive(service)}
-                        className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${
-                          service.is_active
-                            ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border border-emerald-500/20'
-                            : 'bg-muted text-foreground hover:bg-accent border border-border'
-                        }`}
-                      >
-                        {service.is_active ? 'Active' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          openEditServiceModal(service);
-                        }}
-                        className="px-3 py-1 bg-blue-500/10 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-500/20 transition-all border border-blue-500/20"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteServiceType(service.id)}
-                        className="px-3 py-1 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all border border-red-500/20"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
 
             <div className="mt-6 pt-4 border-t border-border">
               <button
                 onClick={() => setShowServicesModal(false)}
-                className="w-full bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                className="w-full bg-muted text-foreground py-2.5 rounded-lg font-medium hover:bg-accent transition-colors"
               >
                 Close
               </button>
