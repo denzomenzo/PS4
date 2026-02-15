@@ -1,3 +1,4 @@
+// components/POS.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -8,6 +9,7 @@ import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { logAuditAction } from "@/lib/auditLogger";
 import { processCardPayment } from "@/lib/cardPaymentProcessor";
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
+import { getThermalPrinterManager } from "@/lib/thermalPrinter";
 import { 
   Trash2, Loader2, Search, ShoppingCart, CreditCard, Plus, 
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
@@ -199,8 +201,11 @@ export default function POS() {
     barcode_scanner_enabled: boolean;
     scanner_sound_enabled: boolean;
     auto_print_receipt: boolean;
+    printer_width?: number;
+    auto_cut_paper?: boolean;
     printer_ip?: string;
     printer_name?: string;
+    printer_connection_type?: 'usb' | 'network';
   } | null>(null);
   
   const [receiptSettings, setReceiptSettings] = useState<any>(null);
@@ -255,6 +260,7 @@ export default function POS() {
   // Receipt
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
+  const [printing, setPrinting] = useState(false);
   
   // Broadcast channel ref
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
@@ -300,28 +306,27 @@ export default function POS() {
   );
 
   // Filter customers based on search query
+  useEffect(() => {
+    if (!customers.length) {
+      setFilteredCustomers([]);
+      return;
+    }
 
-useEffect(() => {
-  if (!customers.length) {
-    setFilteredCustomers([]);
-    return;
-  }
-
-  if (customerSearchQuery.trim()) {
-    const query = customerSearchQuery.toLowerCase().trim();
-    const filtered = customers.filter(c => {
-      const nameMatch = c.name?.toLowerCase().includes(query) || false;
-      const phoneMatch = c.phone?.toLowerCase().includes(query) || false;
-      const emailMatch = c.email?.toLowerCase().includes(query) || false;
-      const addressMatch = c.address?.toLowerCase().includes(query) || false;
-      
-      return nameMatch || phoneMatch || emailMatch || addressMatch;
-    });
-    setFilteredCustomers(filtered);
-  } else {
-    setFilteredCustomers(customers);
-  }
-}, [customerSearchQuery, customers]);
+    if (customerSearchQuery.trim()) {
+      const query = customerSearchQuery.toLowerCase().trim();
+      const filtered = customers.filter(c => {
+        const nameMatch = c.name?.toLowerCase().includes(query) || false;
+        const phoneMatch = c.phone?.toLowerCase().includes(query) || false;
+        const emailMatch = c.email?.toLowerCase().includes(query) || false;
+        const addressMatch = c.address?.toLowerCase().includes(query) || false;
+        
+        return nameMatch || phoneMatch || emailMatch || addressMatch;
+      });
+      setFilteredCustomers(filtered);
+    } else {
+      setFilteredCustomers(customers);
+    }
+  }, [customerSearchQuery, customers]);
 
   // Close customer dropdown when clicking outside
   useEffect(() => {
@@ -333,6 +338,119 @@ useEffect(() => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // ========== THERMAL PRINTER FUNCTIONS ==========
+  const printThermalReceipt = async (receiptData: ReceiptPrintData) => {
+    if (!hardwareSettings?.printer_enabled) {
+      return false;
+    }
+
+    try {
+      const manager = getThermalPrinterManager();
+
+      if (!manager.isConnected()) {
+        console.warn('Thermal printer not connected');
+        return false;
+      }
+
+      // Prepare items for thermal printer
+      const items = receiptData.products.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+        sku: item.sku
+      }));
+
+      // Update printer settings
+      await (manager as any).initialize({
+        width: hardwareSettings.printer_width || 80,
+        connectionType: manager.getConnectionType() || 'usb',
+        autoCut: hardwareSettings.auto_cut_paper !== false
+      });
+
+      const success = await manager.print({
+        shopName: receiptData.businessInfo?.name || 'Your Business',
+        shopAddress: receiptData.businessInfo?.address,
+        shopPhone: receiptData.businessInfo?.phone,
+        shopEmail: receiptData.businessInfo?.email,
+        taxNumber: receiptData.businessInfo?.taxNumber,
+        transactionId: receiptData.id,
+        date: new Date(receiptData.createdAt),
+        items: items,
+        subtotal: receiptData.subtotal,
+        vat: receiptData.vat,
+        total: receiptData.total,
+        paymentMethod: receiptData.paymentMethod,
+        staffName: receiptData.staffName,
+        customerName: receiptData.customer?.name,
+        customerBalance: receiptData.balanceDeducted,
+        notes: receiptData.notes,
+        footer: receiptData.receiptSettings?.footer || 'Thank you for your business!',
+        serviceName: receiptData.serviceName,
+        serviceFee: receiptData.serviceFee
+      });
+
+      return success;
+
+    } catch (error) {
+      console.error("Thermal print error:", error);
+      return false;
+    }
+  };
+
+  const openCashDrawer = async () => {
+    try {
+      console.log('📂 Opening cash drawer...');
+      
+      if (!hardwareSettings?.cash_drawer_enabled) {
+        console.log('Cash drawer not enabled');
+        return;
+      }
+      
+      // Try thermal printer cash drawer first
+      const manager = getThermalPrinterManager();
+      if (manager.isConnected()) {
+        const success = await manager.openCashDrawer();
+        if (success) {
+          console.log('✅ Cash drawer opened via thermal printer');
+          return;
+        }
+      }
+      
+      // Fallback to USB method
+      const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]);
+      
+      if ('usb' in navigator) {
+        try {
+          const device = await navigator.usb.requestDevice({
+            filters: [
+              { vendorId: 0x04B8 }, // Epson
+              { vendorId: 0x0416 }, // Citizen
+              { vendorId: 0x15A9 }, // Star Micronics
+            ]
+          });
+          
+          await device.open();
+          await device.selectConfiguration(1);
+          await device.claimInterface(0);
+          
+          await device.transferOut(1, cashDrawerCommand);
+          await device.close();
+          
+          console.log('✅ Cash drawer opened via USB');
+          return;
+        } catch (usbError) {
+          console.warn('USB cash drawer failed:', usbError);
+        }
+      }
+      
+      alert('💰 Please open cash drawer manually');
+      
+    } catch (error) {
+      console.error('Cash drawer error:', error);
+    }
+  };
 
   // Hardware Functions
   const playBeep = () => {
@@ -353,195 +471,6 @@ useEffect(() => {
       oscillator.stop(audioContext.currentTime + 0.1);
     } catch (error) {
       console.error('Failed to play beep:', error);
-    }
-  };
-
-  const printReceiptViaNetwork = async (receiptData: ReceiptPrintData) => {
-    try {
-      const { data } = await supabase.functions.invoke('print-receipt', {
-        body: receiptData
-      });
-      
-      if (!data?.success || !data.escposBuffer) {
-        throw new Error('Failed to generate receipt data');
-      }
-      
-      const printerIp = hardwareSettings?.printer_ip || '192.168.1.100';
-      const response = await fetch(`/api/printer/network`, {
-        method: 'POST',
-        body: JSON.stringify({
-          printerIp: printerIp,
-          printerPort: 9100,
-          escposData: data.escposBuffer
-        }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Network printer error: ${response.status}`);
-      }
-      
-      console.log('✅ Receipt printed via network');
-      return true;
-      
-    } catch (error: any) {
-      console.error('Network printing error:', error);
-      throw error;
-    }
-  };
-
-  const printReceiptViaUSB = async (receiptData: ReceiptPrintData) => {
-    try {
-      if (!('usb' in navigator)) {
-        throw new Error('WebUSB not supported in this browser');
-      }
-      
-      const device = await navigator.usb.requestDevice({
-        filters: [
-          { vendorId: 0x04B8 }, // Epson
-          { vendorId: 0x0416 }, // Citizen
-          { vendorId: 0x15A9 }, // Star Micronics
-        ]
-      });
-      
-      await device.open();
-      await device.selectConfiguration(1);
-      await device.claimInterface(0);
-      
-      const { data } = await supabase.functions.invoke('print-receipt', {
-        body: receiptData
-      });
-      
-      if (!data?.success || !data.escposBuffer) {
-        throw new Error('Failed to generate receipt data');
-      }
-      
-      const escposData = new Uint8Array(data.escposBuffer);
-      
-      const chunkSize = 64;
-      for (let i = 0; i < escposData.length; i += chunkSize) {
-        const chunk = escposData.slice(i, i + chunkSize);
-        await device.transferOut(1, chunk);
-      }
-      
-      await device.close();
-      
-      console.log('✅ Receipt printed via USB');
-      return true;
-      
-    } catch (error: any) {
-      console.error('USB printing error:', error);
-      throw error;
-    }
-  };
-
-  const printReceiptToHardware = async (receiptData: ReceiptPrintData) => {
-    const printerEnabled = hardwareSettings?.printer_enabled;
-    const printerName = hardwareSettings?.printer_name;
-    
-    if (!printerEnabled) {
-      console.log('Printer not enabled in settings');
-      return false;
-    }
-    
-    try {
-      const printerIp = hardwareSettings?.printer_ip;
-      
-      if (printerIp) {
-        return await printReceiptViaNetwork(receiptData);
-      } else if (printerName?.toLowerCase().includes('usb') || printerName?.toLowerCase().includes('epson')) {
-        await printReceiptViaUSB(receiptData);
-        return true;
-      } else {
-        try {
-          return await printReceiptViaNetwork(receiptData);
-        } catch {
-          console.log('Network failed, trying WebUSB...');
-          await printReceiptViaUSB(receiptData);
-          return true;
-        }
-      }
-      
-    } catch (error: any) {
-      console.error('All printing methods failed:', error);
-      
-      if (confirm('Hardware printer failed. Print as PDF instead?')) {
-        setReceiptData(receiptData);
-        setShowReceiptPrint(true);
-      }
-      
-      return false;
-    }
-  };
-
-  const openCashDrawer = async () => {
-    try {
-      console.log('📂 Opening cash drawer...');
-      
-      if (!hardwareSettings?.cash_drawer_enabled) {
-        console.log('Cash drawer not enabled');
-        return;
-      }
-      
-      const cashDrawerCommand = new Uint8Array([27, 112, 0, 50, 250]);
-      
-      if ('usb' in navigator) {
-        try {
-          const device = await navigator.usb.requestDevice({
-            filters: [
-              { vendorId: 0x04B8 },
-              { vendorId: 0x0416 },
-              { vendorId: 0x15A9 },
-            ]
-          });
-          
-          await device.open();
-          await device.selectConfiguration(1);
-          await device.claimInterface(0);
-          
-          await device.transferOut(1, cashDrawerCommand);
-          await device.close();
-          
-          console.log('✅ Cash drawer opened via USB');
-          return;
-        } catch (usbError) {
-          console.warn('USB cash drawer failed:', usbError);
-        }
-      }
-      
-      try {
-        await printReceiptToHardware({
-          id: `cash-drawer-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-          subtotal: 0,
-          vat: 0,
-          total: 0,
-          paymentMethod: 'cash',
-          products: [],
-          businessInfo: {
-            name: 'Cash Drawer Open'
-          },
-          receiptSettings: {
-            fontSize: 12,
-            footer: 'Cash drawer command',
-            showBarcode: false,
-            barcodeType: 'CODE128' as const,
-            showTaxBreakdown: false
-          },
-          staffName: currentStaff?.name,
-          notes: 'Cash drawer opened'
-        } as ReceiptPrintData);
-        
-        console.log('✅ Cash drawer opened via printer');
-      } catch (printError) {
-        console.error('Failed to open cash drawer:', printError);
-        alert('Failed to open cash drawer. Please check printer connection.');
-      }
-      
-    } catch (error) {
-      console.error('Cash drawer error:', error);
     }
   };
 
@@ -719,17 +648,20 @@ useEffect(() => {
         .from("hardware_settings")
         .select("*")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
       
       if (hardwareData) {
         setHardwareSettings({
           printer_enabled: hardwareData.printer_enabled || false,
+          printer_connection_type: hardwareData.printer_connection_type || 'usb',
+          printer_ip: hardwareData.printer_ip,
+          printer_name: hardwareData.printer_name,
+          printer_width: hardwareData.printer_width || 80,
+          auto_cut_paper: hardwareData.auto_cut_paper !== false,
           cash_drawer_enabled: hardwareData.cash_drawer_enabled || false,
           barcode_scanner_enabled: hardwareData.barcode_scanner_enabled !== false,
           scanner_sound_enabled: hardwareData.scanner_sound_enabled !== false,
           auto_print_receipt: hardwareData.auto_print_receipt !== false,
-          printer_ip: hardwareData.printer_ip,
-          printer_name: hardwareData.printer_name
         });
       }
 
@@ -759,23 +691,22 @@ useEffect(() => {
       }
 
       // Load customers
+      const { data: customersData } = await supabase
+        .from("customers")
+        .select("id, name, phone, email, address, balance")
+        .eq("user_id", userId)
+        .order("name");
 
-const { data: customersData } = await supabase
-  .from("customers")
-  .select("id, name, phone, email, address, balance") // Make sure address is included
-  .eq("user_id", userId)
-  .order("name");
-
-if (customersData) {
-  setCustomers(customersData.map(c => ({
-    ...c,
-    balance: getBalance(c.balance)
-  })));
-  setFilteredCustomers(customersData.map(c => ({
-    ...c,
-    balance: getBalance(c.balance)
-  })));
-}
+      if (customersData) {
+        setCustomers(customersData.map(c => ({
+          ...c,
+          balance: getBalance(c.balance)
+        })));
+        setFilteredCustomers(customersData.map(c => ({
+          ...c,
+          balance: getBalance(c.balance)
+        })));
+      }
 
       // Load recent transactions
       const { data: transactionsData } = await supabase
@@ -1388,10 +1319,14 @@ if (customersData) {
         
         setReceiptData(receiptData);
         setShowReceiptPrint(true);
-        try {
-          await printReceiptToHardware(receiptData);
-        } catch (printError) {
-          console.warn('Hardware printing failed:', printError);
+        
+        // Try thermal printing if enabled
+        if (hardwareSettings?.printer_enabled) {
+          try {
+            await printThermalReceipt(receiptData);
+          } catch (printError) {
+            console.warn('Thermal printing failed, showing preview:', printError);
+          }
         }
       }
 
@@ -1464,7 +1399,7 @@ if (customersData) {
         fontSize: receiptSettings?.receipt_font_size || 12,
         footer: receiptSettings?.receipt_footer || "Thank you for your business!",
         showBarcode: receiptSettings?.show_barcode_on_receipt !== false,
-        barcodeType: receiptSettings?.barcode_type || 'code128',
+        barcodeType: (receiptSettings?.barcode_type?.toUpperCase() || 'CODE128') as 'CODE128' | 'CODE39' | 'EAN13' | 'UPC',
         showTaxBreakdown: receiptSettings?.show_tax_breakdown !== false
       },
       staffName: currentStaff?.name,
@@ -1691,6 +1626,12 @@ if (customersData) {
                 <h2 className="text-base font-bold text-foreground">{activeTransaction?.name}</h2>
                 <p className="text-muted-foreground text-xs">
                   {cart.reduce((sum, item) => sum + item.quantity, 0)} items • Staff: {currentStaff.name}
+                  {hardwareSettings?.printer_enabled && (
+                    <span className="ml-2 text-emerald-600 inline-flex items-center gap-0.5">
+                      <Printer className="w-3 h-3" />
+                      Thermal
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -2013,7 +1954,7 @@ if (customersData) {
               className="bg-muted hover:bg-accent disabled:opacity-50 border border-border text-foreground font-medium py-2 rounded text-xs transition-all flex items-center justify-center gap-1"
             >
               <Printer className="w-3.5 h-3.5" />
-              Print
+              {hardwareSettings?.printer_enabled ? 'Preview' : 'Print'}
             </button>
 
             <button
@@ -2064,7 +2005,7 @@ if (customersData) {
         </div>
       </div>
 
-      {/* All Modals */}
+      {/* All Modals - Exactly as before, no changes needed */}
       {/* Service Selector Modal */}
       {showServiceSelector && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -2656,7 +2597,12 @@ if (customersData) {
                   onChange={(e) => setPrintReceiptOption(e.target.checked)}
                   className="w-4 h-4 accent-primary"
                 />
-                <span className="text-foreground text-sm">Print Receipt</span>
+                <span className="text-foreground text-sm">
+                  Print Receipt
+                  {hardwareSettings?.printer_enabled && (
+                    <span className="ml-1 text-emerald-600">(Thermal)</span>
+                  )}
+                </span>
               </label>
             </div>
 
@@ -2786,11 +2732,16 @@ if (customersData) {
                             };
                             setReceiptData(receiptData);
                             setShowReceiptPrint(true);
+                            
+                            // Try thermal printing if enabled
+                            if (hardwareSettings?.printer_enabled) {
+                              printThermalReceipt(receiptData).catch(console.warn);
+                            }
                           }}
                           className="bg-muted hover:bg-accent text-foreground px-2.5 py-1 rounded text-xs font-medium transition-all flex items-center gap-1"
                         >
                           <Printer className="w-3 h-3" />
-                          Re-print
+                          {hardwareSettings?.printer_enabled ? 'Print' : 'Preview'}
                         </button>
                       </div>
                     </div>
@@ -2804,6 +2755,3 @@ if (customersData) {
     </div>
   );
 }
-
-
-
