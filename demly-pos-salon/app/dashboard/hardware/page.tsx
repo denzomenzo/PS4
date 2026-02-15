@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor, Wifi, Usb, PowerOff, RefreshCw } from "lucide-react";
+import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor, Wifi, Usb, PowerOff, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 import { getThermalPrinterManager } from "@/lib/thermalPrinter";
 
@@ -691,3 +691,4 @@ export default function Hardware() {
     </div>
   );
 }
+
