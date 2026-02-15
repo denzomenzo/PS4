@@ -999,78 +999,82 @@ export default function Transactions() {
   };
 
   // ========== THERMAL PRINTER RECEIPT PRINTING ==========
-  const printThermalReceipt = async (transaction: Transaction) => {
-    if (!hardwareSettings?.printer_enabled) {
+const printThermalReceipt = async (transaction: Transaction) => {
+  if (!hardwareSettings?.printer_enabled) {
+    return false;
+  }
+
+  try {
+    const manager = getThermalPrinterManager();
+
+    if (!manager.isConnected()) {
+      console.warn('Thermal printer not connected');
       return false;
     }
 
-    try {
-      const manager = getThermalPrinterManager();
+    // Get business settings
+    const { data: settings } = await supabase
+      .from("settings")
+      .select("business_name, business_address, business_phone, business_email, tax_number, receipt_footer")
+      .eq("user_id", userId)
+      .single();
 
-      if (!manager.isConnected()) {
-        console.warn('Thermal printer not connected');
-        return false;
-      }
+    // Prepare items
+    const items = (transaction.products || []).map((p: any) => ({
+      name: p.name || 'Product',
+      quantity: getSafeNumber(p.quantity) || 1,
+      price: getSafeNumber(p.price) || 0,
+      total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
+      sku: p.sku
+    }));
 
-      // Get business settings
-      const { data: settings } = await supabase
-        .from("settings")
-        .select("business_name, business_address, business_phone, business_email, tax_number, receipt_footer")
-        .eq("user_id", userId)
-        .single();
+    // Get service info
+    const serviceInfo = transaction.services && transaction.services.length > 0 
+      ? transaction.services[0] 
+      : transaction.service_type_id 
+      ? { name: 'Service', fee: transaction.service_fee || 0 }
+      : null;
 
-      // Prepare items
-      const items = (transaction.products || []).map((p: any) => ({
-        name: p.name || 'Product',
-        quantity: getSafeNumber(p.quantity) || 1,
-        price: getSafeNumber(p.price) || 0,
-        total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
-        sku: p.sku
-      }));
+    // Update printer settings
+    await (manager as any).initialize({
+      width: hardwareSettings.printer_width || 80,
+      connectionType: manager.getConnectionType() || 'usb',
+      autoCut: hardwareSettings.auto_cut_paper !== false
+    });
 
-      // Get service info
-      const serviceInfo = transaction.services && transaction.services.length > 0 
-        ? transaction.services[0] 
-        : transaction.service_type_id 
-        ? { name: 'Service', fee: transaction.service_fee || 0 }
-        : null;
+    const success = await manager.print({
+      shopName: settings?.business_name || 'Your Business',
+      shopAddress: settings?.business_address,
+      shopPhone: settings?.business_phone,
+      shopEmail: settings?.business_email,
+      taxNumber: settings?.tax_number,
+      transactionId: transaction.id.toString(),
+      date: new Date(transaction.created_at),
+      items: items,
+      subtotal: getSafeNumber(transaction.subtotal) || 0,
+      vat: getSafeNumber(transaction.vat) || 0,
+      total: getSafeNumber(transaction.total) || 0,
+      paymentMethod: transaction.payment_method || 'cash',
+      // Fix: Convert null to undefined for staffName
+      staffName: transaction.staff_name || undefined,
+      // Fix: Convert null to undefined for customerName
+      customerName: transaction.customer_name || undefined,
+      customerBalance: getSafeNumber(transaction.balance_deducted) || 0,
+      // Fix: Convert null to undefined for notes
+      notes: transaction.notes || undefined,
+      footer: settings?.receipt_footer || 'Thank you for your business!',
+      serviceName: serviceInfo?.name,
+      serviceFee: serviceInfo?.fee
+    });
 
-      // Update printer settings
-      await (manager as any).initialize({
-        width: hardwareSettings.printer_width || 80,
-        connectionType: manager.getConnectionType() || 'usb',
-        autoCut: hardwareSettings.auto_cut_paper !== false
-      });
+    return success;
 
-      const success = await manager.print({
-        shopName: settings?.business_name || 'Your Business',
-        shopAddress: settings?.business_address,
-        shopPhone: settings?.business_phone,
-        shopEmail: settings?.business_email,
-        taxNumber: settings?.tax_number,
-        transactionId: transaction.id.toString(),
-        date: new Date(transaction.created_at),
-        items: items,
-        subtotal: getSafeNumber(transaction.subtotal) || 0,
-        vat: getSafeNumber(transaction.vat) || 0,
-        total: getSafeNumber(transaction.total) || 0,
-        paymentMethod: transaction.payment_method || 'cash',
-        staffName: transaction.staff_name,
-        customerName: transaction.customer_name,
-        customerBalance: getSafeNumber(transaction.balance_deducted) || 0,
-        notes: transaction.notes || undefined,
-        footer: settings?.receipt_footer || 'Thank you for your business!',
-        serviceName: serviceInfo?.name,
-        serviceFee: serviceInfo?.fee
-      });
+  } catch (error) {
+    console.error("Thermal print error:", error);
+    return false;
+  }
+};
 
-      return success;
-
-    } catch (error) {
-      console.error("Thermal print error:", error);
-      return false;
-    }
-  };
 
   // ========== BROWSER PRINT RECEIPT ==========
   const printBrowserReceipt = async (transaction: Transaction) => {
@@ -2046,3 +2050,4 @@ export default function Transactions() {
     </div>
   );
 }
+
