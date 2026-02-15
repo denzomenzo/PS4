@@ -719,7 +719,10 @@ export default function Inventory() {
     // Status filter
     let statusMatch = true;
     if (statusFilter !== "all") {
-      if (product.has_infinite_stock) {
+      // Fix: Safely check has_infinite_stock which might be undefined
+      const hasInfiniteStock = product.has_infinite_stock === true;
+      
+      if (hasInfiniteStock) {
         statusMatch = statusFilter === "infinite";
       } else if (!product.track_inventory) {
         statusMatch = statusFilter === "no_track";
@@ -735,7 +738,9 @@ export default function Inventory() {
             statusMatch = product.stock_quantity === 0;
             break;
           case "infinite":
-            statusMatch = product.has_infinite_stock === true;
+            // This case should never be reached because we already handled infinite stock above
+            // But we keep it for completeness
+            statusMatch = false;
             break;
         }
       }
@@ -745,7 +750,10 @@ export default function Inventory() {
   });
 
   const getStockStatus = (product: Product) => {
-    if (product.has_infinite_stock) return { text: "Infinite Stock", color: "bg-purple-100 text-purple-800 border-purple-200", icon: Infinity };
+    // Fix: Safely check has_infinite_stock which might be undefined
+    const hasInfiniteStock = product.has_infinite_stock === true;
+    
+    if (hasInfiniteStock) return { text: "Infinite Stock", color: "bg-purple-100 text-purple-800 border-purple-200", icon: Infinity };
     if (!product.track_inventory) return { text: "No Track", color: "bg-gray-100 text-gray-800 border-gray-200", icon: Tag };
     if (product.stock_quantity === 0) return { text: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200", icon: AlertCircle };
     if (product.stock_quantity <= product.low_stock_threshold) return { text: "Low Stock", color: "bg-orange-100 text-orange-800 border-orange-200", icon: TrendingDown };
