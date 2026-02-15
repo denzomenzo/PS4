@@ -1,3 +1,4 @@
+// app/dashboard/appointments/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -34,21 +35,24 @@ import {
   TrendingUp,
   Eye,
   EyeOff,
-  RefreshCw
+  RefreshCw,
+  UserMinus,
+  Briefcase,
+  Package
 } from "lucide-react";
 
 interface Appointment {
   id: number;
-  customer_id: number;
-  staff_id: number;
-  service_id: number;
+  customer_id: number | null;
+  staff_id: number | null;
+  service_id: number | null;
   appointment_date: string;
   appointment_time: string;
   status: "scheduled" | "completed" | "cancelled" | "no_show";
   notes: string | null;
-  customers: { name: string; phone: string | null; email: string | null } | null;
-  staff: { name: string } | null;
-  products: { name: string; price: number; icon: string } | null;
+  customers?: { name: string; phone: string | null; email: string | null } | null;
+  staff?: { name: string } | null;
+  products?: { name: string; price: number; icon: string } | null;
 }
 
 interface Customer {
@@ -69,6 +73,7 @@ interface Service {
   price: number;
   icon: string;
   duration: number;
+  is_service: boolean;
 }
 
 export default function Appointments() {
@@ -107,19 +112,12 @@ export default function Appointments() {
     upcoming: 0
   });
 
-  // Realtime subscription
-  const [subscription, setSubscription] = useState<any>(null);
-
   useEffect(() => {
-    loadData();
-    setupRealtimeSubscription();
-
-    return () => {
-      if (subscription) {
-        supabase.removeChannel(subscription);
-      }
-    };
-  }, []);
+    if (userId) {
+      loadData();
+      setupRealtimeSubscription();
+    }
+  }, [userId]);
 
   useEffect(() => {
     filterAppointments();
@@ -137,78 +135,95 @@ export default function Appointments() {
           table: 'appointments',
           filter: `user_id=eq.${userId}`
         },
-        (payload) => {
-          console.log('Realtime update:', payload);
+        () => {
           loadData(); // Reload data on any change
         }
       )
       .subscribe();
 
-    setSubscription(channel);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   };
 
   const loadData = async () => {
+    if (!userId) return;
+    
     setLoading(true);
     setError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setError("Not authenticated");
-        setLoading(false);
-        return;
-      }
-
-      const currentUserId = user.id;
       const today = new Date().toISOString().split('T')[0];
 
-      // Load all data
-      const [customersRes, staffRes, servicesRes, appointmentsRes] = await Promise.all([
-        supabase
-          .from("customers")
-          .select("id, name, phone, email")
-          .eq("user_id", currentUserId)
-          .order("name"),
-        supabase
-          .from("staff")
-          .select("id, name")
-          .eq("user_id", currentUserId)
-          .order("name"),
-        supabase
-          .from("products")
-          .select("id, name, price, icon, duration")
-          .eq("user_id", currentUserId)
-          .eq("is_service", true)
-          .order("name"),
-        supabase
-          .from("appointments")
-          .select(`
-            *,
-            customers!inner(name, phone, email),
-            staff!inner(name),
-            products!inner(name, price, icon, duration)
-          `)
-          .eq("user_id", currentUserId)
-          .order("appointment_date", { ascending: true })
-          .order("appointment_time", { ascending: true })
-      ]);
+      // Load customers
+      const { data: customersData, error: customersError } = await supabase
+        .from("customers")
+        .select("id, name, phone, email")
+        .eq("user_id", userId)
+        .order("name");
 
-      if (customersRes.error) console.error("Customers error:", customersRes.error);
-      if (staffRes.error) console.error("Staff error:", staffRes.error);
-      if (servicesRes.error) console.error("Services error:", servicesRes.error);
-      if (appointmentsRes.error) console.error("Appointments error:", appointmentsRes.error);
+      if (customersError) throw customersError;
+      setCustomers(customersData || []);
 
-      if (customersRes.data) setCustomers(customersRes.data);
-      if (staffRes.data) setStaff(staffRes.data);
-      if (servicesRes.data) setServices(servicesRes.data);
-      if (appointmentsRes.data) {
-        console.log("Appointments loaded:", appointmentsRes.data.length);
-        setAppointments(appointmentsRes.data as any);
-      }
+      // Load staff
+      const { data: staffData, error: staffError } = await supabase
+        .from("staff")
+        .select("id, name")
+        .eq("user_id", userId)
+        .order("name");
+
+      if (staffError) throw staffError;
+      setStaff(staffData || []);
+
+      // Load services (products that are services)
+      const { data: servicesData, error: servicesError } = await supabase
+        .from("products")
+        .select("id, name, price, icon, duration, is_service")
+        .eq("user_id", userId)
+        .eq("is_service", true)
+        .order("name");
+
+      if (servicesError) throw servicesError;
+      setServices(servicesData || []);
+
+      // Load appointments with proper joins
+      const { data: appointmentsData, error: appointmentsError } = await supabase
+        .from("appointments")
+        .select(`
+          *,
+          customers:customer_id (
+            name,
+            phone,
+            email
+          ),
+          staff:staff_id (
+            name
+          ),
+          products:service_id (
+            name,
+            price,
+            icon
+          )
+        `)
+        .eq("user_id", userId)
+        .order("appointment_date", { ascending: true })
+        .order("appointment_time", { ascending: true });
+
+      if (appointmentsError) throw appointmentsError;
+
+      // Process appointments to handle null values properly
+      const processedAppointments = (appointmentsData || []).map((apt: any) => ({
+        ...apt,
+        customers: apt.customers || null,
+        staff: apt.staff || null,
+        products: apt.products || null
+      }));
+
+      setAppointments(processedAppointments);
 
     } catch (error) {
       console.error("Error loading appointments data:", error);
-      setError("Failed to load data");
+      setError("Failed to load data. Please try again.");
     }
 
     setLoading(false);
@@ -296,36 +311,40 @@ export default function Appointments() {
     setSelectedAppointment(appointment);
     setFormDate(appointment.appointment_date);
     setFormTime(appointment.appointment_time);
-    setFormCustomerId(appointment.customer_id.toString());
-    setFormStaffId(appointment.staff_id.toString());
-    setFormServiceId(appointment.service_id.toString());
+    setFormCustomerId(appointment.customer_id?.toString() || "");
+    setFormStaffId(appointment.staff_id?.toString() || "");
+    setFormServiceId(appointment.service_id?.toString() || "");
     setFormNotes(appointment.notes || "");
     setShowEditModal(true);
   };
 
   const addAppointment = async () => {
-    if (!formCustomerId || !formStaffId || !formServiceId || !formDate || !formTime) {
-      alert("Please fill in all required fields");
+    if (!formDate || !formTime) {
+      alert("Date and Time are required");
       return;
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        alert("Not authenticated");
-        return;
-      }
-
-      const appointmentData = {
-        user_id: user.id,
-        customer_id: parseInt(formCustomerId),
-        staff_id: parseInt(formStaffId),
-        service_id: parseInt(formServiceId),
+      const appointmentData: any = {
+        user_id: userId,
         appointment_date: formDate,
         appointment_time: formTime,
         notes: formNotes.trim() || null,
         status: "scheduled",
       };
+
+      // Only add optional fields if they have values
+      if (formCustomerId) {
+        appointmentData.customer_id = parseInt(formCustomerId);
+      }
+      
+      if (formStaffId) {
+        appointmentData.staff_id = parseInt(formStaffId);
+      }
+      
+      if (formServiceId) {
+        appointmentData.service_id = parseInt(formServiceId);
+      }
 
       const { error } = await supabase
         .from("appointments")
@@ -333,15 +352,15 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error creating appointment:", error);
-        alert("❌ Error creating appointment: " + error.message);
+        alert("Error creating appointment: " + error.message);
         return;
       }
 
-      alert("✅ Appointment created successfully!");
+      alert("Appointment created successfully!");
       setShowAddModal(false);
     } catch (error) {
       console.error("Error:", error);
-      alert("❌ Error creating appointment");
+      alert("Error creating appointment");
     }
   };
 
@@ -349,29 +368,47 @@ export default function Appointments() {
     if (!selectedAppointment) return;
 
     try {
+      const appointmentData: any = {
+        appointment_date: formDate,
+        appointment_time: formTime,
+        notes: formNotes.trim() || null,
+      };
+
+      // Only add optional fields if they have values
+      if (formCustomerId) {
+        appointmentData.customer_id = parseInt(formCustomerId);
+      } else {
+        appointmentData.customer_id = null;
+      }
+      
+      if (formStaffId) {
+        appointmentData.staff_id = parseInt(formStaffId);
+      } else {
+        appointmentData.staff_id = null;
+      }
+      
+      if (formServiceId) {
+        appointmentData.service_id = parseInt(formServiceId);
+      } else {
+        appointmentData.service_id = null;
+      }
+
       const { error } = await supabase
         .from("appointments")
-        .update({
-          customer_id: parseInt(formCustomerId),
-          staff_id: parseInt(formStaffId),
-          service_id: parseInt(formServiceId),
-          appointment_date: formDate,
-          appointment_time: formTime,
-          notes: formNotes.trim() || null,
-        })
+        .update(appointmentData)
         .eq("id", selectedAppointment.id);
 
       if (error) {
         console.error("Error updating appointment:", error);
-        alert("❌ Error updating appointment: " + error.message);
+        alert("Error updating appointment: " + error.message);
         return;
       }
 
-      alert("✅ Appointment updated successfully!");
+      alert("Appointment updated successfully!");
       setShowEditModal(false);
     } catch (error) {
       console.error("Error:", error);
-      alert("❌ Error updating appointment");
+      alert("Error updating appointment");
     }
   };
 
@@ -384,14 +421,14 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error updating status:", error);
-        alert("❌ Error updating status: " + error.message);
+        alert("Error updating status: " + error.message);
         return;
       }
 
-      alert("✅ Status updated successfully!");
+      alert("Status updated successfully!");
     } catch (error) {
       console.error("Error:", error);
-      alert("❌ Error updating status");
+      alert("Error updating status");
     }
   };
 
@@ -403,15 +440,15 @@ export default function Appointments() {
 
       if (error) {
         console.error("Error deleting appointment:", error);
-        alert("❌ Error deleting appointment: " + error.message);
+        alert("Error deleting appointment: " + error.message);
         return;
       }
 
-      alert("✅ Appointment deleted successfully!");
+      alert("Appointment deleted successfully!");
       setShowEditModal(false);
     } catch (error) {
       console.error("Error:", error);
-      alert("❌ Error deleting appointment");
+      alert("Error deleting appointment");
     }
   };
 
@@ -455,19 +492,12 @@ export default function Appointments() {
 
   const getServiceIcon = (icon: string | undefined) => {
     if (!icon) return "💇";
-    const icons: Record<string, string> = {
-      "✂️": "✂️",
-      "💇": "💇",
-      "💅": "💅",
-      "🧴": "🧴",
-      "💈": "💈",
-      "👨‍🎨": "👨‍🎨",
-      "💆": "💆",
-      "🧖": "🧖",
-      "default": "💇"
-    };
-    return icons[icon] || icon;
+    return icon;
   };
+
+  if (!userId) {
+    return null;
+  }
 
   if (loading) {
     return (
@@ -738,51 +768,68 @@ export default function Appointments() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Customer Info */}
+                      {/* Customer Info - Now Optional */}
                       <div className="flex items-start gap-3">
                         <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                           <UserCircle className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                          <p className="font-medium text-foreground">{appointment.customers?.name || 'N/A'}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            {appointment.customers?.phone && (
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Phone className="w-3 h-3" />
-                                {appointment.customers.phone}
-                              </span>
-                            )}
-                            {appointment.customers?.email && (
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Mail className="w-3 h-3" />
-                                {appointment.customers.email}
-                              </span>
-                            )}
-                          </div>
+                          <p className="text-sm text-muted-foreground mb-1">Customer</p>
+                          {appointment.customers ? (
+                            <>
+                              <p className="font-medium text-foreground">{appointment.customers.name}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                {appointment.customers.phone && (
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Phone className="w-3 h-3" />
+                                    {appointment.customers.phone}
+                                  </span>
+                                )}
+                                {appointment.customers.email && (
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Mail className="w-3 h-3" />
+                                    {appointment.customers.email}
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-muted-foreground italic text-sm">No customer assigned</p>
+                          )}
                         </div>
                       </div>
 
-                      {/* Staff Info */}
+                      {/* Staff Info - Now Optional */}
                       <div className="flex items-start gap-3">
                         <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                          <User className="w-5 h-5 text-white" />
+                          <Briefcase className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                          <p className="text-sm text-muted-foreground mb-1">Assigned Staff</p>
-                          <p className="font-medium text-foreground">{appointment.staff?.name || 'N/A'}</p>
+                          <p className="text-sm text-muted-foreground mb-1">Staff</p>
+                          {appointment.staff ? (
+                            <p className="font-medium text-foreground">{appointment.staff.name}</p>
+                          ) : (
+                            <p className="text-muted-foreground italic text-sm">No staff assigned</p>
+                          )}
                         </div>
                       </div>
 
-                      {/* Service Info */}
+                      {/* Service Info - Now Optional */}
                       <div className="flex items-start gap-3">
                         <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
                           <span className="text-lg">{getServiceIcon(appointment.products?.icon)}</span>
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground mb-1">Service</p>
-                          <p className="font-medium text-foreground">{appointment.products?.name || 'N/A'}</p>
-                          {appointment.products?.price && (
-                            <p className="text-emerald-500 font-bold">£{appointment.products.price.toFixed(2)}</p>
+                          {appointment.products ? (
+                            <>
+                              <p className="font-medium text-foreground">{appointment.products.name}</p>
+                              {appointment.products.price && (
+                                <p className="text-emerald-500 font-bold">£{appointment.products.price.toFixed(2)}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-muted-foreground italic text-sm">No service selected</p>
                           )}
                         </div>
                       </div>
@@ -841,6 +888,7 @@ export default function Appointments() {
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
                   />
                 </div>
                 <div>
@@ -850,58 +898,62 @@ export default function Appointments() {
                     value={formTime}
                     onChange={(e) => setFormTime(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Customer *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Customer (Optional)</label>
                 <select
                   value={formCustomerId}
                   onChange={(e) => setFormCustomerId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="">Select customer</option>
+                  <option value="">No customer selected</option>
                   {customers.map((customer) => (
                     <option key={customer.id} value={customer.id}>
                       {customer.name} {customer.phone && `(${customer.phone})`}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground mt-1">Optional - can be assigned later</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Staff *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Staff (Optional)</label>
                 <select
                   value={formStaffId}
                   onChange={(e) => setFormStaffId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="">Select staff</option>
+                  <option value="">No staff assigned</option>
                   {staff.map((member) => (
                     <option key={member.id} value={member.id}>{member.name}</option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground mt-1">Optional - can be assigned later</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Service *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Service (Optional)</label>
                 <select
                   value={formServiceId}
                   onChange={(e) => setFormServiceId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="">Select service</option>
+                  <option value="">No service selected</option>
                   {services.map((service) => (
                     <option key={service.id} value={service.id}>
                       {getServiceIcon(service.icon)} {service.name} - £{service.price}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground mt-1">Optional - can be added later</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Notes (Optional)</label>
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
@@ -953,6 +1005,7 @@ export default function Appointments() {
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
                   />
                 </div>
                 <div>
@@ -962,17 +1015,19 @@ export default function Appointments() {
                     value={formTime}
                     onChange={(e) => setFormTime(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Customer *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Customer (Optional)</label>
                 <select
                   value={formCustomerId}
                   onChange={(e) => setFormCustomerId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
+                  <option value="">No customer selected</option>
                   {customers.map((customer) => (
                     <option key={customer.id} value={customer.id}>
                       {customer.name} {customer.phone && `(${customer.phone})`}
@@ -982,12 +1037,13 @@ export default function Appointments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Staff *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Staff (Optional)</label>
                 <select
                   value={formStaffId}
                   onChange={(e) => setFormStaffId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
+                  <option value="">No staff assigned</option>
                   {staff.map((member) => (
                     <option key={member.id} value={member.id}>{member.name}</option>
                   ))}
@@ -995,12 +1051,13 @@ export default function Appointments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Service *</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Service (Optional)</label>
                 <select
                   value={formServiceId}
                   onChange={(e) => setFormServiceId(e.target.value)}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
+                  <option value="">No service selected</option>
                   {services.map((service) => (
                     <option key={service.id} value={service.id}>
                       {getServiceIcon(service.icon)} {service.name} - £{service.price}
@@ -1010,7 +1067,7 @@ export default function Appointments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Notes</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Notes (Optional)</label>
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
