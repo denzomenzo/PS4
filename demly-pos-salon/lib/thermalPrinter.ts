@@ -1,7 +1,8 @@
 // lib/thermalPrinter.ts
 /**
- * Thermal Printer Service - Direct ESC/POS Communication
- * Supports Epson TM-T20, TM-T88, TM-m30 via USB or Network
+ * UNIFIED THERMAL PRINTER SERVICE
+ * Supports: USB, Network (Ethernet), WiFi, and Bluetooth
+ * All-in-one solution - no external dependencies
  */
 
 export interface ThermalReceiptData {
@@ -34,8 +35,8 @@ export interface ThermalReceiptData {
 
 export interface PrinterSettings {
   width: 58 | 80; // mm
-  connectionType: 'usb' | 'network';
-  ipAddress?: string; // For network printers
+  connectionType: 'usb' | 'network' | 'wifi' | 'bluetooth';
+  ipAddress?: string; // For network/wifi printers
   port?: number; // Default 9100 for network
   encoding?: 'GB18030' | 'UTF-8';
   autoCut?: boolean;
@@ -46,7 +47,7 @@ export interface PrinterSettings {
 const ESC = '\x1B';
 const GS = '\x1D';
 
-const COMMANDS = {
+export const COMMANDS = {
   INIT: ESC + '@',
   ALIGN_LEFT: ESC + 'a' + '\x00',
   ALIGN_CENTER: ESC + 'a' + '\x01',
@@ -63,11 +64,12 @@ const COMMANDS = {
   CASH_DRAWER: ESC + 'p' + '\x00' + '\x19' + '\xFA',
   LINE_FEED: '\n',
   LINE_FEEDS: (n: number) => ESC + 'd' + String.fromCharCode(n),
-  BARCODE: (data: string) => GS + 'k' + '\x04' + data + '\x00', // CODE128
+  BARCODE: (data: string) => GS + 'k' + '\x04' + data + '\x00',
 };
 
 /**
  * USB Thermal Printer (Web USB API)
+ * Works with: Chrome, Edge
  */
 export class USBThermalPrinter {
   private device: USBDevice | null = null;
@@ -77,13 +79,11 @@ export class USBThermalPrinter {
     try {
       console.log('🔌 Requesting USB printer...');
 
-      // Check if Web USB is supported
       if (!navigator.usb) {
-        alert('Web USB is not supported in this browser. Please use Chrome or Edge.');
+        alert('Web USB not supported. Use Chrome or Edge.');
         return false;
       }
 
-      // Request Epson printer via Web USB API
       this.device = await navigator.usb.requestDevice({
         filters: [
           { vendorId: 0x04b8 }, // Epson
@@ -95,17 +95,14 @@ export class USBThermalPrinter {
 
       console.log('✅ Printer selected:', this.device.productName);
 
-      // Open device
       await this.device.open();
       console.log('✅ Device opened');
 
-      // Select configuration
       if (this.device.configuration === null) {
         await this.device.selectConfiguration(1);
         console.log('✅ Configuration selected');
       }
 
-      // Claim interface
       await this.device.claimInterface(0);
       console.log('✅ Interface claimed');
 
@@ -130,7 +127,7 @@ export class USBThermalPrinter {
         await this.device.releaseInterface(0);
         await this.device.close();
         this.device = null;
-        console.log('✅ Printer disconnected');
+        console.log('✅ USB printer disconnected');
       } catch (error) {
         console.error('❌ Disconnect error:', error);
       }
@@ -146,21 +143,17 @@ export class USBThermalPrinter {
     try {
       this.width = settings.width;
       
-      // Generate ESC/POS commands
       const commands = this.generateCommands(data, settings);
-      
-      // Convert to Uint8Array
       const encoder = new TextEncoder();
       const buffer = encoder.encode(commands);
 
-      // Send to printer (endpoint 1 is typical for Epson)
       await this.device.transferOut(1, buffer);
 
-      console.log('✅ Receipt printed successfully');
+      console.log('✅ USB receipt printed');
       return true;
 
     } catch (error: any) {
-      console.error('❌ Print error:', error);
+      console.error('❌ USB print error:', error);
       alert(`Print failed: ${error.message}`);
       return false;
     }
@@ -176,7 +169,7 @@ export class USBThermalPrinter {
       const encoder = new TextEncoder();
       const command = encoder.encode(COMMANDS.CASH_DRAWER);
       await this.device.transferOut(1, command);
-      console.log('✅ Cash drawer opened');
+      console.log('✅ USB cash drawer opened');
       return true;
     } catch (error: any) {
       console.error('❌ Cash drawer error:', error);
@@ -188,29 +181,20 @@ export class USBThermalPrinter {
     const lineWidth = this.width === 58 ? 32 : 48;
     let output = '';
 
-    // Initialize printer
+    // Initialize
     output += COMMANDS.INIT;
 
-    // Header - Shop Name
+    // Header
     output += COMMANDS.ALIGN_CENTER;
     output += COMMANDS.DOUBLE_SIZE_ON;
     output += (data.shopName || 'YOUR BUSINESS').substring(0, lineWidth - 4) + COMMANDS.LINE_FEED;
     output += COMMANDS.NORMAL_SIZE;
 
-    if (data.shopAddress) {
-      output += data.shopAddress + COMMANDS.LINE_FEED;
-    }
-    if (data.shopPhone) {
-      output += 'Tel: ' + data.shopPhone + COMMANDS.LINE_FEED;
-    }
-    if (data.shopEmail) {
-      output += data.shopEmail + COMMANDS.LINE_FEED;
-    }
-    if (data.taxNumber) {
-      output += 'VAT: ' + data.taxNumber + COMMANDS.LINE_FEED;
-    }
+    if (data.shopAddress) output += data.shopAddress + COMMANDS.LINE_FEED;
+    if (data.shopPhone) output += 'Tel: ' + data.shopPhone + COMMANDS.LINE_FEED;
+    if (data.shopEmail) output += data.shopEmail + COMMANDS.LINE_FEED;
+    if (data.taxNumber) output += 'VAT: ' + data.taxNumber + COMMANDS.LINE_FEED;
 
-    // Separator
     output += COMMANDS.LINE_FEED;
     output += '-'.repeat(lineWidth) + COMMANDS.LINE_FEED;
 
@@ -225,17 +209,10 @@ export class USBThermalPrinter {
       minute: '2-digit'
     })}${COMMANDS.LINE_FEED}`;
 
-    if (data.staffName) {
-      output += `Staff: ${data.staffName}${COMMANDS.LINE_FEED}`;
-    }
-    if (data.customerName) {
-      output += `Customer: ${data.customerName}${COMMANDS.LINE_FEED}`;
-    }
+    if (data.staffName) output += `Staff: ${data.staffName}${COMMANDS.LINE_FEED}`;
+    if (data.customerName) output += `Customer: ${data.customerName}${COMMANDS.LINE_FEED}`;
 
     output += '-'.repeat(lineWidth) + COMMANDS.LINE_FEED;
-
-    // Items Header
-    output += this.formatItemLine('Item', 'Qty', 'Price', 'Total', lineWidth) + COMMANDS.LINE_FEED;
 
     // Items
     data.items.forEach(item => {
@@ -251,9 +228,7 @@ export class USBThermalPrinter {
         lineWidth
       ) + COMMANDS.LINE_FEED;
       
-      if (item.sku) {
-        output += `  SKU: ${item.sku}${COMMANDS.LINE_FEED}`;
-      }
+      if (item.sku) output += `  SKU: ${item.sku}${COMMANDS.LINE_FEED}`;
     });
 
     // Service Fee
@@ -266,7 +241,6 @@ export class USBThermalPrinter {
 
     // Totals
     output += this.formatLine('Subtotal:', `£${data.subtotal.toFixed(2)}`, lineWidth) + COMMANDS.LINE_FEED;
-    
     if (data.vat > 0) {
       output += this.formatLine('VAT (20%):', `£${data.vat.toFixed(2)}`, lineWidth) + COMMANDS.LINE_FEED;
     }
@@ -278,12 +252,10 @@ export class USBThermalPrinter {
     output += COMMANDS.LINE_FEED;
     output += this.formatLine('Payment:', data.paymentMethod.toUpperCase(), lineWidth) + COMMANDS.LINE_FEED;
 
-    // Customer Balance
     if (data.customerBalance !== undefined && data.customerBalance > 0) {
       output += this.formatLine('Balance Used:', `£${data.customerBalance.toFixed(2)}`, lineWidth) + COMMANDS.LINE_FEED;
     }
 
-    // Notes
     if (data.notes) {
       output += COMMANDS.LINE_FEED;
       output += `Note: ${data.notes}${COMMANDS.LINE_FEED}`;
@@ -300,10 +272,8 @@ export class USBThermalPrinter {
       output += 'Thank you for your business!' + COMMANDS.LINE_FEED;
     }
 
-    // Add some line feeds before cutting
     output += COMMANDS.LINE_FEEDS(3);
 
-    // Cut paper (if enabled)
     if (settings.autoCut !== false) {
       output += COMMANDS.CUT_PAPER;
     }
@@ -320,7 +290,6 @@ export class USBThermalPrinter {
   }
 
   private formatItemLine(name: string, qty: string, price: string, total: string, width: number): string {
-    // Reserve space for qty (3 chars), price (7 chars), total (7 chars) = 17 chars + spaces
     const nameWidth = width - 17;
     const namePart = name.length > nameWidth ? name.substring(0, nameWidth) : name.padEnd(nameWidth);
     const qtyPart = qty.padStart(3);
@@ -332,6 +301,7 @@ export class USBThermalPrinter {
 
 /**
  * Network Thermal Printer (TCP/IP)
+ * Works with: WiFi and Wired Ethernet printers
  */
 export class NetworkThermalPrinter {
   private ipAddress: string;
@@ -347,11 +317,9 @@ export class NetworkThermalPrinter {
     try {
       this.width = settings.width;
 
-      // Generate ESC/POS commands
       const usbPrinter = new USBThermalPrinter();
       const commands = (usbPrinter as any).generateCommands(data, settings);
 
-      // Send to network printer via your backend API
       const response = await fetch('/api/print/network', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -367,7 +335,7 @@ export class NetworkThermalPrinter {
         throw new Error(error.error || 'Network print failed');
       }
 
-      console.log('✅ Receipt printed via network');
+      console.log('✅ Network receipt printed');
       return true;
 
     } catch (error: any) {
@@ -393,27 +361,227 @@ export class NetworkThermalPrinter {
         throw new Error('Cash drawer command failed');
       }
 
-      console.log('✅ Cash drawer opened via network');
+      console.log('✅ Network cash drawer opened');
       return true;
 
     } catch (error: any) {
-      console.error('❌ Network cash drawer error:', error);
+      console.error('❌ Network drawer error:', error);
       return false;
     }
   }
 }
 
 /**
- * Printer Manager - Handles both USB and Network printers
+ * Bluetooth Thermal Printer (Web Bluetooth API)
+ * Works with: Chrome, Edge, Opera
+ */
+export class BluetoothThermalPrinter {
+  private device: BluetoothDevice | null = null;
+  private characteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  private width: number = 80;
+
+  private readonly PRINTER_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb';
+  private readonly EPSON_SERVICE_UUID = '00001101-0000-1000-8000-00805f9b34fb';
+  private readonly DATA_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb';
+
+  async connect(): Promise<boolean> {
+    try {
+      console.log('📱 Requesting Bluetooth printer...');
+
+      if (!navigator.bluetooth) {
+        alert('Bluetooth not supported. Use Chrome, Edge, or Opera.');
+        return false;
+      }
+
+      this.device = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [this.PRINTER_SERVICE_UUID] },
+          { services: [this.EPSON_SERVICE_UUID] },
+          { namePrefix: 'TM-' },
+          { namePrefix: 'EPSON' },
+          { namePrefix: 'Star' },
+          { namePrefix: 'TSP' },
+        ],
+        optionalServices: [this.PRINTER_SERVICE_UUID, this.EPSON_SERVICE_UUID]
+      });
+
+      console.log('✅ Bluetooth device selected:', this.device.name);
+
+      const server = await this.device.gatt?.connect();
+      if (!server) throw new Error('GATT connection failed');
+
+      console.log('✅ Connected to GATT server');
+
+      let service: BluetoothRemoteGATTService | null = null;
+      
+      try {
+        service = await server.getPrimaryService(this.PRINTER_SERVICE_UUID);
+      } catch {
+        service = await server.getPrimaryService(this.EPSON_SERVICE_UUID);
+      }
+
+      if (!service) throw new Error('Printer service not found');
+
+      this.characteristic = await service.getCharacteristic(this.DATA_CHARACTERISTIC_UUID);
+      
+      console.log('✅ Bluetooth printer connected');
+      return true;
+
+    } catch (error: any) {
+      console.error('❌ Bluetooth error:', error);
+      
+      if (error.name === 'NotFoundError') {
+        alert('No Bluetooth printer selected. Please try again.');
+      } else {
+        alert(`Bluetooth connection failed: ${error.message}\n\nMake sure:\n1. Printer is powered on\n2. Printer is in pairing mode\n3. Printer is within range`);
+      }
+      return false;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.device?.gatt?.connected) {
+      await this.device.gatt.disconnect();
+      this.device = null;
+      this.characteristic = null;
+      console.log('✅ Bluetooth printer disconnected');
+    }
+  }
+
+  async print(data: ThermalReceiptData, settings: PrinterSettings): Promise<boolean> {
+    if (!this.characteristic) {
+      console.error('❌ No Bluetooth printer connected');
+      return false;
+    }
+
+    try {
+      this.width = settings.width;
+
+      const usbPrinter = new USBThermalPrinter();
+      const commands = (usbPrinter as any).generateCommands(data, settings);
+
+      const encoder = new TextEncoder();
+      const buffer = encoder.encode(commands);
+
+      // Bluetooth MTU limit: 512 bytes per chunk
+      const chunkSize = 512;
+      let offset = 0;
+
+      while (offset < buffer.length) {
+        const chunk = buffer.slice(offset, offset + chunkSize);
+        await this.characteristic.writeValue(chunk);
+        offset += chunkSize;
+
+        if (offset < buffer.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      console.log('✅ Bluetooth receipt printed');
+      return true;
+
+    } catch (error: any) {
+      console.error('❌ Bluetooth print error:', error);
+      alert(`Bluetooth print failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  async openCashDrawer(): Promise<boolean> {
+    if (!this.characteristic) {
+      console.error('❌ No Bluetooth printer connected');
+      return false;
+    }
+
+    try {
+      const encoder = new TextEncoder();
+      const command = encoder.encode(COMMANDS.CASH_DRAWER);
+      await this.characteristic.writeValue(command);
+      console.log('✅ Bluetooth cash drawer opened');
+      return true;
+    } catch (error: any) {
+      console.error('❌ Bluetooth drawer error:', error);
+      return false;
+    }
+  }
+
+  isConnected(): boolean {
+    return this.device?.gatt?.connected || false;
+  }
+
+  getDeviceName(): string | undefined {
+    return this.device?.name;
+  }
+}
+
+/**
+ * WiFi Printer Discovery (Optional)
+ * Discovers ESC/POS printers on local network
+ */
+export class WiFiPrinterDiscovery {
+  private discoveredPrinters: Array<{
+    name: string;
+    ipAddress: string;
+    port: number;
+    manufacturer: string;
+    model: string;
+  }> = [];
+
+  async discover(): Promise<typeof this.discoveredPrinters> {
+    try {
+      console.log('🔍 Discovering WiFi printers...');
+
+      const response = await fetch('/api/printer/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Discovery failed');
+      }
+
+      const data = await response.json();
+      this.discoveredPrinters = data.printers || [];
+
+      console.log(`✅ Found ${this.discoveredPrinters.length} WiFi printers`);
+      return this.discoveredPrinters;
+
+    } catch (error: any) {
+      console.error('❌ WiFi discovery error:', error);
+      return [];
+    }
+  }
+
+  getPrinters() {
+    return this.discoveredPrinters;
+  }
+}
+
+/**
+ * UNIFIED Thermal Printer Manager
+ * Handles ALL connection types: USB, Network, WiFi, Bluetooth
  */
 export class ThermalPrinterManager {
   private usbPrinter: USBThermalPrinter | null = null;
   private networkPrinter: NetworkThermalPrinter | null = null;
+  private bluetoothPrinter: BluetoothThermalPrinter | null = null;
+  private wifiDiscovery: WiFiPrinterDiscovery = new WiFiPrinterDiscovery();
   private settings: PrinterSettings | null = null;
 
+  /**
+   * Discover WiFi printers on network (optional)
+   */
+  async discoverWiFiPrinters() {
+    return await this.wifiDiscovery.discover();
+  }
+
+  /**
+   * Initialize printer connection
+   */
   async initialize(settings: PrinterSettings): Promise<boolean> {
     this.settings = settings;
 
+    // USB Connection
     if (settings.connectionType === 'usb') {
       this.usbPrinter = new USBThermalPrinter();
       const connected = await this.usbPrinter.connect();
@@ -421,9 +589,12 @@ export class ThermalPrinterManager {
         this.usbPrinter = null;
       }
       return connected;
-    } else if (settings.connectionType === 'network') {
+    }
+
+    // Network/WiFi Connection (same protocol, different label)
+    if (settings.connectionType === 'network' || settings.connectionType === 'wifi') {
       if (!settings.ipAddress) {
-        alert('Network printer IP address is required');
+        alert('Printer IP address is required');
         return false;
       }
       this.networkPrinter = new NetworkThermalPrinter(
@@ -433,48 +604,117 @@ export class ThermalPrinterManager {
       return true;
     }
 
+    // Bluetooth Connection
+    if (settings.connectionType === 'bluetooth') {
+      this.bluetoothPrinter = new BluetoothThermalPrinter();
+      const connected = await this.bluetoothPrinter.connect();
+      if (!connected) {
+        this.bluetoothPrinter = null;
+      }
+      return connected;
+    }
+
     return false;
   }
 
+  /**
+   * Print receipt
+   */
   async print(data: ThermalReceiptData): Promise<boolean> {
     if (!this.settings) {
       console.error('❌ Printer not initialized');
       return false;
     }
 
-    if (this.settings.connectionType === 'usb' && this.usbPrinter) {
+    if (this.usbPrinter) {
       return await this.usbPrinter.print(data, this.settings);
-    } else if (this.settings.connectionType === 'network' && this.networkPrinter) {
+    }
+    if (this.networkPrinter) {
       return await this.networkPrinter.print(data, this.settings);
     }
+    if (this.bluetoothPrinter) {
+      return await this.bluetoothPrinter.print(data, this.settings);
+    }
 
     return false;
   }
 
+  /**
+   * Open cash drawer
+   */
   async openCashDrawer(): Promise<boolean> {
-    if (this.settings?.connectionType === 'usb' && this.usbPrinter) {
+    if (this.usbPrinter) {
       return await this.usbPrinter.openCashDrawer();
-    } else if (this.settings?.connectionType === 'network' && this.networkPrinter) {
+    }
+    if (this.networkPrinter) {
       return await this.networkPrinter.openCashDrawer();
+    }
+    if (this.bluetoothPrinter) {
+      return await this.bluetoothPrinter.openCashDrawer();
     }
     return false;
   }
 
+  /**
+   * Disconnect from printer
+   */
   async disconnect(): Promise<void> {
     if (this.usbPrinter) {
       await this.usbPrinter.disconnect();
       this.usbPrinter = null;
     }
+    if (this.bluetoothPrinter) {
+      await this.bluetoothPrinter.disconnect();
+      this.bluetoothPrinter = null;
+    }
     this.networkPrinter = null;
     this.settings = null;
   }
 
+  /**
+   * Check if printer is connected
+   */
   isConnected(): boolean {
-    return this.usbPrinter !== null || this.networkPrinter !== null;
+    if (this.usbPrinter) return true;
+    if (this.networkPrinter) return true;
+    if (this.bluetoothPrinter?.isConnected()) return true;
+    return false;
   }
 
+  /**
+   * Get connection type
+   */
   getConnectionType(): string | null {
     return this.settings?.connectionType || null;
+  }
+
+  /**
+   * Get connected device info
+   */
+  getDeviceInfo(): { type: string; name?: string; ip?: string } | null {
+    if (!this.isConnected()) return null;
+
+    if (this.bluetoothPrinter?.isConnected()) {
+      return {
+        type: 'Bluetooth',
+        name: this.bluetoothPrinter.getDeviceName()
+      };
+    }
+
+    if (this.networkPrinter) {
+      return {
+        type: this.settings?.connectionType === 'wifi' ? 'WiFi' : 'Network',
+        ip: this.settings?.ipAddress
+      };
+    }
+
+    if (this.usbPrinter) {
+      return {
+        type: 'USB'
+      };
+    }
+
+    return null;
   }
 }
 
