@@ -1,9 +1,10 @@
 // app/dashboard/reports/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+import { getThermalPrinterManager } from "@/lib/thermalPrinter";
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import {
   ArrowLeft,
@@ -26,7 +27,10 @@ import {
   ChevronDown,
   ChevronUp,
   PieChart,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  FileText,
+  Percent,
+  Receipt
 } from "lucide-react";
 import Link from "next/link";
 
@@ -47,6 +51,9 @@ interface Transaction {
   staff?: { name: string } | null;
   return_status: 'none' | 'partial' | 'full';
   returned_amount: number;
+  service_fee?: number;
+  service_type_id?: number | null;
+  services?: any[];
 }
 
 interface DailySales {
@@ -54,6 +61,7 @@ interface DailySales {
   total: number;
   transactions: number;
   average: number;
+  vat: number;
 }
 
 interface TopProduct {
@@ -64,6 +72,23 @@ interface TopProduct {
   revenue: number;
 }
 
+interface VatSummary {
+  totalVat: number;
+  vatRate: number;
+  vatEnabled: boolean;
+}
+
+// Helper function to get safe number
+const getSafeNumber = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
 export default function Reports() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
@@ -72,6 +97,13 @@ export default function Reports() {
   // Transactions
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
+
+  // Settings
+  const [vatEnabled, setVatEnabled] = useState(true);
+  const [businessSettings, setBusinessSettings] = useState<any>(null);
+
+  // Hardware settings for thermal printing
+  const [hardwareSettings, setHardwareSettings] = useState<any>(null);
 
   // Analytics
   const [dateRange, setDateRange] = useState<string>('30days');
@@ -83,6 +115,11 @@ export default function Reports() {
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [dailySales, setDailySales] = useState<DailySales[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any>({});
+  const [vatSummary, setVatSummary] = useState<VatSummary>({
+    totalVat: 0,
+    vatRate: 20,
+    vatEnabled: true
+  });
 
   // UI State
   const [showFilters, setShowFilters] = useState(false);
@@ -93,16 +130,57 @@ export default function Reports() {
   // Receipt
   const [receiptData, setReceiptData] = useState<ReceiptPrintData | null>(null);
   const [showReceiptPrint, setShowReceiptPrint] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  // Scrollable container refs
+  const topProductsRef = useRef<HTMLDivElement>(null);
+  const dailySalesRef = useRef<HTMLDivElement>(null);
+  const transactionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (userId) {
       loadData();
+      loadSettings();
     }
   }, [userId, dateRange]);
 
   useEffect(() => {
     applyFilters();
   }, [transactions, startDate, endDate]);
+
+  const loadSettings = async () => {
+    try {
+      // Load business settings
+      const { data: settingsData } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+
+      if (settingsData) {
+        setBusinessSettings(settingsData);
+        setVatEnabled(settingsData.vat_enabled !== false);
+        setVatSummary(prev => ({
+          ...prev,
+          vatEnabled: settingsData.vat_enabled !== false,
+          vatRate: settingsData.vat_rate || 20
+        }));
+      }
+
+      // Load hardware settings
+      const { data: hardwareData } = await supabase
+        .from("hardware_settings")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (hardwareData) {
+        setHardwareSettings(hardwareData);
+      }
+    } catch (error) {
+      console.error("Error loading settings:", error);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -181,6 +259,13 @@ export default function Reports() {
     const returns = data.reduce((sum, t) => sum + (t.returned_amount || 0), 0);
     setTotalReturns(returns);
 
+    // VAT calculation
+    const vatTotal = data.reduce((sum, t) => sum + (t.vat || 0), 0);
+    setVatSummary(prev => ({
+      ...prev,
+      totalVat: vatTotal
+    }));
+
     // Top products
     const productMap = new Map<number, TopProduct>();
     data.forEach(t => {
@@ -202,7 +287,7 @@ export default function Reports() {
 
     const sortedProducts = Array.from(productMap.values())
       .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
+      .slice(0, 20);
     setTopProducts(sortedProducts);
 
     // Daily sales
@@ -213,7 +298,7 @@ export default function Reports() {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
-      dailyMap.set(dateStr, { date: dateStr, total: 0, transactions: 0, average: 0 });
+      dailyMap.set(dateStr, { date: dateStr, total: 0, transactions: 0, average: 0, vat: 0 });
     }
 
     data.forEach(t => {
@@ -222,6 +307,7 @@ export default function Reports() {
         const day = dailyMap.get(dateStr)!;
         day.total += t.total;
         day.transactions += 1;
+        day.vat += t.vat || 0;
         dailyMap.set(dateStr, day);
       }
     });
@@ -260,7 +346,69 @@ export default function Reports() {
     calculateAnalytics(filtered);
   };
 
+  // ========== THERMAL PRINTER FUNCTIONS ==========
+  const printThermalReceipt = async (receiptData: ReceiptPrintData) => {
+    if (!hardwareSettings?.printer_enabled) {
+      return false;
+    }
+
+    try {
+      const manager = getThermalPrinterManager();
+
+      if (!manager.isConnected()) {
+        console.warn('Thermal printer not connected');
+        return false;
+      }
+
+      // Prepare items for thermal printer
+      const items = receiptData.products.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+        sku: item.sku
+      }));
+
+      // Update printer settings
+      await (manager as any).initialize({
+        width: hardwareSettings.printer_width || 80,
+        connectionType: manager.getConnectionType() || 'usb',
+        autoCut: hardwareSettings.auto_cut_paper !== false
+      });
+
+      const success = await manager.print({
+        shopName: receiptData.businessInfo?.name || 'Your Business',
+        shopAddress: receiptData.businessInfo?.address,
+        shopPhone: receiptData.businessInfo?.phone,
+        shopEmail: receiptData.businessInfo?.email,
+        taxNumber: receiptData.businessInfo?.taxNumber,
+        transactionId: receiptData.id,
+        date: new Date(receiptData.createdAt),
+        items: items,
+        subtotal: receiptData.subtotal,
+        vat: receiptData.vat,
+        total: receiptData.total,
+        paymentMethod: receiptData.paymentMethod,
+        staffName: receiptData.staffName,
+        customerName: receiptData.customer?.name,
+        customerBalance: receiptData.balanceDeducted,
+        notes: receiptData.notes,
+        footer: receiptData.receiptSettings?.footer || 'Thank you for your business!',
+        serviceName: receiptData.serviceName,
+        serviceFee: receiptData.serviceFee
+      });
+
+      return success;
+
+    } catch (error) {
+      console.error("Thermal print error:", error);
+      return false;
+    }
+  };
+
   const printReceipt = async (transaction: Transaction) => {
+    setPrinting(true);
+    
     try {
       const { data: settings } = await supabase
         .from("settings")
@@ -268,20 +416,27 @@ export default function Reports() {
         .eq("user_id", userId)
         .single();
 
+      // Get service info
+      const serviceInfo = transaction.services && transaction.services.length > 0 
+        ? transaction.services[0] 
+        : transaction.service_type_id 
+        ? { name: 'Service', fee: transaction.service_fee || 0 }
+        : null;
+
       const receiptData: ReceiptPrintData = {
         id: transaction.id.toString(),
         createdAt: transaction.created_at,
-        subtotal: transaction.subtotal,
-        vat: transaction.vat,
-        total: transaction.total,
+        subtotal: getSafeNumber(transaction.subtotal),
+        vat: getSafeNumber(transaction.vat),
+        total: getSafeNumber(transaction.total),
         paymentMethod: transaction.payment_method as any,
-        products: transaction.products.map(p => ({
-          id: p.id.toString(),
-          name: p.name,
-          price: p.price,
-          quantity: p.quantity,
-          discount: p.discount || 0,
-          total: (p.price * p.quantity) - (p.discount || 0),
+        products: (transaction.products || []).map(p => ({
+          id: p.id?.toString() || Math.random().toString(),
+          name: p.name || 'Product',
+          price: getSafeNumber(p.price),
+          quantity: getSafeNumber(p.quantity) || 1,
+          discount: getSafeNumber(p.discount) || 0,
+          total: (getSafeNumber(p.price) * (getSafeNumber(p.quantity) || 1)) - (getSafeNumber(p.discount) || 0),
           sku: p.sku,
           barcode: p.barcode
         })),
@@ -305,17 +460,31 @@ export default function Reports() {
           barcodeType: (settings?.barcode_type?.toUpperCase() || 'CODE128') as any,
           showTaxBreakdown: settings?.show_tax_breakdown !== false
         },
-        balanceDeducted: transaction.balance_deducted,
+        balanceDeducted: getSafeNumber(transaction.balance_deducted),
         paymentDetails: transaction.payment_details,
         staffName: transaction.staff?.name || undefined,
-        notes: transaction.notes || undefined
+        notes: transaction.notes || undefined,
+        serviceName: serviceInfo?.name,
+        serviceFee: serviceInfo?.fee
       };
 
       setReceiptData(receiptData);
       setShowReceiptPrint(true);
+      
+      // Try thermal printing if enabled
+      if (hardwareSettings?.printer_enabled) {
+        try {
+          await printThermalReceipt(receiptData);
+        } catch (printError) {
+          console.warn('Thermal printing failed, showing preview:', printError);
+        }
+      }
+
     } catch (error) {
       console.error("Error generating receipt:", error);
       alert("Error generating receipt");
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -355,22 +524,32 @@ export default function Reports() {
   };
 
   const exportToCSV = () => {
-    const headers = ["ID", "Date", "Time", "Customer", "Staff", "Subtotal", "VAT", "Total", "Payment Method", "Items", "Return Status", "Return Amount"];
+    const headers = [
+      "ID", "Date", "Time", "Customer", "Staff", "Subtotal", 
+      "VAT", "Total", "Payment Method", "Service Fee", "Items", 
+      "Return Status", "Return Amount", "Notes"
+    ];
     
-    const rows = filteredTransactions.map(t => [
-      t.id,
-      new Date(t.created_at).toLocaleDateString(),
-      new Date(t.created_at).toLocaleTimeString(),
-      t.customers?.name || "",
-      t.staff?.name || "",
-      t.subtotal.toFixed(2),
-      t.vat.toFixed(2),
-      t.total.toFixed(2),
-      t.payment_method,
-      t.products.map(p => `${p.name} (x${p.quantity})`).join("; "),
-      t.return_status,
-      (t.returned_amount || 0).toFixed(2)
-    ]);
+    const rows = filteredTransactions.map(t => {
+      const serviceInfo = t.services && t.services.length > 0 ? t.services[0] : null;
+      
+      return [
+        t.id,
+        new Date(t.created_at).toLocaleDateString(),
+        new Date(t.created_at).toLocaleTimeString(),
+        t.customers?.name || "",
+        t.staff?.name || "",
+        (t.subtotal || 0).toFixed(2),
+        (t.vat || 0).toFixed(2),
+        (t.total || 0).toFixed(2),
+        t.payment_method || "cash",
+        (t.service_fee || 0).toFixed(2),
+        t.products.map(p => `${p.name} (x${p.quantity || 1})`).join("; "),
+        t.return_status || "none",
+        (t.returned_amount || 0).toFixed(2),
+        t.notes || ""
+      ];
+    });
 
     const csvContent = [
       headers.join(","),
@@ -382,6 +561,80 @@ export default function Reports() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `reports-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Download VAT report for the last 30 days
+  const downloadVATReport = () => {
+    const last30DaysTransactions = transactions.filter(t => {
+      const transactionDate = new Date(t.created_at);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      return transactionDate >= thirtyDaysAgo;
+    });
+
+    const totalRevenue = last30DaysTransactions.reduce((sum, t) => sum + (t.total || 0), 0);
+    const totalVAT = last30DaysTransactions.reduce((sum, t) => sum + (t.vat || 0), 0);
+    const totalReturns = last30DaysTransactions.reduce((sum, t) => sum + (t.returned_amount || 0), 0);
+    const netRevenue = totalRevenue - totalReturns;
+    const transactionCount = last30DaysTransactions.length;
+
+    // Group by day for daily breakdown
+    const dailyBreakdown = last30DaysTransactions.reduce((acc: any, t) => {
+      const date = new Date(t.created_at).toLocaleDateString();
+      if (!acc[date]) {
+        acc[date] = {
+          date,
+          transactions: 0,
+          revenue: 0,
+          vat: 0,
+          returns: 0
+        };
+      }
+      acc[date].transactions++;
+      acc[date].revenue += t.total || 0;
+      acc[date].vat += t.vat || 0;
+      acc[date].returns += t.returned_amount || 0;
+      return acc;
+    }, {});
+
+    const dailyRows = Object.values(dailyBreakdown).map((day: any) => [
+      day.date,
+      day.transactions,
+      `£${day.revenue.toFixed(2)}`,
+      `£${day.vat.toFixed(2)}`,
+      `£${day.returns.toFixed(2)}`,
+      `£${(day.revenue - day.returns).toFixed(2)}`
+    ]);
+
+    const headers = [
+      "VAT REPORT - LAST 30 DAYS",
+      `Generated: ${new Date().toLocaleString()}`,
+      `VAT Rate: ${vatSummary.vatRate}%`,
+      "",
+      "SUMMARY",
+      `Total Transactions: ${transactionCount}`,
+      `Gross Revenue: £${totalRevenue.toFixed(2)}`,
+      `Total VAT Collected: £${totalVAT.toFixed(2)}`,
+      `Total Returns: £${totalReturns.toFixed(2)}`,
+      `Net Revenue (after returns): £${netRevenue.toFixed(2)}`,
+      `VAT Payable: £${totalVAT.toFixed(2)}`,
+      "",
+      "DAILY BREAKDOWN",
+      "Date,Transactions,Revenue,VAT,Returns,Net Revenue"
+    ];
+
+    const csvContent = [
+      ...headers,
+      ...dailyRows.map(row => row.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vat-report-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -436,6 +689,15 @@ export default function Reports() {
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
+          {vatEnabled && (
+            <button
+              onClick={downloadVATReport}
+              className="flex items-center gap-2 bg-purple-500 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
+            >
+              <Percent className="w-4 h-4" />
+              VAT Report (30 days)
+            </button>
+          )}
           <button
             onClick={exportToCSV}
             className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
@@ -521,6 +783,27 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* VAT Summary Card (if enabled) */}
+      {vatEnabled && (
+        <div className="mb-6 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-xl p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                <Percent className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">VAT Summary ({vatSummary.vatRate}%)</h2>
+                <p className="text-sm text-muted-foreground">Total VAT collected in this period</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold text-purple-600">£{vatSummary.totalVat.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground">VAT payable to HMRC</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="bg-card border border-border rounded-xl p-4 mb-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -605,7 +888,7 @@ export default function Reports() {
 
       <div className="grid lg:grid-cols-2 gap-6">
         
-        {/* Daily Sales Chart */}
+        {/* Daily Sales Chart - Scrollable */}
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -615,10 +898,23 @@ export default function Reports() {
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
               <span className="text-sm text-muted-foreground">Revenue</span>
+              {vatEnabled && (
+                <>
+                  <div className="w-3 h-3 bg-purple-500 rounded-full ml-2"></div>
+                  <span className="text-sm text-muted-foreground">VAT</span>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div 
+            ref={dailySalesRef}
+            className="space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-primary/20 hover:scrollbar-thumb-primary/30"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'var(--primary) var(--background)'
+            }}
+          >
             {dailySales.map((day, index) => (
               <div key={index}>
                 <div className="flex justify-between text-sm mb-1">
@@ -627,6 +923,9 @@ export default function Reports() {
                   </span>
                   <div className="flex items-center gap-4">
                     <span className="text-muted-foreground">{day.transactions} sales</span>
+                    {vatEnabled && (
+                      <span className="text-purple-500">VAT: £{day.vat.toFixed(2)}</span>
+                    )}
                     <span className="font-bold text-emerald-500">£{day.total.toFixed(2)}</span>
                   </div>
                 </div>
@@ -646,7 +945,7 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* Top Products */}
+        {/* Top Products - Scrollable */}
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-foreground">Top Products</h2>
@@ -659,7 +958,14 @@ export default function Reports() {
               <p className="text-muted-foreground mb-3">No sales data yet</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div 
+              ref={topProductsRef}
+              className="space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-primary/20 hover:scrollbar-thumb-primary/30"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'var(--primary) var(--background)'
+              }}
+            >
               {topProducts.map((product, index) => (
                 <div
                   key={product.id}
@@ -690,7 +996,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Recent Transactions */}
+      {/* Recent Transactions - Scrollable */}
       <div className="mt-6 bg-card border border-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -710,63 +1016,94 @@ export default function Reports() {
             ) : null}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div 
+            ref={transactionsRef}
+            className="overflow-y-auto max-h-[500px] scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-primary/20 hover:scrollbar-thumb-primary/30"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'var(--primary) var(--background)'
+            }}
+          >
             <table className="w-full">
-              <thead>
+              <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border">
                   <th className="text-left py-4 px-4 font-semibold text-foreground">Transaction</th>
                   <th className="text-left py-4 px-4 font-semibold text-foreground">Date & Time</th>
                   <th className="text-left py-4 px-4 font-semibold text-foreground">Customer</th>
                   <th className="text-left py-4 px-4 font-semibold text-foreground">Payment</th>
                   <th className="text-left py-4 px-4 font-semibold text-foreground">Status</th>
+                  <th className="text-left py-4 px-4 font-semibold text-foreground">VAT</th>
                   <th className="text-right py-4 px-4 font-semibold text-foreground">Total</th>
                   <th className="text-center py-4 px-4 font-semibold text-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTransactions.slice(0, 20).map((transaction) => (
-                  <tr key={transaction.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                    <td className="py-4 px-4 font-medium text-foreground">#{transaction.id}</td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {new Date(transaction.created_at).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </td>
-                    <td className="py-4 px-4">
-                      {transaction.customers?.name || (
-                        <span className="text-muted-foreground">Walk-in</span>
-                      )}
-                    </td>
-                    <td className="py-4 px-4">
-                      {getPaymentMethodBadge(transaction.payment_method)}
-                    </td>
-                    <td className="py-4 px-4">
-                      {getReturnStatusBadge(transaction.return_status)}
-                    </td>
-                    <td className="py-4 px-4 text-right">
-                      <span className="font-bold text-foreground">
-                        £{transaction.total.toFixed(2)}
-                      </span>
-                      {transaction.returned_amount > 0 && (
-                        <div className="text-xs text-destructive">
-                          -£{transaction.returned_amount.toFixed(2)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-4 px-4 text-center">
-                      <button
-                        onClick={() => printReceipt(transaction)}
-                        className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-                        title="Print Receipt"
-                      >
-                        <Printer className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredTransactions.map((transaction) => {
+                  const serviceInfo = transaction.services && transaction.services.length > 0 
+                    ? transaction.services[0] 
+                    : transaction.service_type_id 
+                    ? { name: 'Service', fee: transaction.service_fee || 0 }
+                    : null;
+
+                  return (
+                    <tr key={transaction.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                      <td className="py-4 px-4 font-medium text-foreground">#{transaction.id}</td>
+                      <td className="py-4 px-4 text-sm text-muted-foreground">
+                        {new Date(transaction.created_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </td>
+                      <td className="py-4 px-4">
+                        {transaction.customers?.name || (
+                          <span className="text-muted-foreground">Walk-in</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        {getPaymentMethodBadge(transaction.payment_method)}
+                        {serviceInfo && (
+                          <span className="ml-2 text-xs text-primary">+{serviceInfo.name}</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        {getReturnStatusBadge(transaction.return_status)}
+                      </td>
+                      <td className="py-4 px-4">
+                        {vatEnabled ? (
+                          <span className="text-purple-600 font-medium">£{(transaction.vat || 0).toFixed(2)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <span className="font-bold text-foreground">
+                          £{(transaction.total || 0).toFixed(2)}
+                        </span>
+                        {(transaction.returned_amount || 0) > 0 && (
+                          <div className="text-xs text-destructive">
+                            -£{(transaction.returned_amount || 0).toFixed(2)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <button
+                          onClick={() => printReceipt(transaction)}
+                          disabled={printing}
+                          className="p-2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                          title="Print Receipt"
+                        >
+                          {printing ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Printer className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -783,5 +1120,3 @@ export default function Reports() {
     </div>
   );
 }
-
-
