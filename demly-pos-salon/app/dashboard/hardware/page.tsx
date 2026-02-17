@@ -1,21 +1,44 @@
-// app/dashboard/hardware/page.tsx - FIXED with better toggles and saving
+// app/dashboard/hardware/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, Printer, Barcode, DollarSign, Check, Loader2, AlertCircle, Monitor, Wifi, Usb, PowerOff, RefreshCw, X } from "lucide-react";
+import { 
+  ArrowLeft, 
+  Printer, 
+  Barcode, 
+  DollarSign, 
+  Check, 
+  Loader2, 
+  AlertCircle, 
+  Monitor, 
+  Wifi, 
+  Usb, 
+  PowerOff, 
+  RefreshCw, 
+  X,
+  Bluetooth,
+  Smartphone,
+  Search,
+  Radio,
+  Zap,
+  Globe
+} from "lucide-react";
 import Link from "next/link";
-import { getThermalPrinterManager } from "@/lib/thermalPrinter";
+import { getThermalPrinterManager, WiFiPrinterDiscovery } from "@/lib/thermalPrinter";
 
 export default function Hardware() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<any[]>([]);
+  const [showDiscovery, setShowDiscovery] = useState(false);
 
   // Printer settings
   const [printerEnabled, setPrinterEnabled] = useState(false);
-  const [printerConnectionType, setPrinterConnectionType] = useState<'usb' | 'network'>('usb');
+  const [printerConnectionType, setPrinterConnectionType] = useState<'usb' | 'network' | 'wifi' | 'bluetooth'>('usb');
   const [printerIpAddress, setPrinterIpAddress] = useState('');
   const [printerPort, setPrinterPort] = useState(9100);
   const [printerName, setPrinterName] = useState("");
@@ -23,9 +46,10 @@ export default function Hardware() {
   const [autoPrint, setAutoPrint] = useState(true);
   const [autoCutPaper, setAutoCutPaper] = useState(true);
   const [receiptHeader, setReceiptHeader] = useState("");
-  const [receiptFooter, setReceiptFooter] = useState("");
+  const [receiptFooter, setReceiptFooter] = useState("Thank you for your business!");
   const [printerConnected, setPrinterConnected] = useState(false);
   const [printerTesting, setPrinterTesting] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<{ type: string; name?: string; ip?: string } | null>(null);
 
   // Cash drawer
   const [cashDrawerEnabled, setCashDrawerEnabled] = useState(false);
@@ -49,11 +73,22 @@ export default function Hardware() {
   useEffect(() => {
     const checkPrinterConnection = async () => {
       const manager = getThermalPrinterManager();
-      setPrinterConnected(manager.isConnected());
+      const connected = manager.isConnected();
+      setPrinterConnected(connected);
+      
+      if (connected) {
+        const info = manager.getDeviceInfo();
+        setDeviceInfo(info);
+      } else {
+        setDeviceInfo(null);
+      }
     };
     
     if (printerEnabled) {
       checkPrinterConnection();
+    } else {
+      setPrinterConnected(false);
+      setDeviceInfo(null);
     }
   }, [printerEnabled]);
 
@@ -67,11 +102,12 @@ export default function Hardware() {
         .from("hardware_settings")
         .select("*")
         .eq("user_id", userId)
-        .maybeSingle(); // Use maybeSingle instead of single to avoid error when no data
+        .maybeSingle();
 
       if (error) throw error;
 
       if (data) {
+        // Customer display
         setCustomerDisplayEnabled(data.customer_display_enabled || false);
         setDisplaySyncChannel(data.display_sync_channel || "customer-display");
         
@@ -111,8 +147,8 @@ export default function Hardware() {
         user_id: userId,
         printer_enabled: printerEnabled,
         printer_connection_type: printerConnectionType,
-        printer_ip_address: printerConnectionType === 'network' ? printerIpAddress : null,
-        printer_port: printerConnectionType === 'network' ? printerPort : null,
+        printer_ip_address: (printerConnectionType === 'network' || printerConnectionType === 'wifi') ? printerIpAddress : null,
+        printer_port: (printerConnectionType === 'network' || printerConnectionType === 'wifi') ? printerPort : null,
         printer_name: printerName,
         printer_width: printerWidth,
         auto_print_receipt: autoPrint,
@@ -153,15 +189,29 @@ export default function Hardware() {
       const success = await manager.initialize({
         width: printerWidth as 58 | 80,
         connectionType: printerConnectionType,
-        ipAddress: printerConnectionType === 'network' ? printerIpAddress : undefined,
-        port: printerConnectionType === 'network' ? printerPort : undefined,
+        ipAddress: (printerConnectionType === 'network' || printerConnectionType === 'wifi') ? printerIpAddress : undefined,
+        port: (printerConnectionType === 'network' || printerConnectionType === 'wifi') ? printerPort : undefined,
         autoCut: autoCutPaper,
         openDrawer: cashDrawerEnabled,
       });
 
       if (success) {
         setPrinterConnected(true);
-        alert(`✅ ${printerConnectionType === 'usb' ? 'USB' : 'Network'} printer connected successfully!`);
+        const info = manager.getDeviceInfo();
+        setDeviceInfo(info);
+        
+        let message = `✅ ${printerConnectionType === 'usb' ? 'USB' : 
+                        printerConnectionType === 'bluetooth' ? 'Bluetooth' :
+                        printerConnectionType === 'wifi' ? 'WiFi' : 'Network'} printer connected successfully!`;
+        
+        if (info?.name) {
+          message += `\n\nDevice: ${info.name}`;
+        }
+        if (info?.ip) {
+          message += `\nIP: ${info.ip}`;
+        }
+        
+        alert(message);
       }
     } catch (error: any) {
       console.error("Printer connection error:", error);
@@ -173,7 +223,36 @@ export default function Hardware() {
     const manager = getThermalPrinterManager();
     await manager.disconnect();
     setPrinterConnected(false);
+    setDeviceInfo(null);
     alert("🔌 Printer disconnected");
+  };
+
+  const discoverPrinters = async () => {
+    setDiscovering(true);
+    setShowDiscovery(true);
+    
+    try {
+      const manager = getThermalPrinterManager();
+      const printers = await manager.discoverWiFiPrinters();
+      setDiscoveredPrinters(printers);
+      
+      if (printers.length === 0) {
+        alert('No printers found on network. Make sure:\n1. Printer is powered on\n2. Printer is connected to same network\n3. Printer has ESC/POS enabled');
+      }
+    } catch (error: any) {
+      console.error("Discovery error:", error);
+      alert(`Discovery failed: ${error.message}`);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const selectDiscoveredPrinter = (printer: any) => {
+    setPrinterIpAddress(printer.ipAddress);
+    setPrinterPort(printer.port || 9100);
+    setPrinterName(printer.name);
+    setShowDiscovery(false);
+    alert(`✅ Selected ${printer.name} (${printer.ipAddress})`);
   };
 
   const testPrint = async () => {
@@ -192,7 +271,7 @@ export default function Hardware() {
         .from("settings")
         .select("business_name, business_address, business_phone, business_email, tax_number")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
 
       const success = await manager.print({
         shopName: settings?.business_name || 'Test Business',
@@ -340,15 +419,17 @@ export default function Hardware() {
           {printerEnabled && (
             <div className="space-y-4">
               {/* Connection Status */}
-              {printerConnected && (
+              {printerConnected && deviceInfo && (
                 <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                     <span className="text-green-600 font-medium">Printer Connected</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {printerConnectionType === 'usb' ? 'USB Mode' : `Network: ${printerIpAddress}`}
-                  </span>
+                  <div className="text-xs text-right">
+                    <div className="text-muted-foreground">{deviceInfo.type}</div>
+                    {deviceInfo.name && <div className="text-foreground font-medium">{deviceInfo.name}</div>}
+                    {deviceInfo.ip && <div className="text-muted-foreground">{deviceInfo.ip}</div>}
+                  </div>
                 </div>
               )}
 
@@ -393,49 +474,121 @@ export default function Hardware() {
               {/* Connection Type */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Connection Type</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <button
                     onClick={() => setPrinterConnectionType('usb')}
-                    className={`p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                    className={`p-3 rounded-lg font-medium transition-all flex flex-col items-center gap-1 ${
                       printerConnectionType === 'usb'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-foreground hover:bg-accent'
+                        ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                        : 'bg-muted text-foreground hover:bg-accent border border-border'
                     }`}
                   >
-                    <Usb className="w-4 h-4" />
-                    USB
+                    <Usb className="w-5 h-5" />
+                    <span className="text-xs">USB</span>
                   </button>
+                  
+                  <button
+                    onClick={() => setPrinterConnectionType('wifi')}
+                    className={`p-3 rounded-lg font-medium transition-all flex flex-col items-center gap-1 ${
+                      printerConnectionType === 'wifi'
+                        ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                        : 'bg-muted text-foreground hover:bg-accent border border-border'
+                    }`}
+                  >
+                    <Wifi className="w-5 h-5" />
+                    <span className="text-xs">WiFi</span>
+                  </button>
+
                   <button
                     onClick={() => setPrinterConnectionType('network')}
-                    className={`p-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                    className={`p-3 rounded-lg font-medium transition-all flex flex-col items-center gap-1 ${
                       printerConnectionType === 'network'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-foreground hover:bg-accent'
+                        ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                        : 'bg-muted text-foreground hover:bg-accent border border-border'
                     }`}
                   >
-                    <Wifi className="w-4 h-4" />
-                    Network
+                    <Globe className="w-5 h-5" />
+                    <span className="text-xs">Ethernet</span>
+                  </button>
+
+                  <button
+                    onClick={() => setPrinterConnectionType('bluetooth')}
+                    className={`p-3 rounded-lg font-medium transition-all flex flex-col items-center gap-1 ${
+                      printerConnectionType === 'bluetooth'
+                        ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                        : 'bg-muted text-foreground hover:bg-accent border border-border'
+                    }`}
+                  >
+                    <Bluetooth className="w-5 h-5" />
+                    <span className="text-xs">Bluetooth</span>
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {printerConnectionType === 'usb' 
-                    ? 'USB connection works in Chrome/Edge browsers only (WebUSB)' 
-                    : 'Network connection works on all browsers (TCP/IP port 9100)'}
+                <p className="text-xs text-muted-foreground mt-2">
+                  {printerConnectionType === 'usb' && 'USB works in Chrome/Edge (WebUSB). Connect via USB cable.'}
+                  {printerConnectionType === 'wifi' && 'WiFi printers need IP address. Use discovery to find printers.'}
+                  {printerConnectionType === 'network' && 'Ethernet printers need static IP (port 9100).'}
+                  {printerConnectionType === 'bluetooth' && 'Bluetooth works in Chrome/Edge. Ensure printer is in pairing mode.'}
                 </p>
               </div>
 
-              {/* Network Settings */}
-              {printerConnectionType === 'network' && (
+              {/* Network/WiFi Settings */}
+              {(printerConnectionType === 'network' || printerConnectionType === 'wifi') && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">Printer IP Address</label>
-                    <input
-                      value={printerIpAddress}
-                      onChange={(e) => setPrinterIpAddress(e.target.value)}
-                      placeholder="192.168.1.100"
-                      className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    />
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-foreground mb-1.5">Printer IP Address</label>
+                      <input
+                        value={printerIpAddress}
+                        onChange={(e) => setPrinterIpAddress(e.target.value)}
+                        placeholder="192.168.1.100"
+                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      />
+                    </div>
+                    <button
+                      onClick={discoverPrinters}
+                      disabled={discovering}
+                      className="mt-7 px-3 py-3 bg-muted hover:bg-accent text-foreground rounded-lg font-medium transition-colors flex items-center gap-2"
+                    >
+                      {discovering ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Radio className="w-4 h-4" />
+                      )}
+                      <span className="text-sm">Discover</span>
+                    </button>
                   </div>
+
+                  {/* Discovery Results */}
+                  {showDiscovery && discoveredPrinters.length > 0 && (
+                    <div className="bg-muted/50 border border-border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-foreground">Discovered Printers</h4>
+                        <button
+                          onClick={() => setShowDiscovery(false)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {discoveredPrinters.map((printer, index) => (
+                          <button
+                            key={index}
+                            onClick={() => selectDiscoveredPrinter(printer)}
+                            className="w-full p-2 bg-background hover:bg-accent border border-border rounded-lg flex items-center gap-3 transition-colors"
+                          >
+                            <Wifi className="w-4 h-4 text-primary" />
+                            <div className="flex-1 text-left">
+                              <p className="text-sm font-medium text-foreground">{printer.name}</p>
+                              <p className="text-xs text-muted-foreground">{printer.ipAddress}:{printer.port}</p>
+                            </div>
+                            <Zap className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Port</label>
                     <input
@@ -447,6 +600,25 @@ export default function Hardware() {
                     <p className="text-xs text-muted-foreground mt-1">Default: 9100 (ESC/POS network port)</p>
                   </div>
                 </>
+              )}
+
+              {/* Bluetooth Info */}
+              {printerConnectionType === 'bluetooth' && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Bluetooth className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-foreground mb-1">Bluetooth Setup</h4>
+                      <ul className="text-xs text-muted-foreground space-y-1">
+                        <li>1. Ensure printer is powered on</li>
+                        <li>2. Put printer in pairing mode</li>
+                        <li>3. Click "Connect Printer" below</li>
+                        <li>4. Select your printer from the list</li>
+                        <li>5. Bluetooth range: ~10 meters</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Auto-Cut Paper */}
@@ -483,7 +655,9 @@ export default function Hardware() {
                     className="flex-1 bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                   >
                     <Printer className="w-4 h-4" />
-                    Connect Printer
+                    Connect {printerConnectionType === 'bluetooth' ? 'Bluetooth' : 
+                             printerConnectionType === 'wifi' ? 'WiFi' : 
+                             printerConnectionType === 'network' ? 'Network' : 'USB'} Printer
                   </button>
                 ) : (
                   <>
@@ -555,7 +729,7 @@ export default function Hardware() {
                 {printerConnected && cashDrawerEnabled && (
                   <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                     <Check className="w-3 h-3" />
-                    Connected via printer
+                    Connected via {deviceInfo?.type || 'printer'}
                   </p>
                 )}
               </div>
@@ -649,7 +823,11 @@ export default function Hardware() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Network printers need static IP address and port 9100 open</span>
+                  <span>WiFi/Ethernet printers need static IP address and port 9100 open</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Bluetooth printers must be in pairing mode before connecting</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
@@ -691,4 +869,3 @@ export default function Hardware() {
     </div>
   );
 }
-
