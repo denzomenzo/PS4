@@ -1,10 +1,16 @@
+// app/dashboard/settings/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
-import { Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, FileText, Image, Save, Lock, Shield, AlertCircle, Mail } from "lucide-react";
+import { 
+  Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
+  FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
+  Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
+  CircleDollarSign
+} from "lucide-react";
 import Link from "next/link";
 
 // Import Staff type from useStaffAuth to ensure consistency
@@ -19,7 +25,7 @@ interface Staff {
   permissions: {
     // Core POS Operations
     access_pos: boolean;
-    manage_transactions: boolean; // FIXED: Changed from process_transactions
+    manage_transactions: boolean;
     manage_customers: boolean;
     access_display: boolean;
     
@@ -32,6 +38,23 @@ interface Staff {
     // Administrative Operations
     manage_settings: boolean;
     manage_staff: boolean;
+  };
+}
+
+interface Subscription {
+  id: string;
+  plan: 'monthly' | 'annual';
+  status: 'active' | 'canceled' | 'past_due' | 'trialing';
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  price: number;
+  currency: string;
+  payment_method?: {
+    brand: string;
+    last4: string;
+    exp_month: number;
+    exp_year: number;
   };
 }
 
@@ -63,6 +86,12 @@ export default function Settings() {
   const [barcodeType, setBarcodeType] = useState("code128");
   const [showBarcodeOnReceipt, setShowBarcodeOnReceipt] = useState(true);
 
+  // Subscription
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -74,7 +103,7 @@ export default function Settings() {
   const [staffPermissions, setStaffPermissions] = useState({
     // Core POS Operations
     access_pos: true,
-    manage_transactions: true, // FIXED: Changed from process_transactions
+    manage_transactions: true,
     manage_customers: true,
     access_display: true,
     
@@ -96,6 +125,21 @@ export default function Settings() {
   const [sentCode, setSentCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [verifying, setVerifying] = useState(false);
+
+  // Expanded sections
+  const [expandedSections, setExpandedSections] = useState({
+    business: true,
+    receipt: false,
+    subscription: false,
+    staff: false
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   // Username field for staff
   const [staffUsername, setStaffUsername] = useState("");
@@ -133,6 +177,7 @@ export default function Settings() {
       
       console.log("✅ Access granted to settings, loading data...");
       loadData();
+      loadSubscription();
     } else if (!currentStaff) {
       console.log("❌ No staff logged in");
       setLoading(false);
@@ -147,7 +192,7 @@ export default function Settings() {
       setStaffPermissions({
         // Core POS Operations - Required for staff
         access_pos: true,
-        manage_transactions: true, // FIXED: Changed from process_transactions
+        manage_transactions: true,
         manage_customers: true,
         access_display: true,
         
@@ -165,7 +210,7 @@ export default function Settings() {
       setStaffPermissions({
         // Core POS Operations - Required for managers
         access_pos: true,
-        manage_transactions: true, // FIXED: Changed from process_transactions
+        manage_transactions: true,
         manage_customers: true,
         access_display: true,
         
@@ -183,7 +228,7 @@ export default function Settings() {
       // Owners have everything enabled
       setStaffPermissions({
         access_pos: true,
-        manage_transactions: true, // FIXED: Changed from process_transactions
+        manage_transactions: true,
         manage_customers: true,
         access_display: true,
         manage_inventory: true,
@@ -272,7 +317,7 @@ export default function Settings() {
             permissions: {
               // Core POS Operations
               access_pos: getPermission('pos', 'access_pos', true),
-              manage_transactions: getPermission('transactions', 'manage_transactions', true) || getPermission('process_transactions', 'manage_transactions', true), // FIXED
+              manage_transactions: getPermission('transactions', 'manage_transactions', true) || getPermission('process_transactions', 'manage_transactions', true),
               manage_customers: getPermission('customers', 'manage_customers', true),
               access_display: getPermission('display', 'access_display', true),
               
@@ -297,6 +342,41 @@ export default function Settings() {
     } finally {
       console.log("🏁 loadData completed");
       setLoading(false);
+    }
+  };
+
+  const loadSubscription = async () => {
+    setLoadingSubscription(true);
+    try {
+      // This would be an API call to your backend to get subscription details from Stripe
+      // For now, we'll simulate a subscription
+      const mockSubscription: Subscription = {
+        id: 'sub_mock123',
+        plan: 'annual',
+        status: 'active',
+        current_period_start: new Date().toISOString(),
+        current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        cancel_at_period_end: false,
+        price: 299,
+        currency: 'gbp',
+        payment_method: {
+          brand: 'visa',
+          last4: '4242',
+          exp_month: 12,
+          exp_year: 2025
+        }
+      };
+      
+      // In production, fetch from your API:
+      // const response = await fetch('/api/subscription');
+      // const data = await response.json();
+      // setSubscription(data);
+      
+      setSubscription(mockSubscription);
+    } catch (error) {
+      console.error("Error loading subscription:", error);
+    } finally {
+      setLoadingSubscription(false);
     }
   };
 
@@ -345,6 +425,61 @@ export default function Settings() {
     }
   };
 
+  const handleCancelSubscription = async () => {
+    setCancelling(true);
+    try {
+      // This would call your API to cancel the subscription in Stripe
+      // await fetch('/api/subscription/cancel', { method: 'POST' });
+      
+      // Update local state
+      if (subscription) {
+        setSubscription({
+          ...subscription,
+          cancel_at_period_end: true
+        });
+      }
+      
+      setShowCancelConfirm(false);
+      alert("✅ Subscription will be cancelled at the end of the billing period.");
+    } catch (error) {
+      console.error("Error cancelling subscription:", error);
+      alert("❌ Failed to cancel subscription. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleReactivateSubscription = async () => {
+    setCancelling(true);
+    try {
+      // This would call your API to reactivate the subscription in Stripe
+      // await fetch('/api/subscription/reactivate', { method: 'POST' });
+      
+      // Update local state
+      if (subscription) {
+        setSubscription({
+          ...subscription,
+          cancel_at_period_end: false
+        });
+      }
+      
+      alert("✅ Subscription reactivated successfully.");
+    } catch (error) {
+      console.error("Error reactivating subscription:", error);
+      alert("❌ Failed to reactivate subscription. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
   const resetModalStates = () => {
     setStaffName("");
     setStaffEmail("");
@@ -353,7 +488,7 @@ export default function Settings() {
     setStaffRole("staff");
     setStaffPermissions({
       access_pos: true,
-      manage_transactions: true, // FIXED: Changed from process_transactions
+      manage_transactions: true,
       manage_customers: true,
       access_display: true,
       manage_inventory: false,
@@ -388,7 +523,7 @@ export default function Settings() {
     // Use the member's permissions directly (already normalized)
     setStaffPermissions({
       access_pos: member.permissions.access_pos,
-      manage_transactions: member.permissions.manage_transactions, // FIXED
+      manage_transactions: member.permissions.manage_transactions,
       manage_customers: member.permissions.manage_customers,
       access_display: member.permissions.access_display,
       manage_inventory: member.permissions.manage_inventory,
@@ -519,7 +654,7 @@ export default function Settings() {
       const permissions = {
         // Core POS Operations
         access_pos: staffPermissions.access_pos,
-        manage_transactions: staffPermissions.manage_transactions, // FIXED
+        manage_transactions: staffPermissions.manage_transactions,
         manage_customers: staffPermissions.manage_customers,
         access_display: staffPermissions.access_display,
         
@@ -594,6 +729,48 @@ export default function Settings() {
     }
   };
 
+  // Toggle component for settings
+  const ToggleSwitch = ({ 
+    enabled, 
+    onChange, 
+    size = 'default',
+    label 
+  }: { 
+    enabled: boolean; 
+    onChange: () => void; 
+    size?: 'small' | 'default';
+    label?: string;
+  }) => {
+    const width = size === 'small' ? 'w-12' : 'w-16';
+    const height = size === 'small' ? 'h-6' : 'h-8';
+    const circleSize = size === 'small' ? 'w-5 h-5' : 'w-7 h-7';
+    const translateX = size === 'small' ? 'translate-x-6' : 'translate-x-8';
+    
+    return (
+      <button
+        onClick={onChange}
+        className={`relative ${width} ${height} rounded-full transition-all ${
+          enabled 
+            ? 'bg-green-500 hover:bg-green-600 shadow-lg shadow-green-500/30' 
+            : 'bg-red-400 hover:bg-red-500 shadow-lg shadow-red-500/30'
+        }`}
+        aria-label={label}
+      >
+        <div
+          className={`absolute top-0.5 left-0.5 ${circleSize} bg-white rounded-full shadow-md transition-transform ${
+            enabled ? translateX : 'translate-x-0'
+          }`}
+        >
+          {enabled ? (
+            <Check className={`${size === 'small' ? 'w-4 h-4' : 'w-5 h-5'} text-green-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`} />
+          ) : (
+            <X className={`${size === 'small' ? 'w-4 h-4' : 'w-5 h-5'} text-red-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`} />
+          )}
+        </div>
+      </button>
+    );
+  };
+
   if (!userId || !currentStaff) {
     console.log("⏳ Waiting for user ID or current staff...");
     return null;
@@ -635,412 +812,609 @@ export default function Settings() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-4 sm:p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-          <p className="text-muted-foreground">Manage your business configuration</p>
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="flex-1 overflow-y-auto pb-32">
+        <div className="max-w-4xl mx-auto p-4 sm:p-6">
+          
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+              <p className="text-sm text-muted-foreground">Manage your business configuration</p>
+            </div>
+            <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back
+            </Link>
+          </div>
+
+          <div className="space-y-3">
+            
+            {/* Business Settings */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('business')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-primary to-primary/80 rounded-lg flex items-center justify-center">
+                    <Store className="w-4 h-4 text-primary-foreground" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Business Settings</h2>
+                    <p className="text-xs text-muted-foreground">Configure your business information</p>
+                  </div>
+                </div>
+                {expandedSections.business ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+
+              {expandedSections.business && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <div>
+                    <label className="block text-xs font-medium text-foreground mb-1.5">Business Name (POS Display)</label>
+                    <input
+                      value={shopName}
+                      onChange={(e) => setShopName(e.target.value)}
+                      placeholder="e.g. Your Business Name"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">This name appears on the POS sidebar</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1">
+                      <Image className="w-3 h-3" />
+                      Business Logo (Optional)
+                    </label>
+                    <input
+                      type="url"
+                      value={businessLogoUrl}
+                      onChange={(e) => setBusinessLogoUrl(e.target.value)}
+                      placeholder="https://example.com/logo.png"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    {businessLogoUrl && (
+                      <div className="mt-2 bg-muted rounded-lg p-2">
+                        <p className="text-xs text-muted-foreground mb-1">Logo Preview:</p>
+                        <img
+                          src={businessLogoUrl}
+                          alt="Business logo preview"
+                          className="max-w-[100px] max-h-[50px] object-contain"
+                          onError={(e) => e.currentTarget.style.display = 'none'}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between bg-muted/30 border border-border rounded-lg p-3">
+                    <div>
+                      <p className="text-xs font-medium text-foreground">VAT (20%)</p>
+                      <p className="text-xs text-muted-foreground">Add VAT to all transactions</p>
+                    </div>
+                    <ToggleSwitch 
+                      enabled={vatEnabled} 
+                      onChange={() => setVatEnabled(!vatEnabled)}
+                      size="small"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Subscription & Billing */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('subscription')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                    <CreditCard className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Subscription & Billing</h2>
+                    <p className="text-xs text-muted-foreground">Manage your plan and payment methods</p>
+                  </div>
+                </div>
+                {expandedSections.subscription ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+
+              {expandedSections.subscription && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  {loadingSubscription ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    </div>
+                  ) : subscription ? (
+                    <>
+                      {/* Plan Overview */}
+                      <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Current Plan</p>
+                            <p className="text-lg font-bold text-foreground capitalize">
+                              {subscription.plan === 'annual' ? 'Annual Plan' : 'Monthly Plan'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Price</p>
+                            <p className="text-lg font-bold text-primary">
+                              £{subscription.price}/{subscription.plan === 'annual' ? 'yr' : 'mo'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* 14-Day Cooling Period Notice */}
+                        {new Date(subscription.current_period_start) > new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) && (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-3">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-amber-600" />
+                              <p className="text-xs text-amber-600">
+                                <span className="font-bold">14-Day Cooling Period:</span> You have {14 - Math.floor((Date.now() - new Date(subscription.current_period_start).getTime()) / (24 * 60 * 60 * 1000))} days remaining to cancel for a full refund.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Status Badge */}
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className={`w-2 h-2 rounded-full ${
+                            subscription.status === 'active' ? 'bg-green-500' :
+                            subscription.status === 'past_due' ? 'bg-red-500' :
+                            subscription.status === 'canceled' ? 'bg-gray-500' : 'bg-yellow-500'
+                          }`}></div>
+                          <span className="text-xs capitalize text-foreground">{subscription.status}</span>
+                          {subscription.cancel_at_period_end && (
+                            <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded-full">
+                              Cancels at period end
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Billing Dates */}
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="bg-muted/30 rounded-lg p-2">
+                            <p className="text-muted-foreground">Current Period Start</p>
+                            <p className="font-medium text-foreground">{formatDate(subscription.current_period_start)}</p>
+                          </div>
+                          <div className="bg-muted/30 rounded-lg p-2">
+                            <p className="text-muted-foreground">Current Period End</p>
+                            <p className="font-medium text-foreground">{formatDate(subscription.current_period_end)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Method */}
+                      {subscription.payment_method && (
+                        <div className="bg-muted/30 border border-border rounded-lg p-3">
+                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
+                              {subscription.payment_method.brand === 'visa' ? 'VISA' : 
+                               subscription.payment_method.brand === 'mastercard' ? 'MC' : 'CARD'}
+                            </div>
+                            <div>
+                              <p className="text-sm text-foreground">•••• {subscription.payment_method.last4}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Expires {subscription.payment_method.exp_month}/{subscription.payment_method.exp_year}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => window.open('https://billing.stripe.com', '_blank')}
+                          className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <CreditCard className="w-3 h-3" />
+                          Update Payment Method
+                        </button>
+                        <button
+                          onClick={() => window.open('/api/invoices', '_blank')}
+                          className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          View Invoices
+                        </button>
+                      </div>
+
+                      {/* Cancel/Reactivate */}
+                      {!subscription.cancel_at_period_end ? (
+                        !showCancelConfirm ? (
+                          <button
+                            onClick={() => setShowCancelConfirm(true)}
+                            className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+                          >
+                            Cancel Subscription
+                          </button>
+                        ) : (
+                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                            <p className="text-xs text-destructive mb-2">
+                              Are you sure? Your subscription will continue until the end of the billing period.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setShowCancelConfirm(false)}
+                                className="flex-1 bg-muted hover:bg-accent text-foreground py-1.5 rounded text-xs font-medium"
+                              >
+                                No, Keep It
+                              </button>
+                              <button
+                                onClick={handleCancelSubscription}
+                                disabled={cancelling}
+                                className="flex-1 bg-destructive text-destructive-foreground py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                              >
+                                {cancelling ? '...' : 'Yes, Cancel'}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <button
+                          onClick={handleReactivateSubscription}
+                          disabled={cancelling}
+                          className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                        >
+                          Reactivate Subscription
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
+                      <CreditCard className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No active subscription</p>
+                      <Link
+                        href="/pay"
+                        className="inline-block mt-3 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-xs font-medium"
+                      >
+                        Purchase License
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Receipt Customization */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('receipt')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
+                    <Receipt className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Receipt Customization</h2>
+                    <p className="text-xs text-muted-foreground">Customize how your receipts look</p>
+                  </div>
+                </div>
+                {expandedSections.receipt ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+
+              {expandedSections.receipt && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-medium text-foreground">Receipt Information</h3>
+                      
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Business Name on Receipt</label>
+                        <input
+                          type="text"
+                          value={businessName}
+                          onChange={(e) => setBusinessName(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="Your Business"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Address</label>
+                        <textarea
+                          value={businessAddress}
+                          onChange={(e) => setBusinessAddress(e.target.value)}
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
+                          placeholder="123 Main St, London, UK"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Phone</label>
+                        <input
+                          type="tel"
+                          value={businessPhone}
+                          onChange={(e) => setBusinessPhone(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="+44 20 1234 5678"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={businessEmail}
+                          onChange={(e) => setBusinessEmail(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="info@mysalon.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-medium text-foreground">Receipt Design</h3>
+                      
+                      <div className="opacity-50">
+                        <label className="block text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                          <Image className="w-3 h-3" />
+                          Logo URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          value={receiptLogoUrl}
+                          onChange={(e) => setReceiptLogoUrl(e.target.value)}
+                          placeholder="Logo field disabled - uses main business logo"
+                          disabled
+                          className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground placeholder:text-muted-foreground cursor-not-allowed"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Receipt will use your main business logo from Business Settings
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Tax/VAT Number</label>
+                        <input
+                          type="text"
+                          value={taxNumber}
+                          onChange={(e) => setTaxNumber(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="GB123456789"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Website</label>
+                        <input
+                          type="url"
+                          value={businessWebsite}
+                          onChange={(e) => setBusinessWebsite(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="www.yourshop.com"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Receipt Message</label>
+                        <textarea
+                          value={receiptFooter}
+                          onChange={(e) => setReceiptFooter(e.target.value)}
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
+                          placeholder="Thank you for your business!"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Refund Days (Optional)</label>
+                        <input
+                          type="number"
+                          value={refundDays}
+                          onChange={(e) => setRefundDays(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="e.g., 30"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Receipt Preview */}
+                  <div className="mt-4 bg-muted/30 rounded-lg p-4 border border-border">
+                    <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      Receipt Preview
+                    </h3>
+                    
+                    <div className="bg-white text-black p-4 rounded-lg max-w-xs mx-auto font-mono text-xs">
+                      {/* Use business logo from Business Settings */}
+                      {businessLogoUrl ? (
+                        <img
+                          src={businessLogoUrl}
+                          alt="Logo"
+                          className="max-w-[80px] h-auto mx-auto mb-2"
+                          onError={(e) => e.currentTarget.style.display = 'none'}
+                        />
+                      ) : (
+                        <div className="w-[80px] h-[30px] bg-gradient-to-r from-primary to-primary/80 rounded mx-auto mb-2 flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">LOGO</span>
+                        </div>
+                      )}
+                      
+                      <div className="text-center font-bold mb-1">
+                        {businessName || shopName || "Your Business"}
+                      </div>
+                      
+                      {businessAddress && (
+                        <div className="text-center mb-1 whitespace-pre-line text-[10px]">{businessAddress}</div>
+                      )}
+                      
+                      {businessPhone && <div className="text-center text-[10px]">{businessPhone}</div>}
+                      {businessEmail && <div className="text-center text-[10px]">{businessEmail}</div>}
+                      {businessWebsite && <div className="text-center text-[10px]">{businessWebsite}</div>}
+                      {taxNumber && <div className="text-center text-[10px] mb-1">Tax No: {taxNumber}</div>}
+                      
+                      <div className="border-t border-dashed border-gray-400 my-2"></div>
+                      
+                      <div className="space-y-1 mb-2">
+                        <div className="flex justify-between text-[10px]">
+                          <span>✂️ Haircut</span>
+                          <span>£25.00</span>
+                        </div>
+                        <div className="flex justify-between text-[10px]">
+                          <span>🧴 Shampoo</span>
+                          <span>£8.99</span>
+                        </div>
+                      </div>
+                      
+                      <div className="border-t-2 border-gray-800 pt-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-bold">TOTAL:</span>
+                          <span className="font-bold">£33.99</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-center mt-2 text-[10px]">
+                        {receiptFooter}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Staff Members */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('staff')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                    <Users className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Staff Members</h2>
+                    <p className="text-xs text-muted-foreground">{staff.length} team members</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {expandedSections.staff ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+
+              {expandedSections.staff && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <button
+                    onClick={openAddStaffModal}
+                    className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add Staff Member
+                  </button>
+
+                  {staff.length === 0 ? (
+                    <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed border-border">
+                      <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No staff members yet</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {staff.map((member) => (
+                        <div
+                          key={member.id}
+                          className="bg-background border border-border rounded-lg p-3 hover:border-primary/50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                {member.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-foreground">{member.name}</p>
+                                {member.email && (
+                                  <p className="text-[10px] text-muted-foreground">{member.email}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => openEditStaffModal(member)}
+                                className="p-1 text-muted-foreground hover:text-foreground"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => deleteStaffMember(member.id)}
+                                className="p-1 text-muted-foreground hover:text-destructive"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                              member.role === "owner" ? "bg-emerald-100 text-emerald-800" :
+                              member.role === "manager" ? "bg-blue-100 text-blue-800" :
+                              "bg-gray-100 text-gray-800"
+                            }`}>
+                              {member.role}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center justify-between pt-1 border-t border-border">
+                            <span className="text-[10px] flex items-center gap-1">
+                              {member.pin ? (
+                                <>
+                                  <Lock className="w-3 h-3 text-emerald-500" />
+                                  <span className="text-emerald-500">PIN Set</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="w-3 h-3 text-muted-foreground" />
+                                  <span className="text-muted-foreground">No PIN</span>
+                                </>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => openPinChangeModal(member)}
+                              className="text-[10px] text-primary hover:text-primary/80"
+                            >
+                              {member.pin ? "Change" : "Set PIN"}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Link>
       </div>
 
-      <div className="space-y-6">
-        {/* Business Settings */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-gradient-to-r from-primary to-primary/80 rounded-lg flex items-center justify-center">
-              <Store className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Business Settings</h2>
-              <p className="text-sm text-muted-foreground">Configure your business information</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Business Name (POS Display)</label>
-              <input
-                value={shopName}
-                onChange={(e) => setShopName(e.target.value)}
-                placeholder="e.g. Your Business Name"
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <p className="text-xs text-muted-foreground mt-1">This name appears on the POS sidebar</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2 flex items-center gap-2">
-                <Image className="w-4 h-4" />
-                Business Logo (Optional)
-              </label>
-              <input
-                type="url"
-                value={businessLogoUrl}
-                onChange={(e) => setBusinessLogoUrl(e.target.value)}
-                placeholder="https://example.com/logo.png"
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              {businessLogoUrl && (
-                <div className="mt-2 bg-muted rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-2">Logo Preview:</p>
-                    <img
-                      src={businessLogoUrl}
-                      alt="Business logo preview"
-                      className="max-w-[120px] max-h-[60px] object-contain"
-                      onError={(e) => e.currentTarget.style.display = 'none'}
-                    />
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between bg-muted/50 border border-border rounded-lg p-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">VAT (20%)</p>
-                <p className="text-xs text-muted-foreground">Add VAT to all transactions</p>
-              </div>
-              <button
-                onClick={() => setVatEnabled(!vatEnabled)}
-                className={`relative w-12 h-6 rounded-full transition-all ${vatEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <div
-                  className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${vatEnabled ? 'translate-x-6' : 'translate-x-0'}`}
-                />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Receipt Customization */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Receipt Customization</h2>
-              <p className="text-sm text-muted-foreground">Customize how your receipts look</p>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h3 className="font-medium text-foreground">Receipt Information</h3>
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Business Name on Receipt</label>
-                <input
-                  type="text"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="My Salon"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Address</label>
-                <textarea
-                  value={businessAddress}
-                  onChange={(e) => setBusinessAddress(e.target.value)}
-                  rows={2}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="123 Main St, London, UK"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={businessPhone}
-                  onChange={(e) => setBusinessPhone(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="+44 20 1234 5678"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Email</label>
-                <input
-                  type="email"
-                  value={businessEmail}
-                  onChange={(e) => setBusinessEmail(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="info@mysalon.com"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="font-medium text-foreground">Receipt Design</h3>
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1 flex items-center gap-2">
-                  <Image className="w-4 h-4" />
-                  Logo URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  value={receiptLogoUrl}
-                  onChange={(e) => setReceiptLogoUrl(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="https://example.com/logo.png"
-                />
-              </div>
-
-              {receiptLogoUrl && (
-                <div className="bg-muted rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Logo Preview:</p>
-                  <img
-                    src={receiptLogoUrl}
-                    alt="Logo preview"
-                    className="max-w-[100px] max-h-[50px] object-contain"
-                    onError={(e) => e.currentTarget.style.display = 'none'}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Tax/VAT Number</label>
-                <input
-                  type="text"
-                  value={taxNumber}
-                  onChange={(e) => setTaxNumber(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="GB123456789"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Website</label>
-                <input
-                  type="url"
-                  value={businessWebsite}
-                  onChange={(e) => setBusinessWebsite(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="www.yourshop.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Receipt Message</label>
-                <textarea
-                  value={receiptFooter}
-                  onChange={(e) => setReceiptFooter(e.target.value)}
-                  rows={2}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Thank you for your business!"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Refund Days (Optional)</label>
-                <input
-                  type="number"
-                  value={refundDays}
-                  onChange={(e) => setRefundDays(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="e.g., 30"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Receipt Preview */}
-          <div className="mt-6 bg-muted/30 rounded-lg p-4 border border-border">
-            <h3 className="font-medium text-foreground mb-3 flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Receipt Preview
-            </h3>
-            
-            <div className="bg-white text-black p-4 rounded-lg max-w-xs mx-auto font-mono text-xs">
-              {receiptLogoUrl && (
-                <img
-                  src={receiptLogoUrl}
-                  alt="Logo"
-                  className="max-w-[80px] h-auto mx-auto mb-2"
-                  onError={(e) => e.currentTarget.style.display = 'none'}
-                />
-              )}
-              
-              <div className="text-center font-bold mb-1">
-                {businessName || shopName || "Your Business Name"}
-              </div>
-              
-              {businessAddress && (
-                <div className="text-center mb-1 whitespace-pre-line">{businessAddress}</div>
-              )}
-              
-              {businessPhone && <div className="text-center">{businessPhone}</div>}
-              {businessEmail && <div className="text-center">{businessEmail}</div>}
-              {businessWebsite && <div className="text-center">{businessWebsite}</div>}
-              {taxNumber && <div className="text-center mb-1">Tax No: {taxNumber}</div>}
-              
-              <div className="border-t border-dashed border-gray-400 my-2"></div>
-              
-              <div className="space-y-1 mb-2">
-                <div className="flex justify-between">
-                  <span>✂️ Haircut</span>
-                  <span>£25.00</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>🧴 Shampoo</span>
-                  <span>£8.99</span>
-                </div>
-              </div>
-              
-              <div className="border-t-2 border-gray-800 pt-2">
-                <div className="flex justify-between text-sm">
-                  <span>TOTAL:</span>
-                  <span>£33.99</span>
-                </div>
-              </div>
-              
-              <div className="text-center mt-2 text-xs">
-                {receiptFooter}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Staff Members */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Staff Members</h2>
-                <p className="text-sm text-muted-foreground">{staff.length} team members</p>
-              </div>
-            </div>
-            <button
-              onClick={openAddStaffModal}
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Add Staff
-            </button>
-          </div>
-
-          {staff.length === 0 ? (
-            <div className="text-center py-8 bg-muted/30 rounded-lg border-2 border-dashed border-border">
-              <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-muted-foreground mb-3">No staff members yet</p>
-              <button
-                onClick={openAddStaffModal}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
-              >
-                Add Your First Staff Member
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {staff.map((member) => (
-                <div
-                  key={member.id}
-                  className="bg-background border border-border rounded-lg p-4 hover:border-primary/50 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold">
-                        {member.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">{member.name}</p>
-                        {member.email && (
-                          <p className="text-xs text-muted-foreground">{member.email}</p>
-                        )}
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          member.role === "owner" ? "bg-emerald-100 text-emerald-800" :
-                          member.role === "manager" ? "bg-blue-100 text-blue-800" :
-                          "bg-gray-100 text-gray-800"
-                        }`}>
-                          {member.role}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => openEditStaffModal(member)}
-                        className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                        title="Edit"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteStaffMember(member.id)}
-                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {Object.entries({
-                      access_pos: "POS",
-                      manage_transactions: "Transactions", // FIXED: Changed from process_transactions
-                      manage_customers: "Customers",
-                      access_display: "Display",
-                      manage_inventory: "Inventory",
-                      view_reports: "Reports",
-                      manage_hardware: "Hardware",
-                      manage_card_terminal: "Card Terminal",
-                      manage_settings: "Settings",
-                      manage_staff: "Staff Management",
-                    }).map(([key, label]) => {
-                      const hasPerm = member.permissions[key as keyof typeof member.permissions];
-                      if (hasPerm) {
-                        return (
-                          <span key={key} className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
-                            {label}
-                          </span>
-                        );
-                      }
-                      return null;
-                    })}
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-2 border-t border-border">
-                    <span className="text-xs flex items-center gap-1">
-                      {member.pin ? (
-                        <>
-                          <Lock className="w-3 h-3 text-emerald-500" />
-                          <span className="text-emerald-500">PIN Set</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-muted-foreground">No PIN</span>
-                        </>
-                      )}
-                    </span>
-                    <button
-                      onClick={() => openPinChangeModal(member)}
-                      className="text-xs text-primary hover:text-primary/80 transition-colors"
-                    >
-                      {member.pin ? "Change PIN" : "Set PIN"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end">
+      {/* Fixed Save Button */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-6 pb-3 px-4">
+        <div className="max-w-4xl mx-auto">
           <button
             onClick={saveAllSettings}
             disabled={saving}
-            className="bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="w-fit mx-auto bg-primary hover:opacity-90 text-primary-foreground px-6 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
           >
             {saving ? (
               <>
@@ -1050,7 +1424,7 @@ export default function Settings() {
             ) : (
               <>
                 <Save className="w-4 h-4" />
-                Save All Settings
+                Save Settings
               </>
             )}
           </button>
@@ -1122,13 +1496,13 @@ export default function Settings() {
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Permissions</label>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                   {/* Core POS Operations */}
                   <div className="mb-2 pt-2 border-t border-border">
                     <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
                     {Object.entries({
                       access_pos: "Access Point of Sale",
-                      manage_transactions: "Process Sales & Returns", // FIXED: Changed from process_transactions
+                      manage_transactions: "Process Sales & Returns",
                       manage_customers: "Manage Customers",
                       access_display: "Access Customer Display",
                     }).map(([key, label]) => (
