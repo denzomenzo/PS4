@@ -467,10 +467,7 @@ export default function Hardware() {
                   )}
                   <ToggleSwitch 
                     enabled={printerEnabled} 
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      setPrinterEnabled(!printerEnabled);
-                    }}
+                    onChange={() => setPrinterEnabled(!printerEnabled)}
                     size="small"
                   />
                 </div>
@@ -633,6 +630,14 @@ export default function Hardware() {
                       </>
                     )}
                   </div>
+
+                  {/* Receipt Header - Hidden by default, can be added if needed */}
+                  {(receiptHeader || receiptFooter !== "Thank you for your business!") && (
+                    <div className="text-xs text-muted-foreground">
+                      {receiptHeader && <p>Header: {receiptHeader}</p>}
+                      {receiptFooter && <p>Footer: {receiptFooter}</p>}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -662,10 +667,7 @@ export default function Hardware() {
                   )}
                   <ToggleSwitch 
                     enabled={cashDrawerEnabled} 
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      setCashDrawerEnabled(!cashDrawerEnabled);
-                    }}
+                    onChange={() => setCashDrawerEnabled(!cashDrawerEnabled)}
                     size="small"
                   />
                 </div>
@@ -705,10 +707,7 @@ export default function Hardware() {
                   )}
                   <ToggleSwitch 
                     enabled={scannerEnabled} 
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      setScannerEnabled(!scannerEnabled);
-                    }}
+                    onChange={() => setScannerEnabled(!scannerEnabled)}
                     size="small"
                   />
                 </div>
@@ -753,10 +752,7 @@ export default function Hardware() {
                   )}
                   <ToggleSwitch 
                     enabled={customerDisplayEnabled} 
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      setCustomerDisplayEnabled(!customerDisplayEnabled);
-                    }}
+                    onChange={() => setCustomerDisplayEnabled(!customerDisplayEnabled)}
                     size="small"
                   />
                 </div>
