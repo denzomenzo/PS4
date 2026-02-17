@@ -674,12 +674,12 @@ export default function Hardware() {
                     />
                   </div>
 
-                  {/* Connect/Disconnect Buttons */}
-                  <div className="flex gap-3">
+                  {/* Connect/Disconnect Buttons - MADE SMALLER */}
+                  <div className="flex gap-2">
                     {!printerConnected ? (
                       <button
                         onClick={connectPrinter}
-                        className="flex-1 bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                        className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-1"
                       >
                         <Printer className="w-4 h-4" />
                         Connect {printerConnectionType === 'bluetooth' ? 'Bluetooth' : 
@@ -690,7 +690,7 @@ export default function Hardware() {
                       <>
                         <button
                           onClick={disconnectPrinter}
-                          className="flex-1 bg-red-500/10 text-red-600 border border-red-500/20 py-3 rounded-lg font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                          className="flex-1 bg-red-500/10 text-red-600 border border-red-500/20 py-2 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center gap-1"
                         >
                           <PowerOff className="w-4 h-4" />
                           Disconnect
@@ -698,7 +698,7 @@ export default function Hardware() {
                         <button
                           onClick={testPrint}
                           disabled={printerTesting}
-                          className="flex-1 bg-primary/10 text-primary border border-primary/20 py-3 rounded-lg font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                          className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
                         >
                           {printerTesting ? (
                             <>
@@ -876,22 +876,22 @@ export default function Hardware() {
         </div>
       </div>
 
-      {/* Fixed Save Button at Bottom */}
+      {/* Fixed Save Button at Bottom - MADE SMALLER */}
       <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-8 pb-4 px-4">
         <div className="max-w-6xl mx-auto">
           <button
             onClick={saveSettings}
             disabled={saving}
-            className="w-full bg-primary hover:opacity-90 text-primary-foreground py-4 rounded-xl text-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg"
+            className="w-full bg-primary hover:opacity-90 text-primary-foreground py-3 rounded-lg text-base font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
           >
             {saving ? (
               <>
-                <Loader2 className="w-6 h-6 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
                 Saving...
               </>
             ) : (
               <>
-                <Save className="w-6 h-6" />
+                <Save className="w-4 h-4" />
                 Save Hardware Settings
               </>
             )}
