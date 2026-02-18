@@ -5,7 +5,7 @@ import Link from "next/link";
 import { 
   Check, Zap, Shield, TrendingUp, Sparkles, Star, ShoppingCart, 
   Package, Users, Globe, Clock, Coffee, Store, Scissors, Warehouse, 
-  ArrowRight, ChevronRight, Sun, Moon, Menu, X
+  ArrowRight, ChevronRight, Sun, Moon, Menu, X, Play, Image as ImageIcon
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
@@ -113,7 +113,10 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
             <Link href="/" className="group">
-              <Logo size={isMobile ? "medium" : "large"} />
+              {/* /////////////////////////////////////////// */}
+              {/* LARGER LOGO - Increased from "large" to "xlarge" */}
+              {/* /////////////////////////////////////////// */}
+              <Logo size={isMobile ? "large" : "xlarge"} />
             </Link>
             
             {/* Mobile Menu Button */}
@@ -135,7 +138,7 @@ export default function LandingPage() {
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-6 lg:gap-8 text-slate-300">
               <a href="#features" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Features</a>
-              <a href="#pos" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">POS Demo</a>
+              <a href="#demo" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Demo</a>
               <a href="/industries" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Industries</a>
               <a href="#pricing" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Pricing</a>
             </div>
@@ -189,7 +192,7 @@ export default function LandingPage() {
               >
                 <div className="flex flex-col space-y-3">
                   <a href="#features" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Features</a>
-                  <a href="#pos" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">POS Demo</a>
+                  <a href="#demo" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Demo</a>
                   <a href="/industries" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Industries</a>
                   <a href="#pricing" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Pricing</a>
                   <div className="border-t border-white/10 pt-3 flex gap-3">
@@ -300,131 +303,105 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Real POS Demo Section */}
-      <section id="pos" className="py-16 md:py-20 px-4 sm:px-6">
+      {/* Demo Section - Video and Image Placeholders */}
+      <section id="demo" className="py-16 md:py-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
             <h2 className={`text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-4 md:mb-6 ${textPrimary}`}>
-              The Real <span className="bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">Demly POS</span>
+              See <span className="bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">Demly POS</span> in Action
             </h2>
             <p className={`text-base sm:text-lg md:text-xl ${textSecondary} max-w-2xl md:max-w-3xl mx-auto`}>
-              See the actual interface used by thousands of businesses
+              Watch how our POS system transforms businesses like yours
             </p>
           </div>
           
-          {/* POS Interface */}
-          <div className={`${cardBg} rounded-2xl md:rounded-3xl border p-4 sm:p-6 shadow-2xl`}>
-            <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
-              {/* Products Grid */}
-              <div className="lg:w-2/3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {[
-                    { name: "Bacon Case", price: 42.50, stock: 7, image: REAL_IMAGES.warehouse.bacon, category: "warehouse" },
-                    { name: "Coca-Cola 24pk", price: 28.80, stock: 15, image: REAL_IMAGES.warehouse.cola, category: "warehouse" },
-                    { name: "Wireless Headphones", price: 89.99, stock: 12, image: REAL_IMAGES.retail.headphones, category: "retail" },
-                    { name: "USB-C Cables", price: 14.99, stock: 25, image: REAL_IMAGES.retail.cables, category: "retail" },
-                    { name: "Avocado Toast", price: 12.99, stock: 8, image: REAL_IMAGES.restaurant.avocadoToast, category: "restaurant" },
-                    { name: "Butternut Soup", price: 8.99, stock: 5, image: REAL_IMAGES.restaurant.soup, category: "restaurant" },
-                    { name: "Hair Styling Gel", price: 18.50, stock: 6, image: REAL_IMAGES.salon.hairProducts, category: "salon" },
-                    { name: "Quiff Haircut", price: 35.00, stock: 10, image: REAL_IMAGES.salon.quiffHair, category: "salon" }
-                  ].map((item, i) => (
-                    <div key={i} className={`group ${cardBgSolid} rounded-xl p-3 sm:p-4 hover:border-emerald-500/50 transition-all border`}>
-                      <div className="aspect-square rounded-lg mb-2 sm:mb-3 overflow-hidden bg-slate-700/30">
-                        <div 
-                          className="w-full h-full bg-cover bg-center group-hover:scale-110 transition-transform duration-300"
-                          style={{ backgroundImage: `url(${item.image})` }}
-                        />
-                      </div>
-                      <p className={`font-bold ${textPrimary} text-xs sm:text-sm truncate`}>{item.name}</p>
-                      <div className="flex justify-between items-center mt-1 sm:mt-2">
-                        <span className="text-sm sm:text-lg font-black bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
-                          £{item.price}
-                        </span>
-                        <span className={`text-[10px] sm:text-xs ${theme === 'dark' ? 'bg-slate-700/50' : 'bg-slate-100'} px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full ${textMuted}`}>
-                          Stock: {item.stock}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+          {/* /////////////////////////////////////////// */}
+          {/* IMAGE PLACEHOLDER - Replace with your image URL */}
+          {/* /////////////////////////////////////////// */}
+          <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center relative group">
+                {/* REPLACE THIS DIV WITH YOUR IMAGE TAG */}
+                {/* Example: <img src="YOUR_IMAGE_URL_HERE" alt="POS Preview" className="w-full h-full object-cover" /> */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <ImageIcon className="w-16 h-16 text-emerald-600/50 mb-4" />
+                  <p className={`text-sm ${textMuted} text-center px-4`}>
+                    POS Interface Preview
+                  </p>
+                  <p className={`text-xs ${textMuted} mt-2 opacity-50`}>
+                    Replace with your image URL
+                  </p>
                 </div>
               </div>
+              <div className="p-6">
+                <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Point of Sale Interface</h3>
+                <p className={`${textSecondary} text-sm`}>
+                  Clean, intuitive design that speeds up transactions
+                </p>
+              </div>
+            </div>
 
-              {/* Cart Side */}
-              <div className={`lg:w-1/3 ${cardBgSolid} rounded-xl sm:rounded-2xl p-4 sm:p-6 mt-4 lg:mt-0 border`}>
-                <div className="mb-4 sm:mb-6">
-                  <div className="flex items-center justify-between mb-3 sm:mb-4">
-                    <div>
-                      <h3 className={`text-lg sm:text-xl font-bold ${textPrimary}`}>Transaction #001</h3>
-                      <p className={`text-xs sm:text-sm ${textMuted}`}>3 items • Staff: Mike</p>
-                    </div>
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-emerald-600 rounded-lg sm:rounded-xl flex items-center justify-center">
-                      <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                    </div>
-                  </div>
-
-                  {/* Cart Items */}
-                  <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
-                    {[
-                      { name: "Bacon Case", price: 42.50, qty: 1 },
-                      { name: "Coca-Cola 24pk", price: 28.80, qty: 2 }
-                    ].map((item, i) => (
-                      <div key={i} className={`${cardBgSolid} rounded-lg sm:rounded-xl p-3 border`}>
-                        <div className="flex justify-between items-start mb-1 sm:mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className={`font-bold ${textPrimary} text-sm truncate`}>{item.name}</p>
-                            <p className={`text-xs ${textMuted}`}>£{item.price} each</p>
-                          </div>
-                          <span className={`text-base sm:text-lg font-bold text-emerald-600 ml-2`}>
-                            £{(item.price * item.qty).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className={`flex items-center gap-1 sm:gap-2 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg px-2 sm:px-3 py-1`}>
-                            <button className={`${textPrimary} hover:text-emerald-600 text-xs`}>−</button>
-                            <span className={`font-bold ${textPrimary} text-sm px-1 sm:px-2`}>{item.qty}</span>
-                            <button className={`${textPrimary} hover:text-emerald-600 text-xs`}>+</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Totals */}
-                  <div className={`${cardBgSolid} rounded-lg sm:rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 border`}>
-                    <div className="space-y-1.5 sm:space-y-2">
-                      <div className={`flex justify-between text-xs sm:text-sm ${textSecondary}`}>
-                        <span>Subtotal</span>
-                        <span className="font-bold">£100.10</span>
-                      </div>
-                      <div className={`flex justify-between text-xs sm:text-sm ${textSecondary}`}>
-                        <span>VAT (20%)</span>
-                        <span className="font-bold">£20.02</span>
-                      </div>
-                      <div className={`border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'} pt-2 sm:pt-3 flex justify-between`}>
-                        <span className={`text-sm sm:text-xl font-bold ${textPrimary}`}>Total</span>
-                        <span className="text-lg sm:text-2xl font-black bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
-                          £120.12
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4 sm:mb-6">
-                    {['Discount', 'Misc', 'Print', 'Recent'].map((btn, i) => (
-                      <button key={i} className={`${cardBgSolid} hover:bg-opacity-80 border ${theme === 'dark' ? 'border-slate-700' : 'border-slate-200'} ${textPrimary} font-bold py-2 sm:py-3 rounded-lg text-xs sm:text-sm transition-all`}>
-                        {btn === 'Misc' && <Package className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />}
-                        {btn}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Pay Button */}
-                  <button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base sm:text-xl py-3 sm:py-4 rounded-xl sm:rounded-2xl transition-colors shadow-lg shadow-emerald-600/20">
-                    PAY £120.12
-                  </button>
+            <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center relative group">
+                {/* REPLACE THIS DIV WITH YOUR IMAGE TAG */}
+                {/* Example: <img src="YOUR_IMAGE_URL_HERE" alt="Dashboard Preview" className="w-full h-full object-cover" /> */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <ImageIcon className="w-16 h-16 text-emerald-600/50 mb-4" />
+                  <p className={`text-sm ${textMuted} text-center px-4`}>
+                    Analytics Dashboard Preview
+                  </p>
+                  <p className={`text-xs ${textMuted} mt-2 opacity-50`}>
+                    Replace with your image URL
+                  </p>
                 </div>
               </div>
+              <div className="p-6">
+                <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Real-Time Analytics</h3>
+                <p className={`${textSecondary} text-sm`}>
+                  Track sales, inventory, and staff performance
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* /////////////////////////////////////////// */}
+          {/* VIDEO PLACEHOLDER - Replace with your video URL */}
+          {/* /////////////////////////////////////////// */}
+          <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
+            <div className="aspect-video bg-gradient-to-br from-purple-500/20 to-emerald-600/20 flex items-center justify-center relative group cursor-pointer hover:bg-opacity-80 transition-all">
+              {/* REPLACE THIS DIV WITH YOUR VIDEO IFRAME OR VIDEO TAG */}
+              {/* Example for YouTube: 
+                <iframe 
+                  width="100%" 
+                  height="100%" 
+                  src="https://www.youtube.com/embed/YOUR_VIDEO_ID" 
+                  title="Demly POS Demo" 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen
+                  className="absolute inset-0 w-full h-full"
+                ></iframe>
+              */}
+              {/* Example for self-hosted video:
+                <video className="w-full h-full object-cover" controls>
+                  <source src="YOUR_VIDEO_URL.mp4" type="video/mp4" />
+                </video>
+              */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="w-20 h-20 bg-emerald-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-600/50 group-hover:scale-110 transition-transform">
+                  <Play className="w-8 h-8 text-white ml-1" />
+                </div>
+                <p className={`text-lg font-bold ${textPrimary} mb-2`}>Watch Demo Video</p>
+                <p className={`text-sm ${textMuted} opacity-50`}>
+                  Replace with your video URL (YouTube, Vimeo, or self-hosted)
+                </p>
+              </div>
+            </div>
+            <div className="p-6 text-center">
+              <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Complete Walkthrough</h3>
+              <p className={`${textSecondary} text-sm max-w-2xl mx-auto`}>
+                See how Demly POS can streamline your entire business operation
+              </p>
             </div>
           </div>
         </div>
@@ -666,27 +643,27 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className={`${theme === 'dark' ? 'bg-black' : 'bg-white'} py-12 px-4 sm:px-6 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-200'}`}>
+      {/* Footer - Now Black */}
+      <footer className="bg-black py-12 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-center md:text-left">
               <div className="mb-4">
-                <Logo size="medium" />
+                <Logo size="large" />
               </div>
-              <p className={`${textMuted} text-sm`}>
+              <p className="text-slate-500 text-sm">
                 © 2025 Demly. All rights reserved.
               </p>
             </div>
-            <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${textMuted} text-sm justify-center`}>
-              <a href="/privacy" className="hover:text-emerald-600 transition-colors">Privacy</a>
-              <a href="/terms" className="hover:text-emerald-600 transition-colors">Terms</a>
-              <a href="mailto:support@demly.com" className="hover:text-emerald-600 transition-colors">Contact</a>
-              <a href="/industries" className="hover:text-emerald-600 transition-colors">Industries</a>
+            <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 text-slate-500 text-sm justify-center">
+              <a href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy</a>
+              <a href="/terms" className="hover:text-emerald-400 transition-colors">Terms</a>
+              <a href="mailto:support@demly.com" className="hover:text-emerald-400 transition-colors">Contact</a>
+              <a href="/industries" className="hover:text-emerald-400 transition-colors">Industries</a>
             </div>
           </div>
-          <div className={`mt-8 pt-8 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-200'} text-center`}>
-            <p className={`${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'} text-sm`}>
+          <div className="mt-8 pt-8 border-t border-white/5 text-center">
+            <p className="text-slate-600 text-sm">
               Enterprise software & security solutions
             </p>
           </div>
