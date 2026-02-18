@@ -85,6 +85,12 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // Operation loading states
+  const [addLoading, setAddLoading] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -96,7 +102,6 @@ export default function Inventory() {
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{id: number, name: string, type: 'product' | 'service'} | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [usageInfo, setUsageInfo] = useState<{count: number, message: string} | null>(null);
   
@@ -481,6 +486,8 @@ export default function Inventory() {
       return;
     }
 
+    setAddLoading(true);
+
     try {
       const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
       
@@ -513,11 +520,15 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error adding product:", error);
       alert("Error adding product: " + (error as any).message);
+    } finally {
+      setAddLoading(false);
     }
   };
 
   const updateProduct = async () => {
     if (!editingProduct) return;
+
+    setEditLoading(true);
 
     try {
       const stockQuantity = formInfiniteStock ? -1 : (parseInt(formStock) || 0);
@@ -553,6 +564,8 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error updating product:", error);
       alert("Error updating product: " + (error as any).message);
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -561,6 +574,8 @@ export default function Inventory() {
       alert("Service name is required");
       return;
     }
+
+    setAddLoading(true);
 
     try {
       const { error } = await supabase.from("service_types").insert({
@@ -584,11 +599,15 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error adding service:", error);
       alert("Error adding service: " + (error as any).message);
+    } finally {
+      setAddLoading(false);
     }
   };
 
   const updateServiceType = async () => {
     if (!editingService) return;
+
+    setEditLoading(true);
 
     try {
       const { error } = await supabase
@@ -613,6 +632,8 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error updating service:", error);
       alert("Error updating service: " + (error as any).message);
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -634,6 +655,8 @@ export default function Inventory() {
   const adjustStock = async () => {
     if (!stockProduct) return;
 
+    setStockLoading(true);
+
     let newStock = stockProduct.stock_quantity;
     
     if (infiniteStock) {
@@ -641,6 +664,7 @@ export default function Inventory() {
     } else {
       if (!stockAdjustment) {
         alert("Please enter an adjustment amount");
+        setStockLoading(false);
         return;
       }
       
@@ -649,6 +673,7 @@ export default function Inventory() {
 
       if (newStock < 0) {
         alert("Stock cannot be negative");
+        setStockLoading(false);
         return;
       }
     }
@@ -680,6 +705,8 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error adjusting stock:", error);
       alert("Error adjusting stock: " + (error as any).message);
+    } finally {
+      setStockLoading(false);
     }
   };
 
@@ -1139,13 +1166,21 @@ export default function Inventory() {
                       </div>
                     </div>
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Action Icons - Always visible */}
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={() => openEditModal(product)}
-                      className="p-1 text-muted-foreground hover:text-foreground"
+                      className="p-1.5 text-muted-foreground hover:text-primary rounded-lg hover:bg-primary/10 transition-colors"
                       title="Edit"
                     >
                       <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => confirmDelete(product.id, product.name, 'product')}
+                      className="p-1.5 text-muted-foreground hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -1295,7 +1330,7 @@ export default function Inventory() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditModal(product)}
-                            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                            className="p-2 text-muted-foreground hover:text-primary transition-colors"
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1632,15 +1667,24 @@ export default function Inventory() {
                   setShowAddModal(false);
                   setShowEditModal(false);
                 }}
-                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
+                disabled={addLoading || editLoading}
               >
                 Cancel
               </button>
               <button
                 onClick={showAddModal ? addProduct : updateProduct}
-                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                disabled={addLoading || editLoading}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {showAddModal ? "Add Product" : "Save Changes"}
+                {(addLoading || editLoading) ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {showAddModal ? "Adding..." : "Saving..."}
+                  </>
+                ) : (
+                  showAddModal ? "Add Product" : "Save Changes"
+                )}
               </button>
             </div>
           </div>
@@ -1727,6 +1771,7 @@ export default function Inventory() {
                       <button
                         onClick={() => setStockAdjustment("-10")}
                         className="flex-1 bg-red-500/10 text-red-600 border border-red-200 py-2 rounded-lg font-medium hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+                        disabled={stockLoading}
                       >
                         <TrendingDown className="w-4 h-4" />
                         -10
@@ -1734,6 +1779,7 @@ export default function Inventory() {
                       <button
                         onClick={() => setStockAdjustment("+10")}
                         className="flex-1 bg-emerald-500/10 text-emerald-600 border border-emerald-200 py-2 rounded-lg font-medium hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                        disabled={stockLoading}
                       >
                         <TrendingUp className="w-4 h-4" />
                         +10
@@ -1749,6 +1795,7 @@ export default function Inventory() {
                       onChange={(e) => setStockAdjustment(e.target.value)}
                       className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-center font-bold"
                       placeholder="0"
+                      disabled={stockLoading}
                     />
                     {stockAdjustment && (
                       <p className="mt-2 text-center text-sm text-muted-foreground">
@@ -1766,6 +1813,7 @@ export default function Inventory() {
                       onChange={(e) => setStockReason(e.target.value)}
                       className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                       placeholder="e.g., Restock, Damaged, Sold"
+                      disabled={stockLoading}
                     />
                   </div>
                 </>
@@ -1783,20 +1831,28 @@ export default function Inventory() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowStockModal(false)}
-                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
+                disabled={stockLoading}
               >
                 Cancel
               </button>
               <button
                 onClick={adjustStock}
-                disabled={!infiniteStock && !stockAdjustment}
-                className={`flex-1 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 ${
+                disabled={(!infiniteStock && !stockAdjustment) || stockLoading}
+                className={`flex-1 px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2 ${
                   infiniteStock 
                     ? 'bg-purple-500 text-white' 
                     : 'bg-primary text-primary-foreground'
                 }`}
               >
-                {infiniteStock ? 'Set Infinite Stock' : 'Adjust Stock'}
+                {stockLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {infiniteStock ? 'Setting...' : 'Adjusting...'}
+                  </>
+                ) : (
+                  infiniteStock ? 'Set Infinite Stock' : 'Adjust Stock'
+                )}
               </button>
             </div>
           </div>
@@ -1855,6 +1911,7 @@ export default function Inventory() {
                     onChange={(e) => setServiceName(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="e.g., Delivery"
+                    disabled={addLoading || editLoading}
                   />
                 </div>
 
@@ -1867,11 +1924,13 @@ export default function Inventory() {
                         onChange={(e) => setServiceIcon(e.target.value)}
                         className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground"
                         placeholder="🚚"
+                        disabled={addLoading || editLoading}
                       />
                       <button
                         type="button"
                         onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                         className="px-3 py-2 bg-muted hover:bg-accent rounded-lg border border-border flex items-center gap-1"
+                        disabled={addLoading || editLoading}
                       >
                         <Smile className="w-4 h-4" />
                         <span className="text-sm">Pick</span>
@@ -1907,12 +1966,14 @@ export default function Inventory() {
                       value={serviceColor}
                       onChange={(e) => setServiceColor(e.target.value)}
                       className="w-10 h-10 rounded-lg cursor-pointer"
+                      disabled={addLoading || editLoading}
                     />
                     <input
                       value={serviceColor}
                       onChange={(e) => setServiceColor(e.target.value)}
                       className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm"
                       placeholder="#3B82F6"
+                      disabled={addLoading || editLoading}
                     />
                   </div>
                 </div>
@@ -1926,6 +1987,7 @@ export default function Inventory() {
                     onChange={(e) => setServicePrice(e.target.value)}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="2.99"
+                    disabled={addLoading || editLoading}
                   />
                   <p className="text-xs text-muted-foreground mt-1">Fixed fee added to order</p>
                 </div>
@@ -1933,10 +1995,17 @@ export default function Inventory() {
                 <div className="md:col-span-2 flex items-end gap-2">
                   <button
                     onClick={editingService ? updateServiceType : addServiceType}
-                    disabled={!serviceName}
-                    className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    disabled={!serviceName || addLoading || editLoading}
+                    className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {editingService ? "Update Service" : "Add Service"}
+                    {(addLoading || editLoading) ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {editingService ? "Updating..." : "Adding..."}
+                      </>
+                    ) : (
+                      editingService ? "Update Service" : "Add Service"
+                    )}
                   </button>
                   {editingService && (
                     <button
@@ -1949,6 +2018,7 @@ export default function Inventory() {
                         setShowEmojiPicker(false);
                       }}
                       className="px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
+                      disabled={addLoading || editLoading}
                     >
                       Cancel
                     </button>
