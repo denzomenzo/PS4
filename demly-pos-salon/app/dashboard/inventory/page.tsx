@@ -93,6 +93,13 @@ export default function Inventory() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingService, setEditingService] = useState<ServiceType | null>(null);
   
+  // Delete confirmation
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{id: number, name: string, type: 'product' | 'service'} | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [usageInfo, setUsageInfo] = useState<{count: number, message: string} | null>(null);
+  
   // Dropdown state
   const [showNewItemDropdown, setShowNewItemDropdown] = useState(false);
   const newItemDropdownRef = useRef<HTMLDivElement>(null);
@@ -378,6 +385,96 @@ export default function Inventory() {
     setShowServicesModal(true);
   };
 
+  // ========== DELETE FUNCTIONS ==========
+
+  const confirmDelete = async (id: number, name: string, type: 'product' | 'service') => {
+    setItemToDelete({ id, name, type });
+    setDeleteError(null);
+    setUsageInfo(null);
+    
+    // Check if item is used in transactions
+    try {
+      if (type === 'product') {
+        const { data, error } = await supabase
+          .from('transaction_items')
+          .select('id')
+          .eq('product_id', id)
+          .limit(1);
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setUsageInfo({
+            count: data.length,
+            message: "This product has been used in transactions and cannot be deleted. You can deactivate it instead."
+          });
+        }
+      } else {
+        // Check if service is used in transactions
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('id')
+          .contains('services', [{ id }])
+          .limit(1);
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setUsageInfo({
+            count: data.length,
+            message: "This service has been used in transactions and cannot be deleted. You can deactivate it instead."
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error checking usage:", error);
+    }
+    
+    setShowDeleteConfirm(true);
+  };
+
+  const executeDelete = async () => {
+    if (!itemToDelete || !userId) return;
+    
+    setDeleteLoading(true);
+    setDeleteError(null);
+    
+    try {
+      if (itemToDelete.type === 'product') {
+        const { error } = await supabase
+          .from("products")
+          .delete()
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId); // Extra safety
+        
+        if (error) throw error;
+        
+        // Update local state
+        setProducts(products.filter(p => p.id !== itemToDelete.id));
+      } else {
+        const { error } = await supabase
+          .from("service_types")
+          .delete()
+          .eq("id", itemToDelete.id)
+          .eq("user_id", userId); // Extra safety
+        
+        if (error) throw error;
+        
+        // Update local state
+        setServiceTypes(serviceTypes.filter(s => s.id !== itemToDelete.id));
+      }
+      
+      setShowDeleteConfirm(false);
+      setItemToDelete(null);
+      
+    } catch (error: any) {
+      console.error("Error deleting item:", error);
+      setDeleteError(error.message || "Failed to delete item");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const addProduct = async () => {
     if (!formName || !formPrice) {
       alert("Name and Price are required");
@@ -534,19 +631,6 @@ export default function Inventory() {
     }
   };
 
-  const deleteServiceType = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this service type?")) return;
-
-    try {
-      const { error } = await supabase.from("service_types").delete().eq("id", id);
-      if (error) throw error;
-      loadData();
-    } catch (error) {
-      console.error("Error deleting service:", error);
-      alert("Error deleting service");
-    }
-  };
-
   const adjustStock = async () => {
     if (!stockProduct) return;
 
@@ -596,19 +680,6 @@ export default function Inventory() {
     } catch (error) {
       console.error("Error adjusting stock:", error);
       alert("Error adjusting stock: " + (error as any).message);
-    }
-  };
-
-  const deleteProduct = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
-
-    try {
-      const { error } = await supabase.from("products").delete().eq("id", id);
-      if (error) throw error;
-      loadData();
-    } catch (error) {
-      console.error("Error deleting product:", error);
-      alert("Error deleting product");
     }
   };
 
@@ -738,8 +809,6 @@ export default function Inventory() {
             statusMatch = product.stock_quantity === 0;
             break;
           case "infinite":
-            // This case should never be reached because we already handled infinite stock above
-            // But we keep it for completeness
             statusMatch = false;
             break;
         }
@@ -1250,7 +1319,7 @@ export default function Inventory() {
                             </button>
                           )}
                           <button
-                            onClick={() => deleteProduct(product.id)}
+                            onClick={() => confirmDelete(product.id, product.name, 'product')}
                             className="p-2 text-muted-foreground hover:text-destructive transition-colors"
                             title="Delete"
                           >
@@ -1281,6 +1350,91 @@ export default function Inventory() {
               Add Your First Product
             </button>
           )}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && itemToDelete && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-destructive/10 rounded-full">
+                <AlertCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">Confirm Delete</h3>
+            </div>
+            
+            <p className="text-foreground mb-2">
+              Are you sure you want to delete <span className="font-bold">"{itemToDelete.name}"</span>?
+            </p>
+            
+            {usageInfo && (
+              <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <p className="text-sm text-amber-600 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  {usageInfo.message}
+                </p>
+              </div>
+            )}
+            
+            {!usageInfo && (
+              <p className="text-sm text-muted-foreground mb-4">
+                This action cannot be undone. This will permanently delete this {itemToDelete.type}.
+              </p>
+            )}
+            
+            {deleteError && (
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                <p className="text-sm text-destructive">{deleteError}</p>
+              </div>
+            )}
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setItemToDelete(null);
+                  setDeleteError(null);
+                  setUsageInfo(null);
+                }}
+                className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-accent transition-colors"
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              {!usageInfo && (
+                <button
+                  onClick={executeDelete}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2 bg-destructive text-destructive-foreground rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleteLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </>
+                  )}
+                </button>
+              )}
+              {usageInfo && (
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setItemToDelete(null);
+                    setUsageInfo(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
+                >
+                  Got it
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1907,7 +2061,7 @@ export default function Inventory() {
                             Edit
                           </button>
                           <button
-                            onClick={() => deleteServiceType(service.id)}
+                            onClick={() => confirmDelete(service.id, service.name, 'service')}
                             className="px-3 py-1.5 bg-red-500/10 text-red-600 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-1.5"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
