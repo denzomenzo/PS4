@@ -108,13 +108,13 @@ export default function LandingPage() {
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${bgGradient}`}>
-      {/* Fixed Header - Pure Black (unchanged) */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-black py-3 shadow-xl' : 'bg-black py-4'}`}>
+      {/* Fixed Header - Pure Black */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-black py-2 shadow-xl' : 'bg-black py-3'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
             <Link href="/" className="group">
               {/* /////////////////////////////////////////// */}
-              {/* LARGER LOGO - Increased from "large" to "xlarge" */}
+              {/* LARGER LOGO - Using "xlarge" for desktop, "large" for mobile */}
               {/* /////////////////////////////////////////// */}
               <Logo size={isMobile ? "large" : "xlarge"} />
             </Link>
@@ -219,7 +219,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section - Modern gradient background */}
-      <section className={`pt-28 md:pt-32 pb-16 md:pb-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-emerald-50 to-white'}`}>
+      <section className={`pt-28 md:pt-36 pb-16 md:pb-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-emerald-50 to-white'}`}>
         <div className="max-w-7xl mx-auto text-center">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -643,13 +643,16 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer - Now Black */}
-      <footer className="bg-black py-12 px-4 sm:px-6 border-t border-white/5">
+      {/* Footer - Now Black with Larger Logo */}
+      <footer className="bg-black py-16 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-center md:text-left">
-              <div className="mb-4">
-                <Logo size="large" />
+              <div className="mb-6">
+                {/* /////////////////////////////////////////// */}
+                {/* LARGER FOOTER LOGO - Using "xlarge" for footer too */}
+                {/* /////////////////////////////////////////// */}
+                <Logo size="xlarge" />
               </div>
               <p className="text-slate-500 text-sm">
                 © 2025 Demly. All rights reserved.
