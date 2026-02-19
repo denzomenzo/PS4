@@ -15,10 +15,10 @@ import { motion, AnimatePresence } from "framer-motion";
 // REAL IMAGES - Using your provided URLs and high-quality Unsplash for variety
 const REAL_IMAGES = {
   warehouse: {
-    bacon: "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcTlW5bP40uTsLv73KrVLZXldWSKBb6FoN4kGz-DlJKb8DWW_cEM0YkCt0wa-D6-QRi14Nl70HgfMvGKeDT7YVxT2eeNHUIhb4ecJEKCYVO6Jod02QjOV8DS8Klk-N8YXnXI7536iJsyNEo&usqp=CAc",
-    cola: "https://encrypted-tbn0.gstatic.com/shopping?q=tbn:ANd9GcSPoGxa7USQj2zOB0yghsImVUGzQnv7HYWKBnnRj_OtLD1TzDYRbtRhk9iXfvcVvFjkb034-d6Q58zCRW9CwCfvzlYc2pVdelrz_i4XIZXZgSKDZf4cgYO2KOmDzIAEEb-SQ9F4HA&usqp=CAc",
-    waterPallet: "https://images.unsplash.com/photo-1595435934247-5d33b7f92c70?w=400&h=300&fit=crop&crop=center",
-    snacks: "https://images.unsplash.com/photo-1592417817098-8fd3d9eb14a5?w=400&h=300&fit=crop&crop=center"
+    bacon: "https://www.extensiv.com/hubfs/AdobeStock_181658575.jpeg",
+    cola: "https://lh4.googleusercontent.com/proxy/6nCi8IbZxn_9HGj2CqUqLixyWwsTfrBCvZi-4vP8WrUocMmpKTEZXOmp1cd0g1a70ixYg6TI313BP8mSdz5XoSljs65OdnEauh8_PVY",
+    waterPallet: "https://images.squarespace-cdn.com/content/v1/5748ef421d07c0e0855afd96/1699379086538-1FHDG6T23YKNMU54KJQU/FirstAllianceLogisticsManagementLLC-252298-Warehouse-Pallet-Storage-image1.jpg",
+    snacks: "https://lh4.googleusercontent.com/proxy/fp77H8fmwGpgjy93zxVpTwS96yhMdz4xwtKIzdr03N8x6pK9A-9kujTZ5JtE5PCk7do0eN8ptXSXQ0lLSym8LEQo2ZKr9lYKk_EqV20"
   },
   restaurant: {
     avocadoToast: "https://images.unsplash.com/photo-1541519227354-08fa5d50c44d?w=400&h=300&fit=crop&crop=center",
@@ -692,3 +692,4 @@ export default function LandingPage() {
     </div>
   );
 }
+
