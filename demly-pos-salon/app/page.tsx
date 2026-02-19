@@ -104,51 +104,65 @@ export default function LandingPage() {
     ? 'bg-slate-800/50 border-slate-700/50'
     : 'bg-white border-slate-200';
 
-  // Header now adapts to theme (no longer fixed black)
+  // Header now adapts to theme with curved elements
   const headerBg = theme === 'dark' 
     ? 'bg-black/80 backdrop-blur-xl' 
     : 'bg-white/80 backdrop-blur-xl border-b border-slate-200';
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${bgGradient}`}>
-      {/* Header - Now theme-adaptive with blur */}
+      {/* Header - Perfectly balanced with curved elements */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'py-2 shadow-xl' : 'py-3'} ${headerBg}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
-            <Link href="/" className="group">
-              {/* Logo now adapts to theme automatically since it has no background */}
+            {/* Logo - Perfectly left-aligned with no extra margin */}
+            <Link href="/" className="group flex-shrink-0">
               <Logo size={isMobile ? "large" : "large"} />
             </Link>
             
-            {/* Mobile Menu Button */}
+            {/* Mobile Menu Button - Curved */}
             <div className="md:hidden flex items-center gap-2">
               <button 
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                aria-label="Toggle theme"
               >
                 {theme === 'dark' ? <Sun className="w-5 h-5 text-slate-300" /> : <Moon className="w-5 h-5 text-slate-700" />}
               </button>
               <button 
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className={theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-700 hover:text-black'}
+                className={`p-2 rounded-full ${theme === 'dark' ? 'text-slate-300 hover:text-white hover:bg-white/10' : 'text-slate-700 hover:text-black hover:bg-black/5'} transition-colors`}
+                aria-label="Menu"
               >
-                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             </div>
             
-            {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-6 lg:gap-8">
-              <a href="#features" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Features</a>
-              <a href="#demo" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Demo</a>
-              <a href="/industries" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Industries</a>
-              <a href="#pricing" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Pricing</a>
+            {/* Desktop Navigation - Curved Links */}
+            <div className="hidden md:flex items-center gap-1 lg:gap-2">
+              {['Features', 'Demo', 'Industries', 'Pricing'].map((item, i) => {
+                const href = item === 'Industries' ? '/industries' : `#${item.toLowerCase()}`;
+                return (
+                  <a
+                    key={i}
+                    href={href}
+                    className={`px-4 py-2 rounded-full text-sm lg:text-base font-medium transition-all ${
+                      theme === 'dark' 
+                        ? 'text-slate-300 hover:text-white hover:bg-white/10' 
+                        : 'text-slate-600 hover:text-black hover:bg-black/5'
+                    }`}
+                  >
+                    {item}
+                  </a>
+                );
+              })}
             </div>
             
-            {/* Action Buttons */}
-            <div className="hidden md:flex items-center gap-4">
+            {/* Action Buttons - Curved */}
+            <div className="hidden md:flex items-center gap-3">
               <button 
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                 aria-label="Toggle theme"
               >
                 {theme === 'dark' ? 
@@ -159,7 +173,7 @@ export default function LandingPage() {
               {isLoggedIn ? (
                 <Link 
                   href="/dashboard" 
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold text-white transition-colors text-sm lg:text-base"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-white transition-colors text-sm lg:text-base shadow-lg shadow-emerald-600/20"
                 >
                   Dashboard
                 </Link>
@@ -167,13 +181,17 @@ export default function LandingPage() {
                 <>
                   <Link 
                     href="/login" 
-                    className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors font-semibold text-sm lg:text-base`}
+                    className={`px-5 py-2.5 rounded-full font-semibold text-sm lg:text-base transition-colors ${
+                      theme === 'dark' 
+                        ? 'text-slate-300 hover:text-white hover:bg-white/10' 
+                        : 'text-slate-600 hover:text-black hover:bg-black/5'
+                    }`}
                   >
                     Sign In
                   </Link>
                   <Link 
                     href="/pay" 
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold text-white transition-colors text-sm lg:text-base"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-white transition-colors text-sm lg:text-base shadow-lg shadow-emerald-600/20"
                   >
                     Get Started
                   </Link>
@@ -182,7 +200,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Mobile Menu */}
+          {/* Mobile Menu - Curved Dropdown */}
           <AnimatePresence>
             {mobileMenuOpen && (
               <motion.div
@@ -191,22 +209,47 @@ export default function LandingPage() {
                 exit={{ opacity: 0, height: 0 }}
                 className="md:hidden mt-4 border-t border-slate-200 dark:border-white/10 pt-4"
               >
-                <div className="flex flex-col space-y-3">
-                  <a href="#features" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Features</a>
-                  <a href="#demo" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Demo</a>
-                  <a href="/industries" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Industries</a>
-                  <a href="#pricing" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Pricing</a>
-                  <div className="border-t border-slate-200 dark:border-white/10 pt-3 flex gap-3">
+                <div className="flex flex-col space-y-2">
+                  {['Features', 'Demo', 'Industries', 'Pricing'].map((item, i) => {
+                    const href = item === 'Industries' ? '/industries' : `#${item.toLowerCase()}`;
+                    return (
+                      <a
+                        key={i}
+                        href={href}
+                        className={`px-4 py-3 rounded-xl text-base font-medium transition-colors ${
+                          theme === 'dark' 
+                            ? 'text-slate-300 hover:text-white hover:bg-white/10' 
+                            : 'text-slate-600 hover:text-black hover:bg-black/5'
+                        }`}
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        {item}
+                      </a>
+                    );
+                  })}
+                  <div className="border-t border-slate-200 dark:border-white/10 pt-4 mt-2 flex gap-3">
                     {isLoggedIn ? (
-                      <Link href="/dashboard" className="flex-1 bg-emerald-600 text-white text-center py-2 rounded-lg font-bold">
+                      <Link 
+                        href="/dashboard" 
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-center py-3 rounded-xl font-bold"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
                         Dashboard
                       </Link>
                     ) : (
                       <>
-                        <Link href="/login" className="flex-1 border border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-300 text-center py-2 rounded-lg font-semibold">
+                        <Link 
+                          href="/login" 
+                          className="flex-1 border border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-300 text-center py-3 rounded-xl font-semibold hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
                           Sign In
                         </Link>
-                        <Link href="/pay" className="flex-1 bg-emerald-600 text-white text-center py-2 rounded-lg font-bold">
+                        <Link 
+                          href="/pay" 
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-center py-3 rounded-xl font-bold"
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
                           Get Started
                         </Link>
                       </>
@@ -219,7 +262,7 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* Hero Section - Curved Elements */}
       <section className={`pt-24 md:pt-28 pb-16 md:pb-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-emerald-50 to-white'}`}>
         <div className="max-w-7xl mx-auto text-center">
           <motion.div 
@@ -265,7 +308,7 @@ export default function LandingPage() {
             {isLoggedIn ? (
               <Link 
                 href="/dashboard" 
-                className="px-8 sm:px-10 py-3 sm:py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg text-white transition-colors shadow-lg shadow-emerald-600/20"
+                className="px-8 sm:px-10 py-3 sm:py-4 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-base sm:text-lg text-white transition-colors shadow-lg shadow-emerald-600/20"
               >
                 Open Dashboard
               </Link>
@@ -273,13 +316,17 @@ export default function LandingPage() {
               <>
                 <Link 
                   href="/pay" 
-                  className="px-8 sm:px-10 py-3 sm:py-4 bg-emerald-600 hover:bg-emerald-700 rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg text-white transition-colors shadow-lg shadow-emerald-600/20"
+                  className="px-8 sm:px-10 py-3 sm:py-4 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-base sm:text-lg text-white transition-colors shadow-lg shadow-emerald-600/20"
                 >
                   Start Free Trial
                 </Link>
                 <Link 
                   href="/industries" 
-                  className={`px-8 sm:px-10 py-3 sm:py-4 ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10 border-white/10' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200'} border rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg ${textPrimary} transition-colors`}
+                  className={`px-8 sm:px-10 py-3 sm:py-4 rounded-full font-bold text-base sm:text-lg transition-colors ${
+                    theme === 'dark' 
+                      ? 'bg-white/5 hover:bg-white/10 border border-white/10 text-white' 
+                      : 'bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-slate-900'
+                  }`}
                 >
                   Browse Industries
                 </Link>
@@ -287,7 +334,7 @@ export default function LandingPage() {
             )}
           </motion.div>
 
-          {/* Trust badges */}
+          {/* Trust badges - Curved */}
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -295,7 +342,7 @@ export default function LandingPage() {
             className="flex flex-wrap items-center justify-center gap-6 mt-12 md:mt-16"
           >
             {['Trustpilot 4.8', 'GDPR Compliant', 'PCI DSS Level 1', '24/7 Support'].map((badge, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
                 <Shield className={`w-4 h-4 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`} />
                 <span className={`text-xs font-medium ${textMuted}`}>{badge}</span>
               </div>
@@ -304,7 +351,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Demo Section - Video and Image Placeholders with your links */}
+      {/* Demo Section - Curved Cards with your images and video */}
       <section id="demo" className="py-16 md:py-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
@@ -316,15 +363,14 @@ export default function LandingPage() {
             </p>
           </div>
           
-          {/* Two image placeholders with your links */}
+          {/* Two image cards with your links */}
           <div className="grid md:grid-cols-2 gap-6 mb-6">
-            <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
-              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group">
-                {/* POS PREVIEW LINK - Replace with your image */}
+            <div className={`${cardBg} rounded-3xl overflow-hidden border hover:border-emerald-500/30 transition-all`}>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group overflow-hidden">
                 <img 
                   src="https://image2url.com/r2/default/images/1771495015474-7e6f2e72-fbc3-4fb7-a72d-4b195a443c77.png" 
                   alt="POS Interface Preview" 
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
               <div className="p-6">
@@ -335,13 +381,12 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
-              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group">
-                {/* REPORTS PREVIEW LINK - Replace with your image */}
+            <div className={`${cardBg} rounded-3xl overflow-hidden border hover:border-emerald-500/30 transition-all`}>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group overflow-hidden">
                 <img 
                   src="https://image2url.com/r2/default/images/1771495566483-ef898d6e-2837-4fa7-a67b-e5ddcd23b44c.png" 
                   alt="Reports and Analytics Preview" 
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
               <div className="p-6">
@@ -353,14 +398,13 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Video placeholder with your YouTube link */}
-          <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
+          {/* Video card with your new YouTube link */}
+          <div className={`${cardBg} rounded-3xl overflow-hidden border hover:border-emerald-500/30 transition-all`}>
             <div className="aspect-video bg-gradient-to-br from-purple-500/20 to-emerald-600/20 relative group">
-              {/* YOUTUBE VIDEO LINK */}
               <iframe 
                 width="100%" 
                 height="100%" 
-                src="https://www.youtube.com/watch?v=qzTsZLifM7Q" 
+                src="https://www.youtube.com/embed/qzTsZLifM7Q" 
                 title="Demly POS Demo" 
                 frameBorder="0" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
@@ -378,7 +422,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Industry Preview Section */}
+      {/* Industry Preview Section - Curved Cards */}
       <section className={`py-16 md:py-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black/50' : 'bg-emerald-50/50'}`}>
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
@@ -421,7 +465,7 @@ export default function LandingPage() {
                 features: ["Bulk Sales", "Pallet Tracking", "Supplier"]
               }
             ].map((industry, i) => (
-              <div key={i} className={`group ${cardBg} rounded-xl sm:rounded-2xl overflow-hidden hover:border-emerald-500/30 transition-all border`}>
+              <div key={i} className={`group ${cardBg} rounded-3xl overflow-hidden hover:border-emerald-500/30 transition-all border`}>
                 <div className="h-40 sm:h-48 overflow-hidden">
                   <div 
                     className="w-full h-full bg-cover bg-center group-hover:scale-110 transition-transform duration-500"
@@ -430,7 +474,7 @@ export default function LandingPage() {
                 </div>
                 <div className="p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-3 sm:mb-4">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-r ${industry.gradient} bg-opacity-20 flex items-center justify-center`}>
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-r ${industry.gradient} bg-opacity-20 flex items-center justify-center`}>
                       <industry.icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                     </div>
                     <div>
@@ -439,7 +483,7 @@ export default function LandingPage() {
                   </div>
                   <div className="space-y-2">
                     {industry.features.map((feature, j) => (
-                      <div key={j} className="flex items-center gap-2 text-xs sm:text-sm text-slate-300">
+                      <div key={j} className="flex items-center gap-2 text-xs sm:text-sm">
                         <Check className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-600 flex-shrink-0" />
                         <span className={`truncate ${textSecondary}`}>{feature}</span>
                       </div>
@@ -458,7 +502,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Features Section */}
+      {/* Features Section - Curved Cards */}
       <section id="features" className="py-16 md:py-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
@@ -479,8 +523,8 @@ export default function LandingPage() {
               { icon: Globe, title: "Cloud-Based", desc: "Access from anywhere, automatic backups" },
               { icon: Clock, title: "24/7 Support", desc: "Dedicated team always available" },
             ].map((feature, i) => (
-              <div key={i} className={`${cardBg} rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:border-emerald-500/30 transition-all border group`}>
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-3 sm:mb-4 group-hover:scale-110 transition-transform">
+              <div key={i} className={`${cardBg} rounded-3xl p-4 sm:p-6 hover:border-emerald-500/30 transition-all border group`}>
+                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 rounded-2xl flex items-center justify-center mb-3 sm:mb-4 group-hover:scale-110 transition-transform">
                   <feature.icon className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-600" />
                 </div>
                 <h3 className={`text-lg sm:text-xl font-bold mb-2 ${textPrimary}`}>{feature.title}</h3>
@@ -491,7 +535,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Pricing Section */}
+      {/* Pricing Section - Curved Cards */}
       <section id="pricing" className={`py-16 md:py-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black/50' : 'bg-emerald-50/50'}`}>
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
@@ -505,7 +549,7 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {/* Monthly Plan */}
-            <div className={`${cardBg} rounded-2xl p-6 md:p-8 border hover:border-emerald-500/30 transition-all`}>
+            <div className={`${cardBg} rounded-3xl p-6 md:p-8 border hover:border-emerald-500/30 transition-all`}>
               <div className="mb-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Monthly</h3>
                 <div className="flex items-baseline gap-1">
@@ -529,7 +573,7 @@ export default function LandingPage() {
               </ul>
               <Link
                 href="/pay?plan=monthly"
-                className={`block w-full text-center py-3 rounded-xl font-bold transition-colors ${
+                className={`block w-full text-center py-3 rounded-full font-bold transition-colors ${
                   theme === 'dark' 
                     ? 'bg-white/5 hover:bg-white/10 border border-white/10' 
                     : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
@@ -540,7 +584,7 @@ export default function LandingPage() {
             </div>
 
             {/* Annual Plan */}
-            <div className={`${cardBg} rounded-2xl p-6 md:p-8 border-2 border-emerald-500/30 relative`}>
+            <div className={`${cardBg} rounded-3xl p-6 md:p-8 border-2 border-emerald-500/30 relative`}>
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-full">
                 BEST VALUE
               </div>
@@ -568,7 +612,7 @@ export default function LandingPage() {
               </ul>
               <Link
                 href="/pay?plan=annual"
-                className="block w-full text-center py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20"
+                className="block w-full text-center py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20"
               >
                 Get Started
               </Link>
@@ -577,7 +621,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* CTA Section - Curved Button */}
       <section className="py-16 md:py-20 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className={`text-2xl sm:text-3xl md:text-4xl font-black mb-6 ${textPrimary}`}>
@@ -590,7 +634,7 @@ export default function LandingPage() {
             {isLoggedIn ? (
               <Link
                 href="/dashboard"
-                className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20"
+                className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20"
               >
                 Go to Dashboard
               </Link>
@@ -598,13 +642,17 @@ export default function LandingPage() {
               <>
                 <Link
                   href="/pay"
-                  className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-emerald-600/20"
+                  className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20"
                 >
                   Start Free Trial
                 </Link>
                 <Link
                   href="/industries"
-                  className={`px-8 py-4 ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10' : 'bg-emerald-50 hover:bg-emerald-100'} rounded-xl font-bold ${textPrimary} transition-colors`}
+                  className={`px-8 py-4 rounded-full font-bold transition-colors ${
+                    theme === 'dark' 
+                      ? 'bg-white/5 hover:bg-white/10 text-white' 
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-slate-900'
+                  }`}
                 >
                   View Industries
                 </Link>
@@ -614,12 +662,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer - Now theme-adaptive */}
+      {/* Footer - Perfectly balanced with curved elements */}
       <footer className={`py-16 px-4 sm:px-6 border-t ${theme === 'dark' ? 'bg-black border-white/5' : 'bg-white border-slate-200'}`}>
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-center md:text-left">
               <div className="mb-6">
+                {/* Logo perfectly left-aligned */}
                 <Logo size="large" />
               </div>
               <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
@@ -627,10 +676,10 @@ export default function LandingPage() {
               </p>
             </div>
             <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
-              <a href="/privacy" className="hover:text-emerald-600 transition-colors">Privacy</a>
-              <a href="/terms" className="hover:text-emerald-600 transition-colors">Terms</a>
-              <a href="mailto:support@demly.com" className="hover:text-emerald-600 transition-colors">Contact</a>
-              <a href="/industries" className="hover:text-emerald-600 transition-colors">Industries</a>
+              <a href="/privacy" className="hover:text-emerald-600 transition-colors px-3 py-1 rounded-full hover:bg-emerald-50/10">Privacy</a>
+              <a href="/terms" className="hover:text-emerald-600 transition-colors px-3 py-1 rounded-full hover:bg-emerald-50/10">Terms</a>
+              <a href="mailto:support@demly.com" className="hover:text-emerald-600 transition-colors px-3 py-1 rounded-full hover:bg-emerald-50/10">Contact</a>
+              <a href="/industries" className="hover:text-emerald-600 transition-colors px-3 py-1 rounded-full hover:bg-emerald-50/10">Industries</a>
             </div>
           </div>
           <div className={`mt-8 pt-8 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-200'} text-center`}>
@@ -643,5 +692,3 @@ export default function LandingPage() {
     </div>
   );
 }
-
-
