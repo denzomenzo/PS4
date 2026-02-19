@@ -49,7 +49,7 @@ const INDUSTRIES = [
       "Purchase orders",
       "Supplier management"
     ],
-    image: "https://images.unsplash.com/photo-1604719311686-9a1a14f8f3c3?w=800&h=600&fit=crop&crop=center",
+    image: "https://cdn.shopify.com/s/files/1/0090/9236/6436/files/Docify_04443f9d-416d-4180-ad9f-f1550368fcd1_1024x1024.jpg?v=1705634877",
     stats: {
       businesses: "4,200+",
       satisfaction: "97%"
@@ -70,7 +70,7 @@ const INDUSTRIES = [
       "Client history",
       "Gift cards & memberships"
     ],
-    image: "https://images.unsplash.com/photo-1560066984-13812e1f5d3c?w=800&h=600&fit=crop&crop=center",
+    image: "https://12280-whatsnew.wpnet.stylenet.com/wp-content/uploads/sites/262/2022/09/whats_new_hair_salon_murfreesboro_4.jpg",
     stats: {
       businesses: "2,800+",
       satisfaction: "99%"
@@ -112,7 +112,7 @@ const INDUSTRIES = [
       "Sales analytics",
       "Inventory alerts"
     ],
-    image: "https://images.unsplash.com/photo-1565124882421-63af5b4b0e3c?w=800&h=600&fit=crop&crop=center",
+    image: "https://www.materiel-horeca.com/guide/wp-content/uploads/2019/05/foodtruck.jpg",
     stats: {
       businesses: "1,200+",
       satisfaction: "95%"
@@ -520,3 +520,4 @@ export default function IndustriesPage() {
     </div>
   );
 }
+
