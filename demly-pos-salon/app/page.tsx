@@ -104,55 +104,56 @@ export default function LandingPage() {
     ? 'bg-slate-800/50 border-slate-700/50'
     : 'bg-white border-slate-200';
 
-  const headerBg = 'bg-black'; // Keep header black as requested
+  // Header now adapts to theme (no longer fixed black)
+  const headerBg = theme === 'dark' 
+    ? 'bg-black/80 backdrop-blur-xl' 
+    : 'bg-white/80 backdrop-blur-xl border-b border-slate-200';
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${bgGradient}`}>
-      {/* Fixed Header - Pure Black */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'bg-black py-2 shadow-xl' : 'bg-black py-3'}`}>
+      {/* Header - Now theme-adaptive with blur */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'py-2 shadow-xl' : 'py-3'} ${headerBg}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
             <Link href="/" className="group">
-              {/* /////////////////////////////////////////// */}
-              {/* LARGER LOGO - Using "xlarge" for desktop, "large" for mobile */}
-              {/* /////////////////////////////////////////// */}
-              <Logo size={isMobile ? "large" : "xlarge"} />
+              {/* Logo now adapts to theme automatically since it has no background */}
+              <Logo size={isMobile ? "large" : "large"} />
             </Link>
             
             {/* Mobile Menu Button */}
             <div className="md:hidden flex items-center gap-2">
               <button 
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
               >
-                {theme === 'dark' ? <Sun className="w-5 h-5 text-slate-300" /> : <Moon className="w-5 h-5 text-slate-300" />}
+                {theme === 'dark' ? <Sun className="w-5 h-5 text-slate-300" /> : <Moon className="w-5 h-5 text-slate-700" />}
               </button>
               <button 
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="text-slate-300 hover:text-white"
+                className={theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-700 hover:text-black'}
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
             </div>
             
             {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-6 lg:gap-8 text-slate-300">
-              <a href="#features" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Features</a>
-              <a href="#demo" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Demo</a>
-              <a href="/industries" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Industries</a>
-              <a href="#pricing" className="hover:text-emerald-400 transition-colors text-sm lg:text-base">Pricing</a>
+            <div className="hidden md:flex items-center gap-6 lg:gap-8">
+              <a href="#features" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Features</a>
+              <a href="#demo" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Demo</a>
+              <a href="/industries" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Industries</a>
+              <a href="#pricing" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors text-sm lg:text-base`}>Pricing</a>
             </div>
             
             {/* Action Buttons */}
             <div className="hidden md:flex items-center gap-4">
               <button 
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                 aria-label="Toggle theme"
               >
                 {theme === 'dark' ? 
                   <Sun className="w-5 h-5 text-slate-300" /> : 
-                  <Moon className="w-5 h-5 text-slate-300" />
+                  <Moon className="w-5 h-5 text-slate-700" />
                 }
               </button>
               {isLoggedIn ? (
@@ -166,7 +167,7 @@ export default function LandingPage() {
                 <>
                   <Link 
                     href="/login" 
-                    className="px-5 py-2.5 text-slate-300 hover:text-white transition-colors font-semibold text-sm lg:text-base"
+                    className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} transition-colors font-semibold text-sm lg:text-base`}
                   >
                     Sign In
                   </Link>
@@ -188,21 +189,21 @@ export default function LandingPage() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="md:hidden mt-4 border-t border-white/10 pt-4"
+                className="md:hidden mt-4 border-t border-slate-200 dark:border-white/10 pt-4"
               >
                 <div className="flex flex-col space-y-3">
-                  <a href="#features" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Features</a>
-                  <a href="#demo" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Demo</a>
-                  <a href="/industries" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Industries</a>
-                  <a href="#pricing" className="text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/5">Pricing</a>
-                  <div className="border-t border-white/10 pt-3 flex gap-3">
+                  <a href="#features" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Features</a>
+                  <a href="#demo" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Demo</a>
+                  <a href="/industries" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Industries</a>
+                  <a href="#pricing" className={`${theme === 'dark' ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-black'} py-2 px-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5`}>Pricing</a>
+                  <div className="border-t border-slate-200 dark:border-white/10 pt-3 flex gap-3">
                     {isLoggedIn ? (
                       <Link href="/dashboard" className="flex-1 bg-emerald-600 text-white text-center py-2 rounded-lg font-bold">
                         Dashboard
                       </Link>
                     ) : (
                       <>
-                        <Link href="/login" className="flex-1 border border-white/10 text-slate-300 text-center py-2 rounded-lg font-semibold">
+                        <Link href="/login" className="flex-1 border border-slate-300 dark:border-white/10 text-slate-700 dark:text-slate-300 text-center py-2 rounded-lg font-semibold">
                           Sign In
                         </Link>
                         <Link href="/pay" className="flex-1 bg-emerald-600 text-white text-center py-2 rounded-lg font-bold">
@@ -218,8 +219,8 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero Section - Modern gradient background */}
-      <section className={`pt-28 md:pt-36 pb-16 md:pb-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-emerald-50 to-white'}`}>
+      {/* Hero Section */}
+      <section className={`pt-24 md:pt-28 pb-16 md:pb-20 px-4 sm:px-6 ${theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-emerald-50 to-white'}`}>
         <div className="max-w-7xl mx-auto text-center">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -303,7 +304,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Demo Section - Video and Image Placeholders */}
+      {/* Demo Section - Video and Image Placeholders with your links */}
       <section id="demo" className="py-16 md:py-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 md:mb-16">
@@ -315,23 +316,16 @@ export default function LandingPage() {
             </p>
           </div>
           
-          {/* /////////////////////////////////////////// */}
-          {/* IMAGE PLACEHOLDER - Replace with your image URL */}
-          {/* /////////////////////////////////////////// */}
+          {/* Two image placeholders with your links */}
           <div className="grid md:grid-cols-2 gap-6 mb-6">
             <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
-              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center relative group">
-                {/* REPLACE THIS DIV WITH YOUR IMAGE TAG */}
-                {/* Example: <img src="YOUR_IMAGE_URL_HERE" alt="POS Preview" className="w-full h-full object-cover" /> */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <ImageIcon className="w-16 h-16 text-emerald-600/50 mb-4" />
-                  <p className={`text-sm ${textMuted} text-center px-4`}>
-                    POS Interface Preview
-                  </p>
-                  <p className={`text-xs ${textMuted} mt-2 opacity-50`}>
-                    https://image2url.com/r2/default/images/1771495015474-7e6f2e72-fbc3-4fb7-a72d-4b195a443c77.png
-                  </p>
-                </div>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group">
+                {/* POS PREVIEW LINK - Replace with your image */}
+                <img 
+                  src="https://image2url.com/r2/default/images/1771495015474-7e6f2e72-fbc3-4fb7-a72d-4b195a443c77.png" 
+                  alt="POS Interface Preview" 
+                  className="w-full h-full object-cover"
+                />
               </div>
               <div className="p-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Point of Sale Interface</h3>
@@ -342,18 +336,13 @@ export default function LandingPage() {
             </div>
 
             <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
-              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center relative group">
-                {/* REPLACE THIS DIV WITH YOUR IMAGE TAG */}
-                {/* Example: <img src="YOUR_IMAGE_URL_HERE" alt="Dashboard Preview" className="w-full h-full object-cover" /> */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <ImageIcon className="w-16 h-16 text-emerald-600/50 mb-4" />
-                  <p className={`text-sm ${textMuted} text-center px-4`}>
-                    Analytics Dashboard Preview
-                  </p>
-                  <p className={`text-xs ${textMuted} mt-2 opacity-50`}>
-                    Replace with your image URL
-                  </p>
-                </div>
+              <div className="aspect-video bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 relative group">
+                {/* REPORTS PREVIEW LINK - Replace with your image */}
+                <img 
+                  src="https://image2url.com/r2/default/images/1771495566483-ef898d6e-2837-4fa7-a67b-e5ddcd23b44c.png" 
+                  alt="Reports and Analytics Preview" 
+                  className="w-full h-full object-cover"
+                />
               </div>
               <div className="p-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Real-Time Analytics</h3>
@@ -364,38 +353,20 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* /////////////////////////////////////////// */}
-          {/* VIDEO PLACEHOLDER - Replace with your video URL */}
-          {/* /////////////////////////////////////////// */}
+          {/* Video placeholder with your YouTube link */}
           <div className={`${cardBg} rounded-2xl overflow-hidden border`}>
-            <div className="aspect-video bg-gradient-to-br from-purple-500/20 to-emerald-600/20 flex items-center justify-center relative group cursor-pointer hover:bg-opacity-80 transition-all">
-              {/* REPLACE THIS DIV WITH YOUR VIDEO IFRAME OR VIDEO TAG */}
-              {/* Example for YouTube: 
-                <iframe 
-                  width="100%" 
-                  height="100%" 
-                  src="https://www.youtube.com/embed/YOUR_VIDEO_ID" 
-                  title="Demly POS Demo" 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                  className="absolute inset-0 w-full h-full"
-                ></iframe>
-              */}
-              {/* Example for self-hosted video:
-                <video className="w-full h-full object-cover" controls>
-                  <source src="YOUR_VIDEO_URL.mp4" type="video/mp4" />
-                </video>
-              */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="w-20 h-20 bg-emerald-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-600/50 group-hover:scale-110 transition-transform">
-                  <Play className="w-8 h-8 text-white ml-1" />
-                </div>
-                <p className={`text-lg font-bold ${textPrimary} mb-2`}>Watch Demo Video</p>
-                <p className={`text-sm ${textMuted} opacity-50`}>
-                  Replace with your video URL (YouTube, Vimeo, or self-hosted)
-                </p>
-              </div>
+            <div className="aspect-video bg-gradient-to-br from-purple-500/20 to-emerald-600/20 relative group">
+              {/* YOUTUBE VIDEO LINK */}
+              <iframe 
+                width="100%" 
+                height="100%" 
+                src="https://www.youtube.com/embed/ekft7Ohnwu0" 
+                title="Demly POS Demo" 
+                frameBorder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+              ></iframe>
             </div>
             <div className="p-6 text-center">
               <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Complete Walkthrough</h3>
@@ -643,30 +614,27 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer - Now Black with Larger Logo */}
-      <footer className="bg-black py-16 px-4 sm:px-6 border-t border-white/5">
+      {/* Footer - Now theme-adaptive */}
+      <footer className={`py-16 px-4 sm:px-6 border-t ${theme === 'dark' ? 'bg-black border-white/5' : 'bg-white border-slate-200'}`}>
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-center md:text-left">
               <div className="mb-6">
-                {/* /////////////////////////////////////////// */}
-                {/* LARGER FOOTER LOGO - Using "xlarge" for footer too */}
-                {/* /////////////////////////////////////////// */}
-                <Logo size="xlarge" />
+                <Logo size="large" />
               </div>
-              <p className="text-slate-500 text-sm">
+              <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
                 © 2025 Demly. All rights reserved.
               </p>
             </div>
-            <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 text-slate-500 text-sm justify-center">
-              <a href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy</a>
-              <a href="/terms" className="hover:text-emerald-400 transition-colors">Terms</a>
-              <a href="mailto:support@demly.com" className="hover:text-emerald-400 transition-colors">Contact</a>
-              <a href="/industries" className="hover:text-emerald-400 transition-colors">Industries</a>
+            <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
+              <a href="/privacy" className="hover:text-emerald-600 transition-colors">Privacy</a>
+              <a href="/terms" className="hover:text-emerald-600 transition-colors">Terms</a>
+              <a href="mailto:support@demly.com" className="hover:text-emerald-600 transition-colors">Contact</a>
+              <a href="/industries" className="hover:text-emerald-600 transition-colors">Industries</a>
             </div>
           </div>
-          <div className="mt-8 pt-8 border-t border-white/5 text-center">
-            <p className="text-slate-600 text-sm">
+          <div className={`mt-8 pt-8 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-200'} text-center`}>
+            <p className={`${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'} text-sm`}>
               Enterprise software & security solutions
             </p>
           </div>
@@ -675,4 +643,3 @@ export default function LandingPage() {
     </div>
   );
 }
-
