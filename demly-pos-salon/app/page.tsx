@@ -329,7 +329,7 @@ export default function LandingPage() {
                     POS Interface Preview
                   </p>
                   <p className={`text-xs ${textMuted} mt-2 opacity-50`}>
-                    Replace with your image URL
+                    https://image2url.com/r2/default/images/1771495015474-7e6f2e72-fbc3-4fb7-a72d-4b195a443c77.png
                   </p>
                 </div>
               </div>
@@ -675,3 +675,4 @@ export default function LandingPage() {
     </div>
   );
 }
+
