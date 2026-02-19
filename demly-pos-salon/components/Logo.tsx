@@ -14,7 +14,7 @@ export default function Logo({ size = 'medium' }: { size?: 'small' | 'medium' | 
   return (
     <div className={`relative ${config.className}`}>
       <Image
-        src="/demlyllogo.svg"  // Make sure this file exists in /public/
+        src="/demlyrel.png"  // Make sure this file exists in /public/
         alt="DEMLY - Security, Software, Enterprise"
         width={config.width}
         height={config.height}
@@ -24,3 +24,4 @@ export default function Logo({ size = 'medium' }: { size?: 'small' | 'medium' | 
     </div>
   );
 }
+
