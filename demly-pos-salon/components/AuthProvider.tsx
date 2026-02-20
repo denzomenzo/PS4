@@ -24,6 +24,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           "/reset-password", 
           "/pay", 
           "/success"
+          "/privacy"
+          "/terms"
+          "/contact"  
+          "/industries"
+        
         ];
         
         // API routes should NEVER be redirected
@@ -158,3 +163,4 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   return <>{children}</>;
 }
+
