@@ -20,6 +20,17 @@ const protectedRoutes: Record<string, string> = {
 const publicRoutes = [
   '/dashboard/display',
   '/dashboard/first-time-setup',
+  '/',                          // Landing page
+  '/industries',                 // Industries page
+  '/privacy',                    // Privacy page
+  '/terms',                      // Terms page
+  '/contact',                    // Contact page
+  '/login',                      // Login page
+  '/register',                   // Register page
+  '/forgot-password',            // Forgot password
+  '/reset-password',             // Reset password
+  '/pay',                        // Payment page
+  '/success',                    // Success page
   '/api/', // All API routes
   '/_next/', // Next.js internal routes
   '/favicon.ico',
