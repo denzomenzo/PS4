@@ -23,11 +23,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           "/forgot-password", 
           "/reset-password", 
           "/pay", 
-          "/success"
-          "/privacy"
-          "/terms"
-          "/contact"  
-          "/industries"
+          "/success",
+          "/privacy",
+          "/terms",
+          "/contact",
+          "/industries",
         
         ];
         
@@ -163,4 +163,5 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   return <>{children}</>;
 }
+
 
