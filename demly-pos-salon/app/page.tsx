@@ -672,7 +672,7 @@ export default function LandingPage() {
                 <Logo size="large" />
               </div>
               <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
-                © 2025 Demly. All rights reserved.
+                © 2026 DEMLY. All rights reserved.
               </p>
             </div>
             <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
@@ -684,7 +684,8 @@ export default function LandingPage() {
           </div>
           <div className={`mt-8 pt-8 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-200'} text-center`}>
             <p className={`${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'} text-sm`}>
-              Enterprise software & security solutions
+              DEMLY LTD is a registerd company operating in England and Wales under company number 16889796
+                           
             </p>
           </div>
         </div>
@@ -692,4 +693,5 @@ export default function LandingPage() {
     </div>
   );
 }
+
 
