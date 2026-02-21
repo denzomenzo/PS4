@@ -168,7 +168,7 @@ export default function DashboardHome() {
         setTotalCustomers(customerCount);
       }
 
-      // Load recent transactions
+      // Load recent transactions with customer data
       const { data: transactions, error: transError } = await supabase
         .from('transactions')
         .select(`
@@ -176,26 +176,31 @@ export default function DashboardHome() {
           created_at,
           total,
           payment_method,
-          customer:customer_id (name)
+          customer:customer_id (
+            name
+          )
         `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(5);
 
       if (transactions) {
-        setRecentTransactions(transactions.map(t => ({
+        // Process transactions with safe type handling
+        const processedTransactions = transactions.map((t: any) => ({
           id: t.id,
           created_at: t.created_at,
           total: t.total || 0,
           payment_method: t.payment_method || 'cash',
-          customer_name: t.customer?.name
-        })));
+          customer_name: t.customer?.name || null
+        }));
+        
+        setRecentTransactions(processedTransactions);
 
         // Calculate today's sales
-        const todayTransactionsList = transactions.filter(t => 
+        const todayTransactionsList = transactions.filter((t: any) => 
           new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
         );
-        setTodaySales(todayTransactionsList.reduce((sum, t) => sum + (t.total || 0), 0));
+        setTodaySales(todayTransactionsList.reduce((sum: number, t: any) => sum + (t.total || 0), 0));
         setTodayTransactions(todayTransactionsList.length);
       }
 
@@ -212,14 +217,16 @@ export default function DashboardHome() {
         setLowStockItems(inventory);
       }
 
-      // Load upcoming appointments
+      // Load upcoming appointments with customer data
       const { data: appointments, error: appError } = await supabase
         .from('appointments')
         .select(`
           id,
           appointment_time,
           service,
-          customer:customer_id (name)
+          customer:customer_id (
+            name
+          )
         `)
         .eq('user_id', userId)
         .gte('appointment_time', new Date().toISOString())
@@ -227,12 +234,13 @@ export default function DashboardHome() {
         .limit(5);
 
       if (appointments) {
-        setUpcomingAppointments(appointments.map(a => ({
+        const processedAppointments = appointments.map((a: any) => ({
           id: a.id,
           customer_name: a.customer?.name || 'Unknown',
           appointment_time: a.appointment_time,
-          service: a.service
-        })));
+          service: a.service || 'Appointment'
+        }));
+        setUpcomingAppointments(processedAppointments);
       }
 
     } catch (error) {
