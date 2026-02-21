@@ -1,26 +1,37 @@
 // app/api/subscription/route.ts
 import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 
 export async function GET() {
-  const debug = {
-    steps: [] as string[],
-    errors: [] as string[],
-    data: {} as any
-  };
-
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
+    const cookieStore = cookies();
     
-    debug.steps.push('Got user');
-    debug.data.userEmail = user?.email;
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set() {
+            // Not needed for API routes
+          },
+          remove() {
+            // Not needed for API routes
+          },
+        },
+      }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
     
-    if (!user) {
-      debug.errors.push('No user found');
-      return NextResponse.json({ error: 'Unauthorized', debug }, { status: 401 });
+    console.log('📋 Subscription API - User:', user?.email);
+    
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get user's license from database
@@ -30,41 +41,24 @@ export async function GET() {
       .eq('email', user.email)
       .maybeSingle();
 
-    debug.steps.push('Queried licenses');
-    debug.data.licenseFound = !!license;
-    debug.data.licenseId = license?.id;
-    debug.data.dbError = error?.message;
-
     if (error) {
-      debug.errors.push(`DB Error: ${error.message}`);
-      return NextResponse.json({ subscription: null, debug }, { status: 500 });
+      console.error('Error fetching license:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!license) {
-      debug.steps.push('No license found');
-      return NextResponse.json({ subscription: null, debug });
+      return NextResponse.json({ subscription: null });
     }
-
-    debug.steps.push('License found');
-    debug.data.stripeSubscriptionId = license.stripe_subscription_id;
-    debug.data.planType = license.plan_type;
-    debug.data.licenseStatus = license.status;
 
     // If there's a Stripe subscription ID, get latest data from Stripe
     if (license.stripe_subscription_id) {
       try {
-        debug.steps.push('Fetching from Stripe');
-        
         const stripeSub = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
         );
-
-        debug.steps.push('Stripe fetch successful');
-        debug.data.stripeStatus = stripeSub.status;
-        debug.data.stripeId = stripeSub.id;
 
         // Get payment method details if available
         let paymentMethod = null;
@@ -80,7 +74,6 @@ export async function GET() {
           }
         }
 
-        // Get the price from the subscription items
         const price = stripeSub.items?.data[0]?.price;
         
         // Calculate cooling days
@@ -91,46 +84,24 @@ export async function GET() {
         );
         const coolingDaysLeft = Math.max(0, 14 - daysSince);
 
-        const subscription = {
-          id: stripeSub.id,
-          plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
-          status: stripeSub.status,
-          current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
-          current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
-          cancel_at_period_end: stripeSub.cancel_at_period_end || false,
-          price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
-          currency: price?.currency || 'gbp',
-          payment_method: paymentMethod,
-          created: new Date(stripeSub.created * 1000).toISOString(),
-          cooling_days_left: coolingDaysLeft,
-        };
-
-        return NextResponse.json({ 
-          subscription,
-          debug 
+        return NextResponse.json({
+          subscription: {
+            id: stripeSub.id,
+            plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
+            status: stripeSub.status,
+            current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: stripeSub.cancel_at_period_end || false,
+            price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
+            currency: price?.currency || 'gbp',
+            payment_method: paymentMethod,
+            created: new Date(stripeSub.created * 1000).toISOString(),
+            cooling_days_left: coolingDaysLeft,
+          }
         });
-        
       } catch (stripeError: any) {
-        debug.errors.push(`Stripe Error: ${stripeError.message}`);
-        debug.data.stripeErrorType = stripeError.type;
-        debug.data.stripeErrorCode = stripeError.code;
-        debug.data.stripeStatusCode = stripeError.statusCode;
-        
-        console.error('❌ Stripe API error:', {
-          message: stripeError.message,
-          type: stripeError.type,
-          code: stripeError.code,
-          statusCode: stripeError.statusCode
-        });
-        
+        console.error('Stripe error:', stripeError);
         // Fall back to license data
-        const createdDate = new Date(license.created_at);
-        const now = new Date();
-        const daysSince = Math.floor(
-          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        const coolingDaysLeft = Math.max(0, 14 - daysSince);
-
         return NextResponse.json({
           subscription: {
             id: license.stripe_subscription_id,
@@ -143,21 +114,17 @@ export async function GET() {
             currency: 'gbp',
             payment_method: null,
             created: license.created_at,
-            cooling_days_left: coolingDaysLeft,
-          },
-          debug,
-          fallback: true
+            cooling_days_left: 0,
+          }
         });
       }
     }
 
-    return NextResponse.json({ subscription: null, debug });
-    
+    return NextResponse.json({ subscription: null });
   } catch (error: any) {
-    debug.errors.push(`Unexpected: ${error.message}`);
-    console.error('❌ Unexpected error:', error);
+    console.error('Error:', error);
     return NextResponse.json(
-      { error: error.message, debug },
+      { error: error.message },
       { status: 500 }
     );
   }
