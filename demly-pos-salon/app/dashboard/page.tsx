@@ -48,6 +48,8 @@ interface UpcomingAppointment {
 
 interface Subscription {
   cooling_days_left?: number;
+  deletion_scheduled?: boolean;
+  days_until_deletion?: number;
 }
 
 const menuItems = [
@@ -125,6 +127,7 @@ export default function DashboardHome() {
   const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]);
   const [todaySales, setTodaySales] = useState(0);
   const [todayTransactions, setTodayTransactions] = useState(0);
+  const [totalCustomers, setTotalCustomers] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -155,6 +158,16 @@ export default function DashboardHome() {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      // Load total customers
+      const { count: customerCount, error: customerError } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+
+      if (!customerError && customerCount !== null) {
+        setTotalCustomers(customerCount);
+      }
+
       // Load recent transactions
       const { data: transactions, error: transError } = await supabase
         .from('transactions')
@@ -173,25 +186,25 @@ export default function DashboardHome() {
         setRecentTransactions(transactions.map(t => ({
           id: t.id,
           created_at: t.created_at,
-          total: t.total,
-          payment_method: t.payment_method,
+          total: t.total || 0,
+          payment_method: t.payment_method || 'cash',
           customer_name: t.customer?.name
         })));
 
         // Calculate today's sales
-        const todayTransactions = transactions.filter(t => 
+        const todayTransactionsList = transactions.filter(t => 
           new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
         );
-        setTodaySales(todayTransactions.reduce((sum, t) => sum + (t.total || 0), 0));
-        setTodayTransactions(todayTransactions.length);
+        setTodaySales(todayTransactionsList.reduce((sum, t) => sum + (t.total || 0), 0));
+        setTodayTransactions(todayTransactionsList.length);
       }
 
-      // Load low stock items
+      // Load low stock items (stock <= reorder_level or default 5)
       const { data: inventory, error: invError } = await supabase
         .from('products')
         .select('id, name, stock_quantity, reorder_level')
         .eq('user_id', userId)
-        .lte('stock_quantity', supabase.rpc('coalesce', { 'reorder_level', 5 }))
+        .or('stock_quantity.lte.reorder_level,stock_quantity.lte.5')
         .order('stock_quantity', { ascending: true })
         .limit(5);
 
@@ -262,6 +275,7 @@ export default function DashboardHome() {
           loading={loading}
           todaySales={todaySales}
           todayTransactions={todayTransactions}
+          totalCustomers={totalCustomers}
           recentTransactions={recentTransactions}
           lowStockItems={lowStockItems}
           upcomingAppointments={upcomingAppointments}
@@ -303,6 +317,7 @@ export default function DashboardHome() {
           loading={loading}
           todaySales={todaySales}
           todayTransactions={todayTransactions}
+          totalCustomers={totalCustomers}
           recentTransactions={recentTransactions}
           lowStockItems={lowStockItems}
           upcomingAppointments={upcomingAppointments}
@@ -317,6 +332,7 @@ export default function DashboardHome() {
       loading={loading}
       todaySales={todaySales}
       todayTransactions={todayTransactions}
+      totalCustomers={totalCustomers}
       recentTransactions={recentTransactions}
       lowStockItems={lowStockItems}
       upcomingAppointments={upcomingAppointments}
@@ -329,6 +345,7 @@ function DashboardContent({
   loading,
   todaySales,
   todayTransactions,
+  totalCustomers,
   recentTransactions,
   lowStockItems,
   upcomingAppointments
@@ -336,6 +353,7 @@ function DashboardContent({
   loading: boolean;
   todaySales: number;
   todayTransactions: number;
+  totalCustomers: number;
   recentTransactions: RecentTransaction[];
   lowStockItems: LowStockItem[];
   upcomingAppointments: UpcomingAppointment[];
@@ -375,7 +393,7 @@ function DashboardContent({
               <p className="text-sm text-muted-foreground">Total Customers</p>
               <Users className="w-4 h-4 text-blue-500" />
             </div>
-            <p className="text-2xl font-bold text-foreground">-</p>
+            <p className="text-2xl font-bold text-foreground">{totalCustomers}</p>
             <p className="text-xs text-muted-foreground mt-1">Active accounts</p>
           </div>
           
@@ -521,13 +539,43 @@ function DashboardContent({
                   <div key={item.id} className="flex items-center justify-between bg-background rounded-lg p-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">Stock: {item.stock_quantity}</p>
+                      <p className="text-xs text-muted-foreground">Stock: {item.stock_quantity} (Min: {item.reorder_level || 5})</p>
                     </div>
                     <Link
                       href={`/dashboard/inventory?id=${item.id}`}
                       className="text-xs bg-orange-500/10 text-orange-600 px-2 py-1 rounded hover:bg-orange-500/20 transition-colors"
                     >
                       Restock
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upcoming Appointments */}
+        {upcomingAppointments.length > 0 && (
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="w-5 h-5 text-purple-500" />
+              <h3 className="text-lg font-bold text-foreground">Upcoming Appointments</h3>
+            </div>
+            <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {upcomingAppointments.map((appointment) => (
+                  <div key={appointment.id} className="flex items-center justify-between bg-background rounded-lg p-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{appointment.customer_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(appointment.appointment_time), 'MMM d, HH:mm')} • {appointment.service}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/dashboard/appointments?id=${appointment.id}`}
+                      className="text-xs bg-purple-500/10 text-purple-600 px-2 py-1 rounded hover:bg-purple-500/20 transition-colors"
+                    >
+                      View
                     </Link>
                   </div>
                 ))}
