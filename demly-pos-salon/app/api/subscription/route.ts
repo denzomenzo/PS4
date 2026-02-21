@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
+import Stripe from 'stripe';
 
 export async function GET() {
   try {
@@ -35,7 +36,7 @@ export async function GET() {
     }
 
     // If there's a Stripe subscription ID, get latest data from Stripe
-    if (license.stripe_subscription_id) {
+    if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
       try {
         console.log('Fetching from Stripe:', license.stripe_subscription_id);
         
@@ -97,6 +98,22 @@ export async function GET() {
           }
         });
       }
+    } else if (license.stripe_subscription_id === 'test_subscription_id') {
+      // Handle test licenses
+      return NextResponse.json({
+        subscription: {
+          id: license.stripe_subscription_id,
+          plan: license.plan_type,
+          status: license.status,
+          current_period_start: license.created_at,
+          current_period_end: license.expires_at,
+          cancel_at_period_end: false,
+          price: license.plan_type === 'annual' ? 299 : 29,
+          currency: 'gbp',
+          payment_method: null,
+          created: license.created_at,
+        }
+      });
     }
 
     return NextResponse.json({ subscription: null });
