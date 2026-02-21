@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
+import Stripe from 'stripe';
 
 export async function POST() {
   try {
@@ -47,11 +48,11 @@ export async function POST() {
           });
 
           if (invoices.data.length > 0) {
-            const latestInvoice = invoices.data[0];
+            const latestInvoice = invoices.data[0] as Stripe.Invoice & { payment_intent?: string | Stripe.PaymentIntent | null };
             if (latestInvoice.payment_intent) {
               const paymentIntentId = typeof latestInvoice.payment_intent === 'string' 
                 ? latestInvoice.payment_intent 
-                : latestInvoice.payment_intent.id;
+                : (latestInvoice.payment_intent as Stripe.PaymentIntent).id;
                 
               await stripe.refunds.create({
                 payment_intent: paymentIntentId,
@@ -128,7 +129,6 @@ export async function POST() {
 
     return NextResponse.json({
       message: 'Account deleted successfully',
-      refunded: daysSinceCreation <= COOLING_PERIOD_DAYS ? true : false
     });
 
   } catch (error: any) {
