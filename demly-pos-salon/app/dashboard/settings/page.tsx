@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
-  CircleDollarSign, ExternalLink
+  CircleDollarSign, History, ExternalLink
 } from "lucide-react";
 import Link from "next/link";
 
@@ -110,6 +110,10 @@ export default function Settings() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
+
+  // Danger Zone
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -545,6 +549,36 @@ export default function Settings() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!confirm("Are you absolutely sure? This will permanently delete all your data and cannot be undone.")) {
+      return;
+    }
+    
+    setDeleting(true);
+    try {
+      const response = await fetch('/api/account/delete', {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete account');
+      }
+      
+      // Sign out and redirect to home
+      await supabase.auth.signOut();
+      window.location.href = '/';
+      
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      alert(error.message || 'Failed to delete account');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-GB', {
       day: 'numeric',
@@ -940,10 +974,20 @@ export default function Settings() {
               <h1 className="text-2xl font-bold text-foreground">Settings</h1>
               <p className="text-sm text-muted-foreground">Manage your business configuration</p>
             </div>
-            <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
+            <div className="flex items-center gap-2">
+              {/* Audit Log Button */}
+              <Link
+                href="/dashboard/settings/audit-logs"
+                className="flex items-center gap-2 bg-muted hover:bg-accent text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <History className="w-4 h-4" />
+                Audit Logs
+              </Link>
+              <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Link>
+            </div>
           </div>
 
           {/* Success/Error Messages */}
@@ -1575,6 +1619,59 @@ export default function Settings() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Danger Zone */}
+          <div className="bg-card border border-destructive/20 rounded-xl p-4 mt-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
+                <AlertCircle className="w-4 h-4 text-destructive" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Danger Zone</h2>
+                <p className="text-xs text-muted-foreground">Irreversible account actions</p>
+              </div>
+            </div>
+
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+              >
+                Delete Account
+              </button>
+            ) : (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                <p className="text-xs text-destructive mb-2 font-bold">
+                  ⚠️ This will permanently delete:
+                </p>
+                <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
+                  <li>All your business settings and staff members</li>
+                  <li>All transactions, customers, and inventory data</li>
+                  <li>Your subscription (with refund if within 14 days)</li>
+                  <li>Your account and all associated data</li>
+                </ul>
+                <p className="text-xs text-destructive mb-3 font-bold">
+                  This action cannot be undone!
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="flex-1 bg-muted hover:bg-accent text-foreground py-1.5 rounded text-xs font-medium"
+                    disabled={deleting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
+                    className="flex-1 bg-destructive text-destructive-foreground py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
+                  >
+                    {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Permanently Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
