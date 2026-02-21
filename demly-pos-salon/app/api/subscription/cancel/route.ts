@@ -31,7 +31,7 @@ export async function POST() {
     // Get the subscription from Stripe
     const stripeSubscription = await stripe.subscriptions.retrieve(
       license.stripe_subscription_id
-    );
+    ) as Stripe.Subscription;
 
     // Check if within 14-day cooling period
     const createdDate = new Date(stripeSubscription.created * 1000);
@@ -42,7 +42,7 @@ export async function POST() {
 
     if (daysSinceCreation <= COOLING_PERIOD_DAYS) {
       // Within cooling period - cancel immediately and refund
-      const canceledSubscription = await stripe.subscriptions.cancel(license.stripe_subscription_id, {
+      await stripe.subscriptions.cancel(license.stripe_subscription_id, {
         prorate: true,
         invoice_now: true,
       });
@@ -56,9 +56,7 @@ export async function POST() {
       if (invoices.data.length > 0) {
         const latestInvoice = invoices.data[0] as Stripe.Invoice & { payment_intent?: string | Stripe.PaymentIntent | null };
         
-        // Check if payment_intent exists (it might be a string or an object)
         if (latestInvoice.payment_intent) {
-          // Handle both string and object cases
           const paymentIntentId = typeof latestInvoice.payment_intent === 'string' 
             ? latestInvoice.payment_intent 
             : (latestInvoice.payment_intent as Stripe.PaymentIntent).id;
@@ -84,7 +82,7 @@ export async function POST() {
       });
     } else {
       // Outside cooling period - cancel at period end
-      const updatedSubscription = await stripe.subscriptions.update(
+      await stripe.subscriptions.update(
         license.stripe_subscription_id,
         {
           cancel_at_period_end: true,
