@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
-  CircleDollarSign, History, ExternalLink
+  CircleDollarSign, History, ExternalLink, AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
 
@@ -57,6 +57,7 @@ interface Subscription {
     exp_year: number;
   };
   created: string;
+  cooling_days_left?: number;
 }
 
 interface Invoice {
@@ -111,7 +112,7 @@ export default function Settings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
 
-  // Danger Zone
+  // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -178,14 +179,10 @@ export default function Settings() {
     }
   }, [successMessage, cancelError]);
 
-  // Calculate cooling days left
+  // Set cooling days from subscription
   useEffect(() => {
-    if (subscription?.created) {
-      const createdDate = new Date(subscription.created);
-      const now = new Date();
-      const daysSince = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-      const daysLeft = COOLING_PERIOD_DAYS - daysSince;
-      setCoolingDaysLeft(daysLeft > 0 ? daysLeft : 0);
+    if (subscription?.cooling_days_left !== undefined) {
+      setCoolingDaysLeft(subscription.cooling_days_left);
     } else {
       setCoolingDaysLeft(null);
     }
@@ -1080,7 +1077,7 @@ export default function Settings() {
               )}
             </div>
 
-            {/* Subscription & Billing */}
+            {/* Subscription & Billing (with Danger Zone) */}
             <div className="bg-card border border-border rounded-xl p-4">
               <div 
                 className="flex items-center justify-between cursor-pointer"
@@ -1092,7 +1089,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">Subscription & Billing</h2>
-                    <p className="text-xs text-muted-foreground">Manage your plan and payment methods</p>
+                    <p className="text-xs text-muted-foreground">Manage your plan, payment methods, and account</p>
                   </div>
                 </div>
                 {expandedSections.subscription ? (
@@ -1284,6 +1281,81 @@ export default function Settings() {
                           </div>
                         </div>
                       )}
+
+                      {/* Account Deletion Section - 14 Day Countdown */}
+                      <div className="mt-6 pt-4 border-t border-destructive/20">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
+                            <AlertTriangle className="w-4 h-4 text-destructive" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">Delete Account</h3>
+                            <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
+                          </div>
+                        </div>
+
+                        {!showDeleteConfirm ? (
+                          <button
+                            onClick={() => setShowDeleteConfirm(true)}
+                            className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+                          >
+                            Request Account Deletion
+                          </button>
+                        ) : (
+                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                            <div className="flex items-center gap-3 mb-3">
+                              <Clock className="w-5 h-5 text-destructive" />
+                              <div>
+                                <p className="text-sm font-bold text-destructive">14-Day Cooling Period</p>
+                                <p className="text-xs text-destructive/80">
+                                  Your account will be permanently deleted in 14 days. You can cancel this request anytime.
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="bg-destructive/20 rounded-lg p-3 mb-3">
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-xs text-destructive">Days until deletion</span>
+                                <span className="text-sm font-bold text-destructive">14 days</span>
+                              </div>
+                              <div className="w-full bg-destructive/30 rounded-full h-2">
+                                <div 
+                                  className="bg-destructive h-2 rounded-full" 
+                                  style={{ width: '0%' }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
+                              <li>All your business settings and staff members</li>
+                              <li>All transactions, customers, and inventory data</li>
+                              <li>Your subscription will be cancelled (with refund if applicable)</li>
+                              <li>Your account and all associated data</li>
+                            </ul>
+                            
+                            <p className="text-xs text-destructive mb-3 font-bold">
+                              This action cannot be undone after 14 days!
+                            </p>
+                            
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setShowDeleteConfirm(false)}
+                                className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
+                                disabled={deleting}
+                              >
+                                Cancel Request
+                              </button>
+                              <button
+                                onClick={handleDeleteAccount}
+                                disabled={deleting}
+                                className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
+                              >
+                                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Confirm Deletion'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
@@ -1619,59 +1691,6 @@ export default function Settings() {
                 </div>
               )}
             </div>
-          </div>
-
-          {/* Danger Zone */}
-          <div className="bg-card border border-destructive/20 rounded-xl p-4 mt-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-4 h-4 text-destructive" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Danger Zone</h2>
-                <p className="text-xs text-muted-foreground">Irreversible account actions</p>
-              </div>
-            </div>
-
-            {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-              >
-                Delete Account
-              </button>
-            ) : (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                <p className="text-xs text-destructive mb-2 font-bold">
-                  ⚠️ This will permanently delete:
-                </p>
-                <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
-                  <li>All your business settings and staff members</li>
-                  <li>All transactions, customers, and inventory data</li>
-                  <li>Your subscription (with refund if within 14 days)</li>
-                  <li>Your account and all associated data</li>
-                </ul>
-                <p className="text-xs text-destructive mb-3 font-bold">
-                  This action cannot be undone!
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    className="flex-1 bg-muted hover:bg-accent text-foreground py-1.5 rounded text-xs font-medium"
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteAccount}
-                    disabled={deleting}
-                    className="flex-1 bg-destructive text-destructive-foreground py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                  >
-                    {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Permanently Delete'}
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
