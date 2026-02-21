@@ -54,17 +54,20 @@ export async function GET() {
     // If there's a Stripe subscription ID, get latest data from Stripe
     if (license.stripe_subscription_id) {
       try {
-        const stripeSub = await stripe.subscriptions.retrieve(
+        const response = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
         );
+        
+        // Cast to any to avoid TypeScript errors
+        const stripeSub = response as any;
 
         // Get payment method details if available
         let paymentMethod = null;
         if (stripeSub.default_payment_method) {
-          const pm = stripeSub.default_payment_method as any;
+          const pm = stripeSub.default_payment_method;
           if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
@@ -103,6 +106,13 @@ export async function GET() {
       } catch (stripeError: any) {
         console.error('Stripe error:', stripeError);
         // Fall back to license data
+        const createdDate = new Date(license.created_at);
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
         return NextResponse.json({
           subscription: {
             id: license.stripe_subscription_id,
@@ -115,7 +125,7 @@ export async function GET() {
             currency: 'gbp',
             payment_method: null,
             created: license.created_at,
-            cooling_days_left: 0,
+            cooling_days_left: coolingDaysLeft,
           }
         });
       }
