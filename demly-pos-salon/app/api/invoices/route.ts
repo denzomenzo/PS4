@@ -1,23 +1,55 @@
 // app/api/invoices/route.ts
 import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 
 export async function GET() {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
+    const cookieStore = await cookies();
     
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Get the staff cookie first
+    const staffCookie = cookieStore.get('current_staff')?.value;
+    
+    if (!staffCookie) {
+      console.log('❌ No staff cookie found');
+      return NextResponse.json(
+        { error: 'Unauthorized - No staff session' }, 
+        { status: 401 }
+      );
     }
 
-    // Get user's license to get Stripe customer ID
+    // Parse staff data from cookie
+    let staff;
+    try {
+      staff = JSON.parse(decodeURIComponent(staffCookie));
+      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
+    } catch (e) {
+      console.error('❌ Invalid staff cookie');
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid staff session' }, 
+        { status: 401 }
+      );
+    }
+
+    // Use service role client for database access
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() { return null; },
+          set() {},
+          remove() {},
+        },
+      }
+    );
+
+    // Get user's license by staff email
     const { data: license, error } = await supabase
       .from('licenses')
       .select('stripe_customer_id')
-      .eq('email', user.email)
+      .eq('email', staff.email)
       .single();
 
     if (error || !license?.stripe_customer_id) {
