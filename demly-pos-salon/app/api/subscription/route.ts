@@ -6,15 +6,16 @@ import { stripe } from '@/lib/stripe';
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
+          async get(name: string) {
+            const cookie = await cookieStore.get(name);
+            return cookie?.value;
           },
           set() {
             // Not needed for API routes
