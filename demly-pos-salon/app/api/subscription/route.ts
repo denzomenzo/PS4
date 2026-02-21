@@ -23,7 +23,7 @@ export async function GET() {
     let staff;
     try {
       staff = JSON.parse(decodeURIComponent(staffCookie));
-      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
+      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role, email: staff.email });
     } catch (e) {
       console.error('❌ Invalid staff cookie');
       return NextResponse.json(
@@ -32,40 +32,24 @@ export async function GET() {
       );
     }
 
-    // Now use service role client to get user data
+    // Use service role client for database access
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!, // Use service role for admin access
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
         cookies: {
-          get() { return null; }, // Not needed with service role
+          get() { return null; },
           set() {},
           remove() {},
         },
       }
     );
 
-    // Get the user associated with this staff
-    const { data: staffData, error: staffError } = await supabase
-      .from('staff')
-      .select('user_id')
-      .eq('id', staff.id)
-      .single();
-
-    if (staffError || !staffData?.user_id) {
-      console.error('❌ Could not find user for staff:', staffError);
-      return NextResponse.json(
-        { error: 'Unauthorized - User not found' }, 
-        { status: 401 }
-      );
-    }
-
-    // Get user email from auth.users (need to use a different approach)
-    // For now, let's get license by staff email from the cookie
+    // Get user's license by staff email
     const { data: license, error } = await supabase
       .from('licenses')
       .select('*')
-      .eq('email', staff.email) // Staff email should match license email
+      .eq('email', staff.email)
       .maybeSingle();
 
     if (error) {
@@ -75,18 +59,21 @@ export async function GET() {
 
     if (!license) {
       console.log('No license found for staff email:', staff.email);
+      // Return null subscription - this will show "Purchase License" in settings
       return NextResponse.json({ subscription: null });
     }
 
     console.log('✅ License found:', {
       id: license.id,
       stripe_subscription_id: license.stripe_subscription_id,
-      plan: license.plan_type
+      plan: license.plan_type,
+      status: license.status,
+      email: license.email
     });
 
-    // If there's a Stripe subscription ID, get latest data from Stripe
-    if (license.stripe_subscription_id) {
-      try {
+    // Try to get from Stripe, but always return license data even if Stripe fails
+    try {
+      if (license.stripe_subscription_id) {
         const response = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
@@ -135,35 +122,34 @@ export async function GET() {
             cooling_days_left: coolingDaysLeft,
           }
         });
-      } catch (stripeError: any) {
-        console.error('Stripe error:', stripeError);
-        // Fall back to license data
-        const createdDate = new Date(license.created_at);
-        const now = new Date();
-        const daysSince = Math.floor(
-          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        const coolingDaysLeft = Math.max(0, 14 - daysSince);
-
-        return NextResponse.json({
-          subscription: {
-            id: license.stripe_subscription_id,
-            plan: license.plan_type,
-            status: license.status,
-            current_period_start: license.created_at,
-            current_period_end: license.expires_at,
-            cancel_at_period_end: false,
-            price: license.plan_type === 'annual' ? 299 : 29,
-            currency: 'gbp',
-            payment_method: null,
-            created: license.created_at,
-            cooling_days_left: coolingDaysLeft,
-          }
-        });
       }
+    } catch (stripeError: any) {
+      console.log('Stripe fetch failed, using license data:', stripeError.message);
     }
 
-    return NextResponse.json({ subscription: null });
+    // Always return license data as fallback
+    const createdDate = new Date(license.created_at);
+    const now = new Date();
+    const daysSince = Math.floor(
+      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
+    return NextResponse.json({
+      subscription: {
+        id: license.stripe_subscription_id || 'license-' + license.id,
+        plan: license.plan_type,
+        status: license.status,
+        current_period_start: license.created_at,
+        current_period_end: license.expires_at,
+        cancel_at_period_end: false,
+        price: license.plan_type === 'annual' ? 299 : 29,
+        currency: 'gbp',
+        payment_method: null,
+        created: license.created_at,
+        cooling_days_left: coolingDaysLeft,
+      }
+    });
   } catch (error: any) {
     console.error('Error:', error);
     return NextResponse.json(
