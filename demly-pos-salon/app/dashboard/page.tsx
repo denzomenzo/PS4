@@ -1,6 +1,7 @@
 // app/dashboard/page.tsx - REDESIGNED DASHBOARD HOME
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
   Users, 
@@ -15,8 +16,39 @@ import {
   BarChart3,
   FileText,
   Zap,
-  ChevronRight
+  ChevronRight,
+  Clock,
+  AlertTriangle
 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import { useUserId } from "@/hooks/useUserId";
+import { format } from "date-fns";
+
+interface RecentTransaction {
+  id: string;
+  created_at: string;
+  total: number;
+  payment_method: string;
+  customer_name?: string;
+}
+
+interface LowStockItem {
+  id: string;
+  name: string;
+  stock_quantity: number;
+  reorder_level: number;
+}
+
+interface UpcomingAppointment {
+  id: string;
+  customer_name: string;
+  appointment_time: string;
+  service: string;
+}
+
+interface Subscription {
+  cooling_days_left?: number;
+}
 
 const menuItems = [
   {
@@ -86,6 +118,228 @@ const menuItems = [
 ];
 
 export default function DashboardHome() {
+  const userId = useUserId();
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<RecentTransaction[]>([]);
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]);
+  const [todaySales, setTodaySales] = useState(0);
+  const [todayTransactions, setTodayTransactions] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (userId) {
+      loadDashboardData();
+      loadSubscription();
+    }
+  }, [userId]);
+
+  const loadSubscription = async () => {
+    try {
+      const response = await fetch('/api/subscription');
+      const data = await response.json();
+      if (data.subscription) {
+        setSubscription(data.subscription);
+      }
+    } catch (error) {
+      console.error("Error loading subscription:", error);
+    }
+  };
+
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      // Get today's date range
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Load recent transactions
+      const { data: transactions, error: transError } = await supabase
+        .from('transactions')
+        .select(`
+          id,
+          created_at,
+          total,
+          payment_method,
+          customer:customer_id (name)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (transactions) {
+        setRecentTransactions(transactions.map(t => ({
+          id: t.id,
+          created_at: t.created_at,
+          total: t.total,
+          payment_method: t.payment_method,
+          customer_name: t.customer?.name
+        })));
+
+        // Calculate today's sales
+        const todayTransactions = transactions.filter(t => 
+          new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
+        );
+        setTodaySales(todayTransactions.reduce((sum, t) => sum + (t.total || 0), 0));
+        setTodayTransactions(todayTransactions.length);
+      }
+
+      // Load low stock items
+      const { data: inventory, error: invError } = await supabase
+        .from('products')
+        .select('id, name, stock_quantity, reorder_level')
+        .eq('user_id', userId)
+        .lte('stock_quantity', supabase.rpc('coalesce', { 'reorder_level', 5 }))
+        .order('stock_quantity', { ascending: true })
+        .limit(5);
+
+      if (inventory) {
+        setLowStockItems(inventory);
+      }
+
+      // Load upcoming appointments
+      const { data: appointments, error: appError } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          appointment_time,
+          service,
+          customer:customer_id (name)
+        `)
+        .eq('user_id', userId)
+        .gte('appointment_time', new Date().toISOString())
+        .order('appointment_time', { ascending: true })
+        .limit(5);
+
+      if (appointments) {
+        setUpcomingAppointments(appointments.map(a => ({
+          id: a.id,
+          customer_name: a.customer?.name || 'Unknown',
+          appointment_time: a.appointment_time,
+          service: a.service
+        })));
+      }
+
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cooling period banner
+  if (subscription?.cooling_days_left && subscription.cooling_days_left > 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        {/* Cooling Period Banner */}
+        <div className="bg-amber-500/10 border-b border-amber-500/30">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center">
+                  <Clock className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-amber-600">
+                    <span className="font-bold">14-Day Cooling Period:</span> You have {subscription.cooling_days_left} days remaining to cancel for a full refund.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/dashboard/settings#subscription"
+                className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                Manage Subscription
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Rest of dashboard... */}
+        <DashboardContent 
+          loading={loading}
+          todaySales={todaySales}
+          todayTransactions={todayTransactions}
+          recentTransactions={recentTransactions}
+          lowStockItems={lowStockItems}
+          upcomingAppointments={upcomingAppointments}
+        />
+      </div>
+    );
+  }
+
+  // Account deletion countdown banner
+  if (subscription?.deletion_scheduled) {
+    return (
+      <div className="min-h-screen bg-background">
+        {/* Deletion Countdown Banner */}
+        <div className="bg-destructive/10 border-b border-destructive/30">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-destructive/20 rounded-lg flex items-center justify-center">
+                  <AlertTriangle className="w-4 h-4 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-sm text-destructive">
+                    <span className="font-bold">Account Deletion Scheduled:</span> Your account will be permanently deleted in {subscription.days_until_deletion} days.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/dashboard/settings#subscription"
+                className="text-xs bg-destructive/20 hover:bg-destructive/30 text-destructive px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                Cancel Deletion
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Rest of dashboard... */}
+        <DashboardContent 
+          loading={loading}
+          todaySales={todaySales}
+          todayTransactions={todayTransactions}
+          recentTransactions={recentTransactions}
+          lowStockItems={lowStockItems}
+          upcomingAppointments={upcomingAppointments}
+        />
+      </div>
+    );
+  }
+
+  // Normal dashboard without banners
+  return (
+    <DashboardContent 
+      loading={loading}
+      todaySales={todaySales}
+      todayTransactions={todayTransactions}
+      recentTransactions={recentTransactions}
+      lowStockItems={lowStockItems}
+      upcomingAppointments={upcomingAppointments}
+    />
+  );
+}
+
+// Separate component for the main dashboard content
+function DashboardContent({ 
+  loading,
+  todaySales,
+  todayTransactions,
+  recentTransactions,
+  lowStockItems,
+  upcomingAppointments
+}: { 
+  loading: boolean;
+  todaySales: number;
+  todayTransactions: number;
+  recentTransactions: RecentTransaction[];
+  lowStockItems: LowStockItem[];
+  upcomingAppointments: UpcomingAppointment[];
+}) {
   return (
     <div className="min-h-screen bg-background">
       <div className="p-6 max-w-7xl mx-auto">
@@ -112,8 +366,8 @@ export default function DashboardHome() {
               <p className="text-sm text-muted-foreground">Today's Sales</p>
               <Zap className="w-4 h-4 text-primary" />
             </div>
-            <p className="text-2xl font-bold text-foreground">£0.00</p>
-            <p className="text-xs text-muted-foreground mt-1">0 transactions</p>
+            <p className="text-2xl font-bold text-foreground">£{todaySales.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{todayTransactions} transactions</p>
           </div>
           
           <div className="bg-card border border-border rounded-xl p-5">
@@ -130,7 +384,7 @@ export default function DashboardHome() {
               <p className="text-sm text-muted-foreground">Low Stock Items</p>
               <Package className="w-4 h-4 text-orange-500" />
             </div>
-            <p className="text-2xl font-bold text-foreground">-</p>
+            <p className="text-2xl font-bold text-foreground">{lowStockItems.length}</p>
             <p className="text-xs text-muted-foreground mt-1">Needs attention</p>
           </div>
           
@@ -139,7 +393,7 @@ export default function DashboardHome() {
               <p className="text-sm text-muted-foreground">Today's Bookings</p>
               <Calendar className="w-4 h-4 text-purple-500" />
             </div>
-            <p className="text-2xl font-bold text-foreground">-</p>
+            <p className="text-2xl font-bold text-foreground">{upcomingAppointments.length}</p>
             <p className="text-xs text-muted-foreground mt-1">Appointments</p>
           </div>
         </div>
@@ -182,7 +436,7 @@ export default function DashboardHome() {
           </div>
         </div>
 
-        {/* Quick Actions */}
+        {/* Recent Activity & Quick Actions */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
             <div className="flex items-center gap-3 mb-3">
@@ -218,15 +472,70 @@ export default function DashboardHome() {
               </div>
               <h3 className="text-lg font-bold text-foreground">Recent Activity</h3>
             </div>
-            <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">No recent activity</p>
-              <p className="text-xs text-muted-foreground mt-1">Start using the POS to see transactions here</p>
-            </div>
+            
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : recentTransactions.length > 0 ? (
+              <div className="space-y-3">
+                {recentTransactions.map((transaction) => (
+                  <div key={transaction.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {transaction.customer_name || 'Walk-in Customer'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(transaction.created_at), 'HH:mm')} • {transaction.payment_method}
+                      </p>
+                    </div>
+                    <p className="text-sm font-bold text-foreground">£{transaction.total.toFixed(2)}</p>
+                  </div>
+                ))}
+                <Link 
+                  href="/dashboard/transactions" 
+                  className="block text-center text-xs text-primary hover:text-primary/80 mt-2"
+                >
+                  View all transactions →
+                </Link>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">No recent activity</p>
+                <p className="text-xs text-muted-foreground mt-1">Start using the POS to see transactions here</p>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Low Stock Alert */}
+        {lowStockItems.length > 0 && (
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-3">
+              <Package className="w-5 h-5 text-orange-500" />
+              <h3 className="text-lg font-bold text-foreground">Low Stock Alert</h3>
+            </div>
+            <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {lowStockItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between bg-background rounded-lg p-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{item.name}</p>
+                      <p className="text-xs text-muted-foreground">Stock: {item.stock_quantity}</p>
+                    </div>
+                    <Link
+                      href={`/dashboard/inventory?id=${item.id}`}
+                      className="text-xs bg-orange-500/10 text-orange-600 px-2 py-1 rounded hover:bg-orange-500/20 transition-colors"
+                    >
+                      Restock
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-
