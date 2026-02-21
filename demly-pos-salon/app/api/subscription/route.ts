@@ -36,7 +36,7 @@ export async function GET() {
     }
 
     // If there's a Stripe subscription ID, get latest data from Stripe
-    if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
+    if (license.stripe_subscription_id) {
       try {
         console.log('Fetching from Stripe:', license.stripe_subscription_id);
         
@@ -45,7 +45,7 @@ export async function GET() {
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
-        );
+        ) as Stripe.Subscription;
 
         console.log('Stripe subscription found:', stripeSub.id);
 
@@ -82,38 +82,9 @@ export async function GET() {
         });
       } catch (stripeError: any) {
         console.error('Error fetching from Stripe:', stripeError);
-        // Fall back to license data
-        return NextResponse.json({
-          subscription: {
-            id: license.stripe_subscription_id,
-            plan: license.plan_type,
-            status: license.status,
-            current_period_start: license.created_at,
-            current_period_end: license.expires_at,
-            cancel_at_period_end: false,
-            price: license.plan_type === 'annual' ? 299 : 29,
-            currency: 'gbp',
-            payment_method: null,
-            created: license.created_at,
-          }
-        });
+        // If Stripe fetch fails, return null - user will see "Purchase License" button
+        return NextResponse.json({ subscription: null });
       }
-    } else if (license.stripe_subscription_id === 'test_subscription_id') {
-      // Handle test licenses
-      return NextResponse.json({
-        subscription: {
-          id: license.stripe_subscription_id,
-          plan: license.plan_type,
-          status: license.status,
-          current_period_start: license.created_at,
-          current_period_end: license.expires_at,
-          cancel_at_period_end: false,
-          price: license.plan_type === 'annual' ? 299 : 29,
-          currency: 'gbp',
-          payment_method: null,
-          created: license.created_at,
-        }
-      });
     }
 
     return NextResponse.json({ subscription: null });
