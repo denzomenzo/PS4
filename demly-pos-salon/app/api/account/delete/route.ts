@@ -1,25 +1,73 @@
 // app/api/account/delete/route.ts
 import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
 import Stripe from 'stripe';
 
 export async function POST() {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
+    const cookieStore = await cookies();
     
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Get the staff cookie first
+    const staffCookie = cookieStore.get('current_staff')?.value;
+    
+    if (!staffCookie) {
+      console.log('❌ No staff cookie found');
+      return NextResponse.json(
+        { error: 'Unauthorized - No staff session' }, 
+        { status: 401 }
+      );
     }
 
-    // 1. Get user's license and subscription data
+    // Parse staff data from cookie
+    let staff;
+    try {
+      staff = JSON.parse(decodeURIComponent(staffCookie));
+      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
+    } catch (e) {
+      console.error('❌ Invalid staff cookie');
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid staff session' }, 
+        { status: 401 }
+      );
+    }
+
+    // Use service role client for database access
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() { return null; },
+          set() {},
+          remove() {},
+        },
+      }
+    );
+
+    // 1. Get user's license by staff email
     const { data: license, error: licenseError } = await supabase
       .from('licenses')
       .select('*')
-      .eq('email', user.email)
+      .eq('email', staff.email)
       .single();
+
+    // Get user_id from staff table
+    const { data: staffData, error: staffDataError } = await supabase
+      .from('staff')
+      .select('user_id')
+      .eq('id', staff.id)
+      .single();
+
+    if (staffDataError || !staffData?.user_id) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const userId = staffData.user_id;
 
     // 2. Handle active subscription if exists
     if (license?.stripe_subscription_id) {
@@ -82,13 +130,13 @@ export async function POST() {
     await supabase
       .from('staff')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     
     // Delete settings
     await supabase
       .from('settings')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     
     // Delete license
     if (license) {
@@ -102,21 +150,26 @@ export async function POST() {
     await supabase
       .from('transactions')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     
     await supabase
       .from('customers')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
     
     await supabase
       .from('products')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
+
+    await supabase
+      .from('appointments')
+      .delete()
+      .eq('user_id', userId);
     
     // 4. Finally, delete the user from Supabase Auth
     const { error: deleteError } = await supabase.auth.admin.deleteUser(
-      user.id
+      userId
     );
 
     if (deleteError) {
@@ -127,9 +180,14 @@ export async function POST() {
       );
     }
 
-    return NextResponse.json({
+    // Clear the staff cookie
+    const response = NextResponse.json({
       message: 'Account deleted successfully',
     });
+    
+    response.cookies.delete('current_staff');
+    
+    return response;
 
   } catch (error: any) {
     console.error('Error deleting account:', error);
