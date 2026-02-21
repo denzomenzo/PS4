@@ -25,8 +25,12 @@ function getStripeId(value: any): string | null {
   return null;
 }
 
-interface InvoiceWithSubscription extends Stripe.Invoice {
-  subscription?: string | Stripe.Subscription | null;
+function getSubscriptionId(invoice: any): string | null {
+  if (!invoice) return null;
+  // Handle both string and object cases
+  if (typeof invoice.subscription === 'string') return invoice.subscription;
+  if (invoice.subscription && typeof invoice.subscription === 'object' && 'id' in invoice.subscription) return invoice.subscription.id;
+  return null;
 }
 
 // IMPORTANT: Disable body parsing to get raw body for signature verification
@@ -271,8 +275,8 @@ export async function POST(req: NextRequest) {
       console.log('❌ PROCESSING PAYMENT FAILURE');
       console.log('❌ ================================');
       
-      const invoice = event.data.object as Stripe.Invoice;
-      const subscriptionId = invoice.subscription as string;
+      const invoice = event.data.object as any; // Use any to avoid type issues
+      const subscriptionId = getSubscriptionId(invoice);
       
       console.log('🔑 Subscription ID:', subscriptionId);
       console.log('📋 Invoice:', invoice.id);
@@ -330,8 +334,8 @@ export async function POST(req: NextRequest) {
       console.log('🔄 PROCESSING SUBSCRIPTION RENEWAL/PAYMENT SUCCESS');
       console.log('🔄 ================================');
       
-      const invoice = event.data.object as InvoiceWithSubscription;
-      const subscriptionId = getStripeId(invoice.subscription);
+      const invoice = event.data.object as any; // Use any to avoid type issues
+      const subscriptionId = getSubscriptionId(invoice);
 
       console.log('🔑 Subscription ID:', subscriptionId);
 
