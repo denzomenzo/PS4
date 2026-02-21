@@ -9,6 +9,8 @@ export async function GET() {
     const supabase = createRouteHandlerClient({ cookies });
     const { data: { user } } = await supabase.auth.getUser();
     
+    console.log('📋 Subscription API - User:', user?.email);
+    
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -18,21 +20,33 @@ export async function GET() {
       .from('licenses')
       .select('*')
       .eq('email', user.email)
-      .single();
+      .maybeSingle();
 
-    if (error || !license) {
+    console.log('📋 Subscription API - License query:', { license, error });
+
+    if (error) {
+      console.error('Error fetching license:', error);
+      return NextResponse.json({ subscription: null, error: error.message });
+    }
+
+    if (!license) {
+      console.log('No license found for user:', user.email);
       return NextResponse.json({ subscription: null });
     }
 
     // If there's a Stripe subscription ID, get latest data from Stripe
     if (license.stripe_subscription_id) {
       try {
+        console.log('Fetching from Stripe:', license.stripe_subscription_id);
+        
         const stripeSubscription = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
         );
+
+        console.log('Stripe subscription found:', stripeSubscription.id);
 
         // Get payment method details if available
         let paymentMethod = null;
@@ -59,13 +73,13 @@ export async function GET() {
             current_period_start: new Date(stripeSubscription.current_period_start * 1000).toISOString(),
             current_period_end: new Date(stripeSubscription.current_period_end * 1000).toISOString(),
             cancel_at_period_end: stripeSubscription.cancel_at_period_end,
-            price: price?.unit_amount ? price.unit_amount / 100 : 0,
+            price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
             currency: price?.currency || 'gbp',
             payment_method: paymentMethod,
             created: new Date(stripeSubscription.created * 1000).toISOString(),
           }
         });
-      } catch (stripeError) {
+      } catch (stripeError: any) {
         console.error('Error fetching from Stripe:', stripeError);
         // Fall back to license data
         return NextResponse.json({
@@ -73,11 +87,12 @@ export async function GET() {
             id: license.stripe_subscription_id,
             plan: license.plan_type,
             status: license.status,
-            current_period_start: new Date().toISOString(),
+            current_period_start: license.created_at,
             current_period_end: license.expires_at,
             cancel_at_period_end: false,
             price: license.plan_type === 'annual' ? 299 : 29,
             currency: 'gbp',
+            payment_method: null,
             created: license.created_at,
           }
         });
@@ -85,10 +100,10 @@ export async function GET() {
     }
 
     return NextResponse.json({ subscription: null });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching subscription:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch subscription' },
+      { error: error.message || 'Failed to fetch subscription' },
       { status: 500 }
     );
   }
