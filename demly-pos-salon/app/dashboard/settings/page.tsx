@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
-  CircleDollarSign
+  CircleDollarSign, ExternalLink
 } from "lucide-react";
 import Link from "next/link";
 
@@ -44,7 +44,7 @@ interface Staff {
 interface Subscription {
   id: string;
   plan: 'monthly' | 'annual';
-  status: 'active' | 'canceled' | 'past_due' | 'trialing';
+  status: 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
   current_period_start: string;
   current_period_end: string;
   cancel_at_period_end: boolean;
@@ -56,7 +56,21 @@ interface Subscription {
     exp_month: number;
     exp_year: number;
   };
+  created: string;
 }
+
+interface Invoice {
+  id: string;
+  number: string;
+  date: string;
+  amount: number;
+  currency: string;
+  status: string;
+  pdf_url: string | null;
+  hosted_url: string | null;
+}
+
+const COOLING_PERIOD_DAYS = 14;
 
 export default function Settings() {
   const userId = useUserId();
@@ -88,9 +102,14 @@ export default function Settings() {
 
   // Subscription
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -143,6 +162,30 @@ export default function Settings() {
 
   // Username field for staff
   const [staffUsername, setStaffUsername] = useState("");
+
+  // Clear messages after 5 seconds
+  useEffect(() => {
+    if (successMessage || cancelError) {
+      const timer = setTimeout(() => {
+        setSuccessMessage(null);
+        setCancelError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage, cancelError]);
+
+  // Calculate cooling days left
+  useEffect(() => {
+    if (subscription?.created) {
+      const createdDate = new Date(subscription.created);
+      const now = new Date();
+      const daysSince = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+      const daysLeft = COOLING_PERIOD_DAYS - daysSince;
+      setCoolingDaysLeft(daysLeft > 0 ? daysLeft : 0);
+    } else {
+      setCoolingDaysLeft(null);
+    }
+  }, [subscription]);
 
   // FIXED: Simplified permission checking
   useEffect(() => {
@@ -347,103 +390,94 @@ export default function Settings() {
 
   const loadSubscription = async () => {
     setLoadingSubscription(true);
+    setCancelError(null);
+    
     try {
-      // This would be an API call to your backend to get subscription details from Stripe
-      // For now, we'll simulate a subscription
-      const mockSubscription: Subscription = {
-        id: 'sub_mock123',
-        plan: 'annual',
-        status: 'active',
-        current_period_start: new Date().toISOString(),
-        current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        cancel_at_period_end: false,
-        price: 299,
-        currency: 'gbp',
-        payment_method: {
-          brand: 'visa',
-          last4: '4242',
-          exp_month: 12,
-          exp_year: 2025
-        }
-      };
+      // Fetch subscription from API
+      const response = await fetch('/api/subscription');
       
-      // In production, fetch from your API:
-      // const response = await fetch('/api/subscription');
-      // const data = await response.json();
-      // setSubscription(data);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch subscription: ${response.status}`);
+      }
       
-      setSubscription(mockSubscription);
+      const data = await response.json();
+      
+      if (data.subscription) {
+        setSubscription(data.subscription);
+      } else {
+        setSubscription(null);
+      }
+      
+      // Also load invoices
+      loadInvoices();
+      
     } catch (error) {
       console.error("Error loading subscription:", error);
+      setCancelError("Failed to load subscription details");
     } finally {
       setLoadingSubscription(false);
     }
   };
 
-  const saveAllSettings = async () => {
-    console.log("💾 Saving all settings...");
-    setSaving(true);
+  const loadInvoices = async () => {
+    setLoadingInvoices(true);
+    
     try {
-      const { error } = await supabase
-        .from("settings")
-        .upsert(
-          {
-            user_id: userId,
-            shop_name: shopName,
-            business_logo_url: businessLogoUrl,
-            vat_enabled: vatEnabled,
-            business_name: businessName,
-            business_address: businessAddress,
-            business_phone: businessPhone,
-            business_email: businessEmail,
-            business_website: businessWebsite,
-            tax_number: taxNumber,
-            receipt_logo_url: receiptLogoUrl,
-            receipt_footer: receiptFooter,
-            refund_days: refundDays ? parseInt(refundDays) : null,
-            show_tax_breakdown: showTaxBreakdown,
-            receipt_font_size: parseInt(receiptFontSize),
-            barcode_type: barcodeType,
-            show_barcode_on_receipt: showBarcodeOnReceipt,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'user_id' }
-        );
-
-      if (error) {
-        console.error("❌ Error saving settings:", error);
-        alert("❌ Error saving settings: " + error.message);
-      } else {
-        console.log("✅ Settings saved successfully");
-        alert("✅ All settings saved successfully!");
+      const response = await fetch('/api/invoices');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch invoices: ${response.status}`);
       }
-    } catch (err) {
-      console.error("❌ Unexpected error saving settings:", err);
-      alert("❌ An unexpected error occurred");
+      
+      const data = await response.json();
+      setInvoices(data.invoices || []);
+      
+    } catch (error) {
+      console.error("Error loading invoices:", error);
     } finally {
-      setSaving(false);
+      setLoadingInvoices(false);
     }
   };
 
   const handleCancelSubscription = async () => {
     setCancelling(true);
+    setCancelError(null);
+    setSuccessMessage(null);
+    
     try {
-      // This would call your API to cancel the subscription in Stripe
-      // await fetch('/api/subscription/cancel', { method: 'POST' });
+      const response = await fetch('/api/subscription/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to cancel subscription');
+      }
       
       // Update local state
-      if (subscription) {
-        setSubscription({
-          ...subscription,
+      if (data.refunded) {
+        setSubscription(null);
+        setSuccessMessage("✅ Subscription cancelled and refunded successfully.");
+      } else if (data.cancel_at_period_end) {
+        setSubscription(prev => prev ? {
+          ...prev,
           cancel_at_period_end: true
-        });
+        } : null);
+        setSuccessMessage("✅ Subscription will be cancelled at the end of the billing period.");
       }
       
       setShowCancelConfirm(false);
-      alert("✅ Subscription will be cancelled at the end of the billing period.");
-    } catch (error) {
+      
+      // Refresh subscription data
+      loadSubscription();
+      
+    } catch (error: any) {
       console.error("Error cancelling subscription:", error);
-      alert("❌ Failed to cancel subscription. Please try again.");
+      setCancelError(error.message || "❌ Failed to cancel subscription. Please try again.");
     } finally {
       setCancelling(false);
     }
@@ -451,24 +485,63 @@ export default function Settings() {
 
   const handleReactivateSubscription = async () => {
     setCancelling(true);
+    setCancelError(null);
+    setSuccessMessage(null);
+    
     try {
-      // This would call your API to reactivate the subscription in Stripe
-      // await fetch('/api/subscription/reactivate', { method: 'POST' });
+      const response = await fetch('/api/subscription/reactivate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       
-      // Update local state
-      if (subscription) {
-        setSubscription({
-          ...subscription,
-          cancel_at_period_end: false
-        });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reactivate subscription');
       }
       
-      alert("✅ Subscription reactivated successfully.");
-    } catch (error) {
+      // Update local state
+      setSubscription(prev => prev ? {
+        ...prev,
+        cancel_at_period_end: false
+      } : null);
+      
+      setSuccessMessage("✅ Subscription reactivated successfully.");
+      
+      // Refresh subscription data
+      loadSubscription();
+      
+    } catch (error: any) {
       console.error("Error reactivating subscription:", error);
-      alert("❌ Failed to reactivate subscription. Please try again.");
+      setCancelError(error.message || "❌ Failed to reactivate subscription. Please try again.");
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleOpenCustomerPortal = async () => {
+    try {
+      const response = await fetch('/api/subscription/create-portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to open customer portal');
+      }
+      
+      // Redirect to Stripe Customer Portal
+      window.location.href = data.url;
+      
+    } catch (error: any) {
+      console.error("Error opening customer portal:", error);
+      setCancelError(error.message || "❌ Failed to open customer portal. Please try again.");
     }
   };
 
@@ -729,6 +802,51 @@ export default function Settings() {
     }
   };
 
+  const saveAllSettings = async () => {
+    console.log("💾 Saving all settings...");
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("settings")
+        .upsert(
+          {
+            user_id: userId,
+            shop_name: shopName,
+            business_logo_url: businessLogoUrl,
+            vat_enabled: vatEnabled,
+            business_name: businessName,
+            business_address: businessAddress,
+            business_phone: businessPhone,
+            business_email: businessEmail,
+            business_website: businessWebsite,
+            tax_number: taxNumber,
+            receipt_logo_url: receiptLogoUrl,
+            receipt_footer: receiptFooter,
+            refund_days: refundDays ? parseInt(refundDays) : null,
+            show_tax_breakdown: showTaxBreakdown,
+            receipt_font_size: parseInt(receiptFontSize),
+            barcode_type: barcodeType,
+            show_barcode_on_receipt: showBarcodeOnReceipt,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) {
+        console.error("❌ Error saving settings:", error);
+        alert("❌ Error saving settings: " + error.message);
+      } else {
+        console.log("✅ Settings saved successfully");
+        alert("✅ All settings saved successfully!");
+      }
+    } catch (err) {
+      console.error("❌ Unexpected error saving settings:", err);
+      alert("❌ An unexpected error occurred");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Toggle component for settings
   const ToggleSwitch = ({ 
     enabled, 
@@ -827,6 +945,19 @@ export default function Settings() {
               Back
             </Link>
           </div>
+
+          {/* Success/Error Messages */}
+          {successMessage && (
+            <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-600 text-sm">
+              {successMessage}
+            </div>
+          )}
+          
+          {cancelError && (
+            <div className="mb-4 bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-destructive text-sm">
+              {cancelError}
+            </div>
+          )}
 
           <div className="space-y-3">
             
@@ -953,12 +1084,12 @@ export default function Settings() {
                         </div>
 
                         {/* 14-Day Cooling Period Notice */}
-                        {new Date(subscription.current_period_start) > new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) && (
+                        {coolingDaysLeft && coolingDaysLeft > 0 && (
                           <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-3">
                             <div className="flex items-center gap-2">
                               <Clock className="w-4 h-4 text-amber-600" />
                               <p className="text-xs text-amber-600">
-                                <span className="font-bold">14-Day Cooling Period:</span> You have {14 - Math.floor((Date.now() - new Date(subscription.current_period_start).getTime()) / (24 * 60 * 60 * 1000))} days remaining to cancel for a full refund.
+                                <span className="font-bold">14-Day Cooling Period:</span> You have {coolingDaysLeft} days remaining to cancel for a full refund.
                               </p>
                             </div>
                           </div>
@@ -1014,17 +1145,23 @@ export default function Settings() {
                       {/* Action Buttons */}
                       <div className="flex gap-2">
                         <button
-                          onClick={() => window.open('https://billing.stripe.com', '_blank')}
+                          onClick={handleOpenCustomerPortal}
                           className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
                         >
                           <CreditCard className="w-3 h-3" />
                           Update Payment Method
                         </button>
                         <button
-                          onClick={() => window.open('/api/invoices', '_blank')}
+                          onClick={() => {
+                            if (invoices.length > 0 && invoices[0].hosted_url) {
+                              window.open(invoices[0].hosted_url, '_blank');
+                            } else {
+                              handleOpenCustomerPortal();
+                            }
+                          }}
                           className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
                         >
-                          <Download className="w-3 h-3" />
+                          <Receipt className="w-3 h-3" />
                           View Invoices
                         </button>
                       </div>
@@ -1041,7 +1178,9 @@ export default function Settings() {
                         ) : (
                           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
                             <p className="text-xs text-destructive mb-2">
-                              Are you sure? Your subscription will continue until the end of the billing period.
+                              {coolingDaysLeft && coolingDaysLeft > 0 
+                                ? `Are you sure? Since you're within the ${COOLING_PERIOD_DAYS}-day cooling period, you'll receive a full refund.`
+                                : 'Are you sure? Your subscription will continue until the end of the billing period.'}
                             </p>
                             <div className="flex gap-2">
                               <button
@@ -1055,7 +1194,7 @@ export default function Settings() {
                                 disabled={cancelling}
                                 className="flex-1 bg-destructive text-destructive-foreground py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50"
                               >
-                                {cancelling ? '...' : 'Yes, Cancel'}
+                                {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Yes, Cancel'}
                               </button>
                             </div>
                           </div>
@@ -1066,8 +1205,40 @@ export default function Settings() {
                           disabled={cancelling}
                           className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
                         >
-                          Reactivate Subscription
+                          {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Reactivate Subscription'}
                         </button>
+                      )}
+
+                      {/* Recent Invoices */}
+                      {invoices.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-xs font-medium text-foreground mb-2">Recent Invoices</p>
+                          <div className="space-y-2">
+                            {invoices.slice(0, 3).map((invoice) => (
+                              <div key={invoice.id} className="flex items-center justify-between bg-muted/30 rounded-lg p-2">
+                                <div>
+                                  <p className="text-xs font-medium text-foreground">Invoice #{invoice.number}</p>
+                                  <p className="text-[10px] text-muted-foreground">{formatDate(invoice.date)}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-foreground">
+                                    £{invoice.amount}
+                                  </span>
+                                  {invoice.pdf_url && (
+                                    <a
+                                      href={invoice.pdf_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-muted-foreground hover:text-foreground"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </>
                   ) : (
