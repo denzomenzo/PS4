@@ -347,7 +347,7 @@ export default function PrivacyPage() {
                 <Logo size="large" />
               </div>
               <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
-                © 2025 Demly. All rights reserved.
+                © 2026 Demly. All rights reserved.
               </p>
             </div>
             <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
@@ -361,4 +361,5 @@ export default function PrivacyPage() {
       </footer>
     </div>
   );
+
 }
