@@ -310,7 +310,7 @@ export default function FirstTimeSetup() {
             <p className="text-center text-slate-500 text-sm mt-6">
               Need help? Email{' '}
               <a href="mailto:support@demly.com" className="text-emerald-600 hover:text-emerald-700 transition-colors">
-                support@demly.com
+                support@demly.co.uk
               </a>
             </p>
           </motion.div>
@@ -550,3 +550,4 @@ export default function FirstTimeSetup() {
     </div>
   );
 }
+
