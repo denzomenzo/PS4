@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
+import Stripe from 'stripe';
 
 export async function POST() {
   try {
@@ -54,10 +55,12 @@ export async function POST() {
 
       if (invoices.data.length > 0) {
         const latestInvoice = invoices.data[0];
+        // Check if payment_intent exists (it might be a string or an object)
         if (latestInvoice.payment_intent) {
+          // Handle both string and object cases
           const paymentIntentId = typeof latestInvoice.payment_intent === 'string' 
             ? latestInvoice.payment_intent 
-            : latestInvoice.payment_intent.id;
+            : (latestInvoice.payment_intent as Stripe.PaymentIntent).id;
             
           await stripe.refunds.create({
             payment_intent: paymentIntentId,
