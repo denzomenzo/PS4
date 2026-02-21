@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Mail, Phone, MapPin, MessageSquare, Send, Check, Sun, Moon, Menu, X, Sparkles } from "lucide-react";
+import { Mail, Phone, MessageSquare, Send, Check, Sparkles, Sun, Moon, Menu, X, HelpCircle, Clock, Zap } from "lucide-react";
 import Logo from "@/components/Logo";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -59,9 +59,8 @@ export default function ContactPage() {
     }, 1500);
   };
 
-  const bgGradient = theme === 'dark' 
-    ? 'bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950' 
-    : 'bg-gradient-to-br from-slate-50 via-white to-slate-100';
+  // Theme-based classes
+  const bgColor = theme === 'dark' ? 'bg-black' : 'bg-gradient-to-br from-slate-50 via-white to-slate-100';
   
   const textPrimary = theme === 'dark' ? 'text-white' : 'text-slate-900';
   const textSecondary = theme === 'dark' ? 'text-slate-300' : 'text-slate-600';
@@ -80,7 +79,7 @@ export default function ContactPage() {
     : 'bg-white border-slate-200';
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${bgGradient}`}>
+    <div className={`min-h-screen transition-colors duration-300 ${bgColor}`}>
       {/* Header */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'py-2 shadow-xl' : 'py-3'} ${headerBg}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -90,29 +89,47 @@ export default function ContactPage() {
             </Link>
             
             <div className="md:hidden flex items-center gap-2">
-              <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+              <button 
+                onClick={toggleTheme}
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              >
                 {theme === 'dark' ? <Sun className="w-5 h-5 text-slate-300" /> : <Moon className="w-5 h-5 text-slate-700" />}
               </button>
-              <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className={`p-2 rounded-full ${theme === 'dark' ? 'text-slate-300 hover:text-white hover:bg-white/10' : 'text-slate-700 hover:text-black hover:bg-black/5'} transition-colors`}>
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              <button 
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className={`p-2 rounded-full ${theme === 'dark' ? 'text-slate-300 hover:text-white hover:bg-white/10' : 'text-slate-700 hover:text-black hover:bg-black/5'} transition-colors`}
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
             </div>
             
             <div className="hidden md:flex items-center gap-3">
-              <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+              <button 
+                onClick={toggleTheme}
+                className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              >
                 {theme === 'dark' ? <Sun className="w-5 h-5 text-slate-300" /> : <Moon className="w-5 h-5 text-slate-700" />}
               </button>
-              <Link href="/" className={`px-5 py-2.5 rounded-full font-semibold text-sm lg:text-base transition-colors ${
-                theme === 'dark' ? 'text-slate-300 hover:text-white hover:bg-white/10' : 'text-slate-600 hover:text-black hover:bg-black/5'
-              }`}>
-                ← Back to Home
+              <Link 
+                href="/login" 
+                className={`px-5 py-2.5 rounded-full font-semibold text-sm lg:text-base transition-colors ${
+                  theme === 'dark' 
+                    ? 'text-slate-300 hover:text-white hover:bg-white/10' 
+                    : 'text-slate-600 hover:text-black hover:bg-black/5'
+                }`}
+              >
+                Sign In
               </Link>
-              <Link href="/pay" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-white transition-colors text-sm lg:text-base shadow-lg shadow-emerald-600/20">
+              <Link 
+                href="/register" 
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-white transition-colors text-sm lg:text-base shadow-lg shadow-emerald-600/20"
+              >
                 Get Started
               </Link>
             </div>
           </div>
 
+          {/* Mobile Menu */}
           <AnimatePresence>
             {mobileMenuOpen && (
               <motion.div
@@ -122,13 +139,23 @@ export default function ContactPage() {
                 className="md:hidden mt-4 border-t border-slate-200 dark:border-white/10 pt-4"
               >
                 <div className="flex flex-col space-y-2">
-                  <Link href="/" className={`px-4 py-3 rounded-xl text-base font-medium transition-colors ${
-                    theme === 'dark' ? 'text-slate-300 hover:text-white hover:bg-white/10' : 'text-slate-600 hover:text-black hover:bg-black/5'
-                  }`} onClick={() => setMobileMenuOpen(false)}>
-                    ← Back to Home
+                  <Link 
+                    href="/login" 
+                    className={`px-4 py-3 rounded-xl text-base font-medium transition-colors ${
+                      theme === 'dark' 
+                        ? 'text-slate-300 hover:text-white hover:bg-white/10' 
+                        : 'text-slate-600 hover:text-black hover:bg-black/5'
+                    }`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign In
                   </Link>
                   <div className="border-t border-slate-200 dark:border-white/10 pt-4 mt-2">
-                    <Link href="/pay" className="block w-full bg-emerald-600 hover:bg-emerald-700 text-white text-center py-3 rounded-xl font-bold" onClick={() => setMobileMenuOpen(false)}>
+                    <Link 
+                      href="/register" 
+                      className="block w-full bg-emerald-600 hover:bg-emerald-700 text-white text-center py-3 rounded-xl font-bold"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
                       Get Started
                     </Link>
                   </div>
@@ -140,7 +167,7 @@ export default function ContactPage() {
       </nav>
 
       {/* Main Content */}
-      <div className="pt-24 md:pt-28 pb-16 md:pb-20 px-4 sm:px-6">
+      <div className="pt-28 md:pt-32 pb-16 md:pb-20 px-4 sm:px-6">
         <div className="max-w-6xl mx-auto">
           
           {/* Header Section */}
@@ -165,9 +192,9 @@ export default function ContactPage() {
             </p>
           </motion.div>
 
-          {/* Contact Grid */}
+          {/* Contact Grid - Removed Visit Us, now 2 cards + form */}
           <div className="grid lg:grid-cols-3 gap-6">
-            {/* Contact Info Cards */}
+            {/* Contact Info Cards - Now 2 cards */}
             <div className="lg:col-span-1 space-y-4">
               <motion.div 
                 initial={{ opacity: 0, x: -20 }}
@@ -201,6 +228,7 @@ export default function ContactPage() {
                 <p className={`${textMuted} text-xs mt-2`}>Mon-Fri, 9am-6pm GMT</p>
               </motion.div>
 
+              {/* Support Hours Card - New addition to fill space */}
               <motion.div 
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -208,17 +236,16 @@ export default function ContactPage() {
                 className={`${cardBg} rounded-3xl p-6 border text-center hover:border-emerald-500/30 transition-all`}
               >
                 <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <MapPin className="w-6 h-6 text-emerald-600" />
+                  <Clock className="w-6 h-6 text-emerald-600" />
                 </div>
-                <h3 className={`font-bold mb-2 ${textPrimary}`}>Visit Us</h3>
-                <p className={`${textSecondary} text-sm`}>
-                  123 Business Park<br />
-                  London, UK
-                </p>
+                <h3 className={`font-bold mb-2 ${textPrimary}`}>Support Hours</h3>
+                <p className={`${textSecondary} text-sm`}>Monday - Friday</p>
+                <p className={`${textSecondary} text-sm font-bold`}>9:00 AM - 6:00 PM GMT</p>
+                <p className={`${textMuted} text-xs mt-2`}>Emergency support available 24/7</p>
               </motion.div>
             </div>
 
-            {/* Contact Form */}
+            {/* Contact Form - Takes remaining space */}
             <motion.div 
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -245,7 +272,7 @@ export default function ContactPage() {
                         value={formData.name}
                         onChange={(e) => setFormData({...formData, name: e.target.value})}
                         required
-                        className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary}`}
+                        className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
                         placeholder="John Doe"
                       />
                     </div>
@@ -256,7 +283,7 @@ export default function ContactPage() {
                         value={formData.email}
                         onChange={(e) => setFormData({...formData, email: e.target.value})}
                         required
-                        className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary}`}
+                        className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
                         placeholder="john@example.com"
                       />
                     </div>
@@ -269,7 +296,7 @@ export default function ContactPage() {
                       value={formData.subject}
                       onChange={(e) => setFormData({...formData, subject: e.target.value})}
                       required
-                      className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary}`}
+                      className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
                       placeholder="How can we help?"
                     />
                   </div>
@@ -281,7 +308,7 @@ export default function ContactPage() {
                       onChange={(e) => setFormData({...formData, message: e.target.value})}
                       required
                       rows={5}
-                      className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} resize-none`}
+                      className={`w-full ${inputBg} border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500 resize-none`}
                       placeholder="Tell us more about your inquiry..."
                     />
                   </div>
@@ -289,7 +316,7 @@ export default function ContactPage() {
                   <button
                     type="submit"
                     disabled={formStatus !== 'idle'}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-full transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
                   >
                     {formStatus === 'idle' && (
                       <>
@@ -318,6 +345,23 @@ export default function ContactPage() {
               </div>
             </motion.div>
           </div>
+
+          {/* FAQ Link */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="mt-12 text-center"
+          >
+            <Link 
+              href="/faq" 
+              className={`inline-flex items-center gap-2 px-6 py-3 rounded-full ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10' : 'bg-emerald-50 hover:bg-emerald-100'} transition-all ${textPrimary} font-medium`}
+            >
+              <HelpCircle className="w-5 h-5 text-emerald-600" />
+              Check our FAQ for quick answers
+              <Zap className="w-4 h-4 text-emerald-600" />
+            </Link>
+          </motion.div>
         </div>
       </div>
 
@@ -330,7 +374,7 @@ export default function ContactPage() {
                 <Logo size="large" />
               </div>
               <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
-                © 2025 Demly. All rights reserved.
+                © 2026 Demly. All rights reserved.
               </p>
             </div>
             <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
