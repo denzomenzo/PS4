@@ -265,10 +265,69 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Handle subscription renewal
+    // Handle payment failure
+    if (event.type === 'invoice.payment_failed') {
+      console.log('❌ ================================');
+      console.log('❌ PROCESSING PAYMENT FAILURE');
+      console.log('❌ ================================');
+      
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = invoice.subscription as string;
+      
+      console.log('🔑 Subscription ID:', subscriptionId);
+      console.log('📋 Invoice:', invoice.id);
+      console.log('📋 Attempt count:', invoice.attempt_count);
+      console.log('📋 Next attempt:', invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000).toISOString() : 'None');
+
+      if (subscriptionId) {
+        // Update license status to past_due
+        const { data: license, error: fetchError } = await supabase
+          .from('licenses')
+          .select('email')
+          .eq('stripe_subscription_id', subscriptionId)
+          .single();
+
+        if (fetchError) {
+          console.error('❌ Error fetching license for failed payment:', fetchError);
+        } else {
+          const { error: updateError } = await supabase
+            .from('licenses')
+            .update({ 
+              status: 'past_due',
+              payment_failed_at: new Date().toISOString()
+            })
+            .eq('stripe_subscription_id', subscriptionId);
+
+          if (updateError) {
+            console.error('❌ Error updating license for failed payment:', updateError);
+          } else {
+            console.log('✅ License marked as past_due');
+            
+            // Send payment failed email if we have the email
+            if (license?.email) {
+              try {
+                await supabase.functions.invoke('send-payment-failed-email', {
+                  body: {
+                    email: license.email,
+                    invoiceId: invoice.id,
+                    amount: invoice.total / 100,
+                    nextAttempt: invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000).toISOString() : null
+                  }
+                });
+                console.log('📧 Payment failed email sent to:', license.email);
+              } catch (emailError) {
+                console.error('❌ Error sending payment failed email:', emailError);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Handle subscription renewal/successful payment
     if (event.type === 'invoice.payment_succeeded') {
       console.log('🔄 ================================');
-      console.log('🔄 PROCESSING SUBSCRIPTION RENEWAL');
+      console.log('🔄 PROCESSING SUBSCRIPTION RENEWAL/PAYMENT SUCCESS');
       console.log('🔄 ================================');
       
       const invoice = event.data.object as InvoiceWithSubscription;
@@ -299,20 +358,21 @@ export async function POST(req: NextRequest) {
             .from('licenses')
             .update({ 
               expires_at: newExpiry.toISOString(), 
-              status: 'active' 
+              status: 'active',
+              payment_failed_at: null // Clear any failed payment flag
             })
             .eq('stripe_subscription_id', subscriptionId);
 
           if (updateError) {
             console.error('❌ Error updating license:', updateError);
           } else {
-            console.log('✅ License renewed successfully');
+            console.log('✅ License renewed/updated successfully');
           }
         }
       }
     }
 
-    // Handle subscription cancellation
+    // Handle subscription cancellation/deletion
     if (event.type === 'customer.subscription.deleted') {
       console.log('🚫 ================================');
       console.log('🚫 PROCESSING SUBSCRIPTION CANCELLATION');
@@ -323,13 +383,45 @@ export async function POST(req: NextRequest) {
       
       const { error } = await supabase
         .from('licenses')
-        .update({ status: 'cancelled' })
+        .update({ 
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString()
+        })
         .eq('stripe_subscription_id', subscription.id);
 
       if (error) {
         console.error('❌ Error cancelling license:', error);
       } else {
         console.log('✅ License cancelled successfully');
+      }
+    }
+
+    // Handle subscription update (for tracking changes)
+    if (event.type === 'customer.subscription.updated') {
+      console.log('📝 ================================');
+      console.log('📝 PROCESSING SUBSCRIPTION UPDATE');
+      console.log('📝 ================================');
+      
+      const subscription = event.data.object as Stripe.Subscription;
+      console.log('🔑 Subscription ID:', subscription.id);
+      console.log('📋 Status:', subscription.status);
+      console.log('📋 Cancel at period end:', subscription.cancel_at_period_end);
+      
+      // Update license status if needed
+      const { error } = await supabase
+        .from('licenses')
+        .update({ 
+          status: subscription.status === 'active' ? 'active' : 
+                  subscription.status === 'past_due' ? 'past_due' : 
+                  subscription.status === 'canceled' ? 'cancelled' : 'inactive',
+          updated_at: new Date().toISOString()
+        })
+        .eq('stripe_subscription_id', subscription.id);
+
+      if (error) {
+        console.error('❌ Error updating license:', error);
+      } else {
+        console.log('✅ License updated successfully');
       }
     }
 
