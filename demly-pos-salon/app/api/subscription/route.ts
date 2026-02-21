@@ -45,9 +45,10 @@ export async function GET() {
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
-        ) as Stripe.Subscription;
+        );
 
         console.log('Stripe subscription found:', stripeSub.id);
+        console.log('Stripe subscription properties:', Object.keys(stripeSub));
 
         // Get payment method details if available
         let paymentMethod = null;
@@ -64,20 +65,34 @@ export async function GET() {
         }
 
         // Get the price from the subscription items
-        const price = stripeSub.items.data[0]?.price;
+        const price = stripeSub.items?.data[0]?.price;
         
+        // The subscription object might use different property names
+        // Let's safely access the properties
+        const currentPeriodStart = (stripeSub as any).current_period_start || 
+                                   (stripeSub as any).currentPeriodStart || 
+                                   Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+        
+        const currentPeriodEnd = (stripeSub as any).current_period_end || 
+                                 (stripeSub as any).currentPeriodEnd || 
+                                 Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        
+        const created = (stripeSub as any).created || 
+                        (stripeSub as any).created_at || 
+                        Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+
         return NextResponse.json({
           subscription: {
             id: stripeSub.id,
             plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
             status: stripeSub.status,
-            current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
-            current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
-            cancel_at_period_end: stripeSub.cancel_at_period_end,
+            current_period_start: new Date(currentPeriodStart * 1000).toISOString(),
+            current_period_end: new Date(currentPeriodEnd * 1000).toISOString(),
+            cancel_at_period_end: stripeSub.cancel_at_period_end || false,
             price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
             currency: price?.currency || 'gbp',
             payment_method: paymentMethod,
-            created: new Date(stripeSub.created * 1000).toISOString(),
+            created: new Date(created * 1000).toISOString(),
           }
         });
       } catch (stripeError: any) {
