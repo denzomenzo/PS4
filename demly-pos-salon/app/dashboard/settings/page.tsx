@@ -58,6 +58,8 @@ interface Subscription {
   };
   created: string;
   cooling_days_left?: number;
+  deletion_scheduled?: boolean;
+  days_until_deletion?: number;
 }
 
 interface Invoice {
@@ -2030,3 +2032,4 @@ export default function Settings() {
     </div>
   );
 }
+
