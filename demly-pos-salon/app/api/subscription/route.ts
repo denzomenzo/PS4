@@ -16,14 +16,18 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's license from database
+    // Get user's license from database using email
     const { data: license, error } = await supabase
       .from('licenses')
       .select('*')
       .eq('email', user.email)
       .maybeSingle();
 
-    console.log('📋 Subscription API - License query:', { license, error });
+    console.log('📋 Subscription API - License query:', { 
+      found: !!license, 
+      licenseId: license?.id,
+      error: error?.message 
+    });
 
     if (error) {
       console.error('Error fetching license:', error);
@@ -48,7 +52,6 @@ export async function GET() {
         );
 
         console.log('Stripe subscription found:', stripeSub.id);
-        console.log('Stripe subscription properties:', Object.keys(stripeSub));
 
         // Get payment method details if available
         let paymentMethod = null;
@@ -65,40 +68,56 @@ export async function GET() {
         }
 
         // Get the price from the subscription items
-        const price = stripeSub.items?.data[0]?.price;
+        const price = stripeSub.items.data[0]?.price;
         
-        // The subscription object might use different property names
-        // Let's safely access the properties
-        const currentPeriodStart = (stripeSub as any).current_period_start || 
-                                   (stripeSub as any).currentPeriodStart || 
-                                   Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-        
-        const currentPeriodEnd = (stripeSub as any).current_period_end || 
-                                 (stripeSub as any).currentPeriodEnd || 
-                                 Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-        
-        const created = (stripeSub as any).created || 
-                        (stripeSub as any).created_at || 
-                        Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+        // Calculate cooling period days
+        const createdDate = new Date(stripeSub.created * 1000);
+        const now = new Date();
+        const daysSinceCreation = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSinceCreation);
 
         return NextResponse.json({
           subscription: {
             id: stripeSub.id,
             plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
             status: stripeSub.status,
-            current_period_start: new Date(currentPeriodStart * 1000).toISOString(),
-            current_period_end: new Date(currentPeriodEnd * 1000).toISOString(),
-            cancel_at_period_end: stripeSub.cancel_at_period_end || false,
+            current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: stripeSub.cancel_at_period_end,
             price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
             currency: price?.currency || 'gbp',
             payment_method: paymentMethod,
-            created: new Date(created * 1000).toISOString(),
+            created: new Date(stripeSub.created * 1000).toISOString(),
+            cooling_days_left: coolingDaysLeft,
           }
         });
       } catch (stripeError: any) {
         console.error('Error fetching from Stripe:', stripeError);
-        // If Stripe fetch fails, return null - user will see "Purchase License" button
-        return NextResponse.json({ subscription: null });
+        // Fall back to license data if Stripe fetch fails
+        const createdDate = new Date(license.created_at);
+        const now = new Date();
+        const daysSinceCreation = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSinceCreation);
+
+        return NextResponse.json({
+          subscription: {
+            id: license.stripe_subscription_id,
+            plan: license.plan_type,
+            status: license.status,
+            current_period_start: license.created_at,
+            current_period_end: license.expires_at,
+            cancel_at_period_end: false,
+            price: license.plan_type === 'annual' ? 299 : 29,
+            currency: 'gbp',
+            payment_method: null,
+            created: license.created_at,
+            cooling_days_left: coolingDaysLeft,
+          }
+        });
       }
     }
 
