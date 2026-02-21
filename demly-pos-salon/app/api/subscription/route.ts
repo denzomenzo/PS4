@@ -8,38 +8,64 @@ export async function GET() {
   try {
     const cookieStore = await cookies();
     
+    // Get the staff cookie first
+    const staffCookie = cookieStore.get('current_staff')?.value;
+    
+    if (!staffCookie) {
+      console.log('❌ No staff cookie found');
+      return NextResponse.json(
+        { error: 'Unauthorized - No staff session' }, 
+        { status: 401 }
+      );
+    }
+
+    // Parse staff data from cookie
+    let staff;
+    try {
+      staff = JSON.parse(decodeURIComponent(staffCookie));
+      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
+    } catch (e) {
+      console.error('❌ Invalid staff cookie');
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid staff session' }, 
+        { status: 401 }
+      );
+    }
+
+    // Now use service role client to get user data
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!, // Use service role for admin access
       {
         cookies: {
-          async get(name: string) {
-            const cookie = await cookieStore.get(name);
-            return cookie?.value;
-          },
-          set() {
-            // Not needed for API routes
-          },
-          remove() {
-            // Not needed for API routes
-          },
+          get() { return null; }, // Not needed with service role
+          set() {},
+          remove() {},
         },
       }
     );
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    console.log('📋 Subscription API - User:', user?.email);
-    
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Get the user associated with this staff
+    const { data: staffData, error: staffError } = await supabase
+      .from('staff')
+      .select('user_id')
+      .eq('id', staff.id)
+      .single();
+
+    if (staffError || !staffData?.user_id) {
+      console.error('❌ Could not find user for staff:', staffError);
+      return NextResponse.json(
+        { error: 'Unauthorized - User not found' }, 
+        { status: 401 }
+      );
     }
 
-    // Get user's license from database
+    // Get user email from auth.users (need to use a different approach)
+    // For now, let's get license by staff email from the cookie
     const { data: license, error } = await supabase
       .from('licenses')
       .select('*')
-      .eq('email', user.email)
+      .eq('email', staff.email) // Staff email should match license email
       .maybeSingle();
 
     if (error) {
@@ -48,8 +74,15 @@ export async function GET() {
     }
 
     if (!license) {
+      console.log('No license found for staff email:', staff.email);
       return NextResponse.json({ subscription: null });
     }
+
+    console.log('✅ License found:', {
+      id: license.id,
+      stripe_subscription_id: license.stripe_subscription_id,
+      plan: license.plan_type
+    });
 
     // If there's a Stripe subscription ID, get latest data from Stripe
     if (license.stripe_subscription_id) {
@@ -61,7 +94,6 @@ export async function GET() {
           }
         );
         
-        // Cast to any to avoid TypeScript errors
         const stripeSub = response as any;
 
         // Get payment method details if available
