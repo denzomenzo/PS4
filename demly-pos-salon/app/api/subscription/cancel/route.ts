@@ -54,7 +54,8 @@ export async function POST() {
       });
 
       if (invoices.data.length > 0) {
-        const latestInvoice = invoices.data[0];
+        const latestInvoice = invoices.data[0] as Stripe.Invoice & { payment_intent?: string | Stripe.PaymentIntent | null };
+        
         // Check if payment_intent exists (it might be a string or an object)
         if (latestInvoice.payment_intent) {
           // Handle both string and object cases
