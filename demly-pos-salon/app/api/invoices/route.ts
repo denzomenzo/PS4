@@ -53,10 +53,8 @@ export async function GET() {
       .single();
 
     if (error || !license?.stripe_customer_id) {
-      return NextResponse.json(
-        { error: 'No customer found' },
-        { status: 404 }
-      );
+      console.log('No customer found for email:', staff.email);
+      return NextResponse.json({ invoices: [] });
     }
 
     // Get invoices from Stripe
@@ -80,7 +78,7 @@ export async function GET() {
   } catch (error: any) {
     console.error('Error fetching invoices:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch invoices' },
+      { invoices: [], error: error.message },
       { status: 500 }
     );
   }
