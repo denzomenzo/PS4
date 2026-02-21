@@ -3,17 +3,24 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
-import Stripe from 'stripe';
 
 export async function GET() {
+  const debug = {
+    steps: [] as string[],
+    errors: [] as string[],
+    data: {} as any
+  };
+
   try {
     const supabase = createRouteHandlerClient({ cookies });
     const { data: { user } } = await supabase.auth.getUser();
     
-    console.log('📋 Subscription API - User:', user?.email);
+    debug.steps.push('Got user');
+    debug.data.userEmail = user?.email;
     
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      debug.errors.push('No user found');
+      return NextResponse.json({ error: 'Unauthorized', debug }, { status: 401 });
     }
 
     // Get user's license from database
@@ -23,41 +30,47 @@ export async function GET() {
       .eq('email', user.email)
       .maybeSingle();
 
-    console.log('📋 Subscription API - License query:', { found: !!license, error: error?.message });
+    debug.steps.push('Queried licenses');
+    debug.data.licenseFound = !!license;
+    debug.data.licenseId = license?.id;
+    debug.data.dbError = error?.message;
 
     if (error) {
-      console.error('Error fetching license:', error);
-      return NextResponse.json({ subscription: null, error: error.message });
+      debug.errors.push(`DB Error: ${error.message}`);
+      return NextResponse.json({ subscription: null, debug }, { status: 500 });
     }
 
     if (!license) {
-      console.log('No license found for user:', user.email);
-      return NextResponse.json({ subscription: null });
+      debug.steps.push('No license found');
+      return NextResponse.json({ subscription: null, debug });
     }
+
+    debug.steps.push('License found');
+    debug.data.stripeSubscriptionId = license.stripe_subscription_id;
+    debug.data.planType = license.plan_type;
+    debug.data.licenseStatus = license.status;
 
     // If there's a Stripe subscription ID, get latest data from Stripe
     if (license.stripe_subscription_id) {
       try {
-        console.log('Fetching from Stripe:', license.stripe_subscription_id);
+        debug.steps.push('Fetching from Stripe');
         
-        // Use type assertion to avoid TypeScript errors
-        const stripeResponse = await stripe.subscriptions.retrieve(
+        const stripeSub = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
             expand: ['default_payment_method', 'latest_invoice'],
           }
         );
-        
-        // Cast to any to access properties safely
-        const stripeSub = stripeResponse as any;
 
-        console.log('Stripe subscription found:', stripeSub.id);
+        debug.steps.push('Stripe fetch successful');
+        debug.data.stripeStatus = stripeSub.status;
+        debug.data.stripeId = stripeSub.id;
 
         // Get payment method details if available
         let paymentMethod = null;
         if (stripeSub.default_payment_method) {
-          const pm = stripeSub.default_payment_method;
-          if (pm && pm.card) {
+          const pm = stripeSub.default_payment_method as any;
+          if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
               last4: pm.card.last4,
@@ -70,28 +83,54 @@ export async function GET() {
         // Get the price from the subscription items
         const price = stripeSub.items?.data[0]?.price;
         
-        // Safely access properties with fallbacks
-        const currentPeriodStart = stripeSub.current_period_start || Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-        const currentPeriodEnd = stripeSub.current_period_end || Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-        const created = stripeSub.created || Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+        // Calculate cooling days
+        const createdDate = new Date(stripeSub.created * 1000);
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSince);
 
-        return NextResponse.json({
-          subscription: {
-            id: stripeSub.id,
-            plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
-            status: stripeSub.status || 'active',
-            current_period_start: new Date(currentPeriodStart * 1000).toISOString(),
-            current_period_end: new Date(currentPeriodEnd * 1000).toISOString(),
-            cancel_at_period_end: stripeSub.cancel_at_period_end || false,
-            price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
-            currency: price?.currency || 'gbp',
-            payment_method: paymentMethod,
-            created: new Date(created * 1000).toISOString(),
-          }
+        const subscription = {
+          id: stripeSub.id,
+          plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
+          status: stripeSub.status,
+          current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+          cancel_at_period_end: stripeSub.cancel_at_period_end || false,
+          price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
+          currency: price?.currency || 'gbp',
+          payment_method: paymentMethod,
+          created: new Date(stripeSub.created * 1000).toISOString(),
+          cooling_days_left: coolingDaysLeft,
+        };
+
+        return NextResponse.json({ 
+          subscription,
+          debug 
         });
+        
       } catch (stripeError: any) {
-        console.error('Error fetching from Stripe:', stripeError);
+        debug.errors.push(`Stripe Error: ${stripeError.message}`);
+        debug.data.stripeErrorType = stripeError.type;
+        debug.data.stripeErrorCode = stripeError.code;
+        debug.data.stripeStatusCode = stripeError.statusCode;
+        
+        console.error('❌ Stripe API error:', {
+          message: stripeError.message,
+          type: stripeError.type,
+          code: stripeError.code,
+          statusCode: stripeError.statusCode
+        });
+        
         // Fall back to license data
+        const createdDate = new Date(license.created_at);
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
         return NextResponse.json({
           subscription: {
             id: license.stripe_subscription_id,
@@ -104,16 +143,21 @@ export async function GET() {
             currency: 'gbp',
             payment_method: null,
             created: license.created_at,
-          }
+            cooling_days_left: coolingDaysLeft,
+          },
+          debug,
+          fallback: true
         });
       }
     }
 
-    return NextResponse.json({ subscription: null });
+    return NextResponse.json({ subscription: null, debug });
+    
   } catch (error: any) {
-    console.error('Error fetching subscription:', error);
+    debug.errors.push(`Unexpected: ${error.message}`);
+    console.error('❌ Unexpected error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch subscription' },
+      { error: error.message, debug },
       { status: 500 }
     );
   }
