@@ -31,9 +31,15 @@ const publicRoutes = [
   '/reset-password',             // Reset password
   '/pay',                        // Payment page
   '/success',                    // Success page
-  '/api/', // All API routes
   '/_next/', // Next.js internal routes
   '/favicon.ico',
+];
+
+// API routes that should be fully public
+const publicApiRoutes = [
+  '/api/webhooks/', // Stripe webhooks need to be public
+  '/api/pay/',      // Payment endpoints
+  '/api/auth/',     // Auth endpoints
 ];
 
 export function proxy(request: NextRequest) {
@@ -41,6 +47,20 @@ export function proxy(request: NextRequest) {
   const url = request.nextUrl.clone();
   
   console.log(`🔍 Proxy checking: ${pathname}`);
+  
+  // Check if this is a public API route
+  for (const apiRoute of publicApiRoutes) {
+    if (pathname.startsWith(apiRoute)) {
+      console.log(`✅ Public API route: ${pathname}`);
+      return NextResponse.next();
+    }
+  }
+  
+  // Skip all API routes - let them handle their own auth
+  if (pathname.startsWith('/api/')) {
+    console.log(`➡️ API route - passing through: ${pathname}`);
+    return NextResponse.next();
+  }
   
   // Skip public routes
   for (const publicRoute of publicRoutes) {
