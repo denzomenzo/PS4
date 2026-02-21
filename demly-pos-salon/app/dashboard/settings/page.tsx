@@ -115,6 +115,7 @@ export default function Settings() {
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletionDate, setDeletionDate] = useState<string | null>(null);
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -185,6 +186,17 @@ export default function Settings() {
       setCoolingDaysLeft(subscription.cooling_days_left);
     } else {
       setCoolingDaysLeft(null);
+    }
+  }, [subscription]);
+
+  // Calculate deletion date if account deletion is scheduled
+  useEffect(() => {
+    // You would get this from your API/database
+    // For now, we'll just use a placeholder
+    if (subscription?.deletion_scheduled) {
+      const date = new Date();
+      date.setDate(date.getDate() + 14);
+      setDeletionDate(date.toISOString());
     }
   }, [subscription]);
 
@@ -409,8 +421,10 @@ export default function Settings() {
         setSubscription(null);
       }
       
-      // Also load invoices
-      loadInvoices();
+      // Also load invoices if we have a subscription
+      if (data.subscription) {
+        loadInvoices();
+      }
       
     } catch (error) {
       console.error("Error loading subscription:", error);
@@ -1196,7 +1210,7 @@ export default function Settings() {
                           onClick={() => {
                             if (invoices.length > 0 && invoices[0].hosted_url) {
                               window.open(invoices[0].hosted_url, '_blank');
-                            } else {
+                            } else if (subscription?.id) {
                               handleOpenCustomerPortal();
                             }
                           }}
