@@ -671,6 +671,49 @@ export default function Settings() {
     setShowStaffModal(true);
   };
 
+
+{/* TEMPORARY DEBUG SECTION - Remove after fixing */}
+<div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+  <h3 className="text-sm font-medium text-blue-600 mb-2">Debug Info</h3>
+  <button
+    onClick={async () => {
+      try {
+        const res = await fetch('/api/debug/staff-email');
+        const data = await res.json();
+        console.log('Staff email debug:', data);
+        alert(JSON.stringify(data, null, 2));
+      } catch (e) {
+        alert('Error: ' + e);
+      }
+    }}
+    className="bg-blue-600 text-white px-3 py-1 rounded text-xs mr-2"
+  >
+    Check Staff Email
+  </button>
+  <button
+    onClick={async () => {
+      try {
+        const res = await fetch('/api/subscription');
+        const data = await res.json();
+        console.log('Subscription API response:', data);
+        alert(JSON.stringify(data, null, 2));
+      } catch (e) {
+        alert('Error: ' + e);
+      }
+    }}
+    className="bg-green-600 text-white px-3 py-1 rounded text-xs"
+  >
+    Check Subscription API
+  </button>
+  {subscription && (
+    <div className="mt-2 text-xs text-blue-600">
+      <p>Subscription found: {subscription.plan} - {subscription.status}</p>
+    </div>
+  )}
+</div>
+
+  
+
   const openPinChangeModal = (member: Staff) => {
     console.log("🔒 Opening PIN change modal for:", member.name);
     setPinChangeStaff(member);
@@ -2081,3 +2124,4 @@ export default function Settings() {
     </div>
   );
 }
+
