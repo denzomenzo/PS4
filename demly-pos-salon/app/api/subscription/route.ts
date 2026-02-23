@@ -5,16 +5,27 @@ import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 
 export async function GET() {
+  const debug = {
+    steps: [] as string[],
+    staffEmail: null as string | null,
+    licenseFound: false,
+    licenseData: null as any,
+    error: null as string | null
+  };
+
   try {
     const cookieStore = await cookies();
     
     // Get the staff cookie first
     const staffCookie = cookieStore.get('current_staff')?.value;
     
+    debug.steps.push('Got cookie store');
+    
     if (!staffCookie) {
+      debug.steps.push('No staff cookie found');
       console.log('❌ No staff cookie found');
       return NextResponse.json(
-        { error: 'Unauthorized - No staff session' }, 
+        { error: 'Unauthorized - No staff session', debug }, 
         { status: 401 }
       );
     }
@@ -23,6 +34,8 @@ export async function GET() {
     let staff;
     try {
       staff = JSON.parse(decodeURIComponent(staffCookie));
+      debug.staffEmail = staff.email;
+      debug.steps.push(`Parsed staff cookie: ${staff.name} (${staff.email})`);
       console.log('✅ Staff from cookie:', { 
         id: staff.id, 
         name: staff.name, 
@@ -30,9 +43,10 @@ export async function GET() {
         email: staff.email 
       });
     } catch (e) {
+      debug.steps.push('Invalid staff cookie');
       console.error('❌ Invalid staff cookie');
       return NextResponse.json(
-        { error: 'Unauthorized - Invalid staff session' }, 
+        { error: 'Unauthorized - Invalid staff session', debug }, 
         { status: 401 }
       );
     }
@@ -50,6 +64,8 @@ export async function GET() {
       }
     );
 
+    debug.steps.push('Created Supabase client');
+
     // Get user's license by staff email
     const { data: license, error } = await supabase
       .from('licenses')
@@ -58,14 +74,37 @@ export async function GET() {
       .maybeSingle();
 
     if (error) {
+      debug.steps.push(`DB Error: ${error.message}`);
+      debug.error = error.message;
       console.error('Error fetching license:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: error.message, debug }, { status: 500 });
     }
 
     if (!license) {
+      debug.steps.push(`No license found for email: ${staff.email}`);
       console.log('No license found for staff email:', staff.email);
-      return NextResponse.json({ subscription: null });
+      
+      // Try to find any licenses to see what emails exist
+      const { data: allLicenses } = await supabase
+        .from('licenses')
+        .select('email')
+        .limit(5);
+      
+      debug.availableEmails = allLicenses?.map(l => l.email) || [];
+      debug.steps.push(`Available emails: ${debug.availableEmails.join(', ')}`);
+      
+      return NextResponse.json({ subscription: null, debug });
     }
+
+    debug.licenseFound = true;
+    debug.licenseData = {
+      id: license.id,
+      plan: license.plan_type,
+      status: license.status,
+      email: license.email,
+      stripe_subscription_id: license.stripe_subscription_id
+    };
+    debug.steps.push(`License found: ${license.plan_type} - ${license.status}`);
 
     console.log('✅ License found:', {
       id: license.id,
@@ -92,9 +131,11 @@ export async function GET() {
       daysUntilDeletion = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
     }
 
-    // Try to get from Stripe, but always return license data even if Stripe fails
+    // Try to get from Stripe
     try {
       if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
+        debug.steps.push(`Fetching from Stripe: ${license.stripe_subscription_id}`);
+        
         const response = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
@@ -103,6 +144,8 @@ export async function GET() {
         );
         
         const stripeSub = response as any;
+
+        debug.steps.push('Stripe fetch successful');
 
         // Get payment method details if available
         let paymentMethod = null;
@@ -136,14 +179,20 @@ export async function GET() {
             deletion_scheduled: !!license.deletion_scheduled_at,
             days_until_deletion: daysUntilDeletion,
             deletion_date: license.deletion_scheduled_at,
-          }
+          },
+          debug
         });
+      } else {
+        debug.steps.push('No valid Stripe subscription ID, using license data');
       }
     } catch (stripeError: any) {
+      debug.steps.push(`Stripe fetch failed: ${stripeError.message}`);
       console.log('Stripe fetch failed, using license data:', stripeError.message);
     }
 
     // Return license data as fallback
+    debug.steps.push('Returning license data as fallback');
+    
     return NextResponse.json({
       subscription: {
         id: license.stripe_subscription_id || 'license-' + license.id,
@@ -160,12 +209,14 @@ export async function GET() {
         deletion_scheduled: !!license.deletion_scheduled_at,
         days_until_deletion: daysUntilDeletion,
         deletion_date: license.deletion_scheduled_at,
-      }
+      },
+      debug
     });
   } catch (error: any) {
+    debug.steps.push(`Unexpected error: ${error.message}`);
     console.error('Error:', error);
     return NextResponse.json(
-      { error: error.message },
+      { error: error.message, debug },
       { status: 500 }
     );
   }
