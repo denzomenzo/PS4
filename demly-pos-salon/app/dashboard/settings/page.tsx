@@ -1031,7 +1031,7 @@ export default function Settings() {
             </div>
           )}
 
-          {/* TEMPORARY DEBUG SECTION - Remove after fixing */}
+{/* TEMPORARY DEBUG SECTION - Remove after fixing */}
 <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
   <h3 className="text-sm font-medium text-blue-600 mb-2">🔍 Debug Info</h3>
   <div className="flex gap-2">
@@ -1067,7 +1067,13 @@ export default function Settings() {
     </button>
   </div>
   {subscription && (
-    <div className="mt-3 p-3 bg-green-500/20 border border
+    <div className="mt-3 p-3 bg-green-500/20 border border-green-500/30 rounded-lg">
+      <p className="text-xs text-green-700">
+        ✅ Subscription found: {subscription.plan} - {subscription.status}
+      </p>
+    </div>
+  )}
+</div>
 
           <div className="space-y-3">
             
@@ -2120,5 +2126,6 @@ export default function Settings() {
     </div>
   );
 }
+
 
 
