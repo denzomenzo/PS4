@@ -60,6 +60,7 @@ interface Subscription {
   cooling_days_left?: number;
   deletion_scheduled?: boolean;
   days_until_deletion?: number;
+  deletion_date?: string;
 }
 
 interface Invoice {
@@ -117,7 +118,6 @@ export default function Settings() {
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deletionDate, setDeletionDate] = useState<string | null>(null);
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -188,17 +188,6 @@ export default function Settings() {
       setCoolingDaysLeft(subscription.cooling_days_left);
     } else {
       setCoolingDaysLeft(null);
-    }
-  }, [subscription]);
-
-  // Calculate deletion date if account deletion is scheduled
-  useEffect(() => {
-    // You would get this from your API/database
-    // For now, we'll just use a placeholder
-    if (subscription?.deletion_scheduled) {
-      const date = new Date();
-      date.setDate(date.getDate() + 14);
-      setDeletionDate(date.toISOString());
     }
   }, [subscription]);
 
@@ -419,13 +408,10 @@ export default function Settings() {
       
       if (data.subscription) {
         setSubscription(data.subscription);
+        // Also load invoices if we have a subscription
+        loadInvoices();
       } else {
         setSubscription(null);
-      }
-      
-      // Also load invoices if we have a subscription
-      if (data.subscription) {
-        loadInvoices();
       }
       
     } catch (error) {
@@ -562,33 +548,61 @@ export default function Settings() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!confirm("Are you absolutely sure? This will permanently delete all your data and cannot be undone.")) {
+  const handleScheduleDeletion = async () => {
+    if (!confirm("Are you sure you want to schedule account deletion? This will permanently delete all your data in 14 days.")) {
       return;
     }
     
     setDeleting(true);
     try {
-      const response = await fetch('/api/account/delete', {
+      const response = await fetch('/api/account/schedule-deletion', {
         method: 'POST',
       });
       
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete account');
+        throw new Error(data.error || 'Failed to schedule deletion');
       }
       
-      // Sign out and redirect to home
-      await supabase.auth.signOut();
-      window.location.href = '/';
+      setSuccessMessage("✅ Account deletion scheduled. You have 14 days to cancel.");
+      setShowDeleteConfirm(false);
+      
+      // Refresh subscription data
+      loadSubscription();
       
     } catch (error: any) {
-      console.error('Error deleting account:', error);
-      alert(error.message || 'Failed to delete account');
+      console.error('Error scheduling deletion:', error);
+      alert(error.message || 'Failed to schedule deletion');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleCancelDeletion = async () => {
+    setDeleting(true);
+    try {
+      const response = await fetch('/api/account/cancel-deletion', {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to cancel deletion');
+      }
+      
+      setSuccessMessage("✅ Account deletion cancelled.");
       setShowDeleteConfirm(false);
+      
+      // Refresh subscription data
+      loadSubscription();
+      
+    } catch (error: any) {
+      console.error('Error cancelling deletion:', error);
+      alert(error.message || 'Failed to cancel deletion');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1236,7 +1250,7 @@ export default function Settings() {
                           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
                             <p className="text-xs text-destructive mb-2">
                               {coolingDaysLeft && coolingDaysLeft > 0 
-                                ? `Are you sure? Since you're within the ${COOLING_PERIOD_DAYS}-day cooling period, you'll receive a full refund.`
+                                ? `Are you sure? Since you're within the 14-day cooling period, you'll receive a full refund.`
                                 : 'Are you sure? Your subscription will continue until the end of the billing period.'}
                             </p>
                             <div className="flex gap-2">
@@ -1310,21 +1324,14 @@ export default function Settings() {
                           </div>
                         </div>
 
-                        {!showDeleteConfirm ? (
-                          <button
-                            onClick={() => setShowDeleteConfirm(true)}
-                            className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-                          >
-                            Request Account Deletion
-                          </button>
-                        ) : (
+                        {subscription?.deletion_scheduled ? (
                           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
                             <div className="flex items-center gap-3 mb-3">
                               <Clock className="w-5 h-5 text-destructive" />
                               <div>
-                                <p className="text-sm font-bold text-destructive">14-Day Cooling Period</p>
+                                <p className="text-sm font-bold text-destructive">Deletion Scheduled</p>
                                 <p className="text-xs text-destructive/80">
-                                  Your account will be permanently deleted in 14 days. You can cancel this request anytime.
+                                  Your account will be permanently deleted in {subscription.days_until_deletion} days.
                                 </p>
                               </div>
                             </div>
@@ -1332,44 +1339,86 @@ export default function Settings() {
                             <div className="bg-destructive/20 rounded-lg p-3 mb-3">
                               <div className="flex justify-between items-center mb-1">
                                 <span className="text-xs text-destructive">Days until deletion</span>
-                                <span className="text-sm font-bold text-destructive">14 days</span>
+                                <span className="text-sm font-bold text-destructive">{subscription.days_until_deletion} days</span>
                               </div>
                               <div className="w-full bg-destructive/30 rounded-full h-2">
                                 <div 
                                   className="bg-destructive h-2 rounded-full" 
-                                  style={{ width: '0%' }}
+                                  style={{ width: `${((14 - (subscription.days_until_deletion || 0)) / 14) * 100}%` }}
                                 ></div>
                               </div>
                             </div>
 
-                            <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
-                              <li>All your business settings and staff members</li>
-                              <li>All transactions, customers, and inventory data</li>
-                              <li>Your subscription will be cancelled (with refund if applicable)</li>
-                              <li>Your account and all associated data</li>
-                            </ul>
-                            
-                            <p className="text-xs text-destructive mb-3 font-bold">
-                              This action cannot be undone after 14 days!
-                            </p>
-                            
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => setShowDeleteConfirm(false)}
-                                className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
-                                disabled={deleting}
-                              >
-                                Cancel Request
-                              </button>
-                              <button
-                                onClick={handleDeleteAccount}
-                                disabled={deleting}
-                                className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                              >
-                                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Confirm Deletion'}
-                              </button>
-                            </div>
+                            <button
+                              onClick={handleCancelDeletion}
+                              disabled={deleting}
+                              className="w-full bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
+                            >
+                              {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Cancel Deletion Request'}
+                            </button>
                           </div>
+                        ) : (
+                          !showDeleteConfirm ? (
+                            <button
+                              onClick={() => setShowDeleteConfirm(true)}
+                              className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+                            >
+                              Request Account Deletion
+                            </button>
+                          ) : (
+                            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                              <div className="flex items-center gap-3 mb-3">
+                                <Clock className="w-5 h-5 text-destructive" />
+                                <div>
+                                  <p className="text-sm font-bold text-destructive">14-Day Cooling Period</p>
+                                  <p className="text-xs text-destructive/80">
+                                    Your account will be permanently deleted in 14 days. You can cancel this request anytime.
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="bg-destructive/20 rounded-lg p-3 mb-3">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-destructive">Days until deletion</span>
+                                  <span className="text-sm font-bold text-destructive">14 days</span>
+                                </div>
+                                <div className="w-full bg-destructive/30 rounded-full h-2">
+                                  <div 
+                                    className="bg-destructive h-2 rounded-full" 
+                                    style={{ width: '0%' }}
+                                  ></div>
+                                </div>
+                              </div>
+
+                              <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
+                                <li>All your business settings and staff members</li>
+                                <li>All transactions, customers, and inventory data</li>
+                                <li>Your subscription will be cancelled (with refund if applicable)</li>
+                                <li>Your account and all associated data</li>
+                              </ul>
+                              
+                              <p className="text-xs text-destructive mb-3 font-bold">
+                                This action cannot be undone after 14 days!
+                              </p>
+                              
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setShowDeleteConfirm(false)}
+                                  className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
+                                  disabled={deleting}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={handleScheduleDeletion}
+                                  disabled={deleting}
+                                  className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
+                                >
+                                  {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Schedule Deletion'}
+                                </button>
+                              </div>
+                            </div>
+                          )
                         )}
                       </div>
                     </>
@@ -2032,4 +2081,3 @@ export default function Settings() {
     </div>
   );
 }
-
