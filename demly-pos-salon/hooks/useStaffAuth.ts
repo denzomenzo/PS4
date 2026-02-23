@@ -117,15 +117,16 @@ const normalizePermissions = (dbPermissions: any, role: "staff" | "manager" | "o
   return permissionValues;
 };
 
-// Helper to set cookie
+// Helper to set cookie - UPDATED to include email
 const setStaffCookie = (staff: Staff) => {
   if (typeof document === 'undefined') return;
   
   try {
-    // Create a simplified version for the cookie
+    // Create a simplified version for the cookie - NOW INCLUDING EMAIL
     const cookieStaff = {
       id: staff.id,
       name: staff.name,
+      email: staff.email,  // ✅ ADDED: email is now included
       role: staff.role,
       permissions: staff.permissions
     };
@@ -137,7 +138,7 @@ const setStaffCookie = (staff: Staff) => {
     
     document.cookie = `current_staff=${cookieValue}; path=/; expires=${expires.toUTCString()}; SameSite=Strict`;
     
-    console.log("🍪 Staff cookie set for:", staff.name);
+    console.log("🍪 Staff cookie set for:", staff.name, "with email:", staff.email);
   } catch (error) {
     console.error("Error setting staff cookie:", error);
   }
@@ -151,7 +152,7 @@ const clearStaffCookie = () => {
   console.log("🍪 Staff cookie cleared");
 };
 
-// Helper to get cookie
+// Helper to get cookie - UPDATED to include email
 const getStaffCookie = (): Staff | null => {
   if (typeof document === 'undefined') return null;
   
@@ -164,11 +165,11 @@ const getStaffCookie = (): Staff | null => {
       const decoded = decodeURIComponent(cookieValue);
       const parsed = JSON.parse(decoded);
       
-      // Convert back to full Staff type
+      // Convert back to full Staff type - NOW INCLUDING EMAIL
       return {
         id: parsed.id,
         name: parsed.name,
-        email: null, // Email not stored in cookie for security
+        email: parsed.email || null,  // ✅ ADDED: email from cookie
         pin: null,   // PIN not stored in cookie for security
         role: parsed.role,
         permissions: parsed.permissions
@@ -206,7 +207,7 @@ export function useStaffAuth() {
         const cookieStaff = getStaffCookie();
         if (cookieStaff) {
           loadedStaff = cookieStaff;
-          console.log("Loaded staff from cookie:", loadedStaff.name);
+          console.log("Loaded staff from cookie:", loadedStaff.name, "email:", loadedStaff.email);
         }
         
         // Then try localStorage (for client-side)
@@ -215,7 +216,7 @@ export function useStaffAuth() {
           const data = JSON.parse(stored);
           if (data.expiresAt && new Date(data.expiresAt) > new Date()) {
             loadedStaff = data.staff;
-            console.log("Loaded staff from localStorage:", loadedStaff?.name);
+            console.log("Loaded staff from localStorage:", loadedStaff?.name, "email:", loadedStaff?.email);
             
             // Sync cookie with localStorage
             if (loadedStaff && !cookieStaff) {
@@ -287,13 +288,13 @@ export function useStaffAuth() {
         }));
       }
 
-      // Set cookie for proxy/middleware
+      // Set cookie for proxy/middleware - NOW WITH EMAIL
       setStaffCookie(staffMember);
 
       notifyListeners(staffMember);
       await logLogin(staffMember.id);
 
-      console.log("✅ Login successful for:", staffMember.name);
+      console.log("✅ Login successful for:", staffMember.name, "email:", staffMember.email);
       return { success: true, staff: staffMember };
     } catch (error: any) {
       console.error("Login error:", error);
@@ -408,4 +409,3 @@ export function getCurrentStaff(): Staff | null {
 export function isAuthenticated(): boolean {
   return globalStaff !== null;
 }
-
