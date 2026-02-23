@@ -5,12 +5,20 @@ import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 
 export async function GET() {
-  const debug = {
-    steps: [] as string[],
-    staffEmail: null as string | null,
+  const debug: {
+    steps: string[];
+    staffEmail: string | null;
+    licenseFound: boolean;
+    licenseData: any;
+    error: string | null;
+    availableEmails?: string[];
+  } = {
+    steps: [],
+    staffEmail: null,
     licenseFound: false,
-    licenseData: null as any,
-    error: null as string | null
+    licenseData: null,
+    error: null,
+    availableEmails: []
   };
 
   try {
