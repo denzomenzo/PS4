@@ -23,7 +23,12 @@ export async function GET() {
     let staff;
     try {
       staff = JSON.parse(decodeURIComponent(staffCookie));
-      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role, email: staff.email });
+      console.log('✅ Staff from cookie:', { 
+        id: staff.id, 
+        name: staff.name, 
+        role: staff.role, 
+        email: staff.email 
+      });
     } catch (e) {
       console.error('❌ Invalid staff cookie');
       return NextResponse.json(
@@ -59,7 +64,6 @@ export async function GET() {
 
     if (!license) {
       console.log('No license found for staff email:', staff.email);
-      // Return null subscription - this will show "Purchase License" in settings
       return NextResponse.json({ subscription: null });
     }
 
@@ -68,12 +72,29 @@ export async function GET() {
       stripe_subscription_id: license.stripe_subscription_id,
       plan: license.plan_type,
       status: license.status,
-      email: license.email
+      email: license.email,
+      expires_at: license.expires_at
     });
+
+    // Calculate cooling days
+    const createdDate = new Date(license.created_at);
+    const now = new Date();
+    const daysSince = Math.floor(
+      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
+    // Calculate deletion days if scheduled
+    let daysUntilDeletion = null;
+    if (license.deletion_scheduled_at) {
+      const deletionDate = new Date(license.deletion_scheduled_at);
+      const diffTime = deletionDate.getTime() - now.getTime();
+      daysUntilDeletion = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
 
     // Try to get from Stripe, but always return license data even if Stripe fails
     try {
-      if (license.stripe_subscription_id) {
+      if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
         const response = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
@@ -98,14 +119,6 @@ export async function GET() {
         }
 
         const price = stripeSub.items?.data[0]?.price;
-        
-        // Calculate cooling days
-        const createdDate = new Date(stripeSub.created * 1000);
-        const now = new Date();
-        const daysSince = Math.floor(
-          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        const coolingDaysLeft = Math.max(0, 14 - daysSince);
 
         return NextResponse.json({
           subscription: {
@@ -120,6 +133,9 @@ export async function GET() {
             payment_method: paymentMethod,
             created: new Date(stripeSub.created * 1000).toISOString(),
             cooling_days_left: coolingDaysLeft,
+            deletion_scheduled: !!license.deletion_scheduled_at,
+            days_until_deletion: daysUntilDeletion,
+            deletion_date: license.deletion_scheduled_at,
           }
         });
       }
@@ -127,14 +143,7 @@ export async function GET() {
       console.log('Stripe fetch failed, using license data:', stripeError.message);
     }
 
-    // Always return license data as fallback
-    const createdDate = new Date(license.created_at);
-    const now = new Date();
-    const daysSince = Math.floor(
-      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const coolingDaysLeft = Math.max(0, 14 - daysSince);
-
+    // Return license data as fallback
     return NextResponse.json({
       subscription: {
         id: license.stripe_subscription_id || 'license-' + license.id,
@@ -148,6 +157,9 @@ export async function GET() {
         payment_method: null,
         created: license.created_at,
         cooling_days_left: coolingDaysLeft,
+        deletion_scheduled: !!license.deletion_scheduled_at,
+        days_until_deletion: daysUntilDeletion,
+        deletion_date: license.deletion_scheduled_at,
       }
     });
   } catch (error: any) {
