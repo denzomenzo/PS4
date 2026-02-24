@@ -6,13 +6,18 @@ import { stripe } from '@/lib/stripe';
 import Stripe from 'stripe';
 
 export async function GET() {
+  console.log('🔵 ===== SUBSCRIPTION API CALLED =====');
+  
   try {
     const cookieStore = await cookies();
     
     // Get the staff cookie first
     const staffCookie = cookieStore.get('current_staff')?.value;
     
+    console.log('📋 Staff cookie present:', !!staffCookie);
+    
     if (!staffCookie) {
+      console.error('❌ No staff cookie found');
       return NextResponse.json(
         { error: 'Unauthorized - No staff session' }, 
         { status: 401 }
@@ -26,9 +31,11 @@ export async function GET() {
       console.log('✅ Staff from cookie:', { 
         id: staff.id, 
         name: staff.name, 
-        email: staff.email 
+        email: staff.email,
+        role: staff.role
       });
     } catch (e) {
+      console.error('❌ Invalid staff cookie:', e);
       return NextResponse.json(
         { error: 'Unauthorized - Invalid staff session' }, 
         { status: 401 }
@@ -48,6 +55,8 @@ export async function GET() {
       }
     );
 
+    console.log('🔍 Looking for license with email:', staff.email);
+
     // Get user's license by staff email
     const { data: license, error } = await supabase
       .from('licenses')
@@ -56,18 +65,48 @@ export async function GET() {
       .maybeSingle();
 
     if (error) {
-      console.error('Error fetching license:', error);
+      console.error('❌ Database error fetching license:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!license) {
-      console.log('No license found for staff email:', staff.email);
+      console.log('⚠️ No license found for staff email:', staff.email);
       return NextResponse.json({ subscription: null });
     }
 
+    console.log('✅ License found in database:', {
+      id: license.id,
+      stripe_subscription_id: license.stripe_subscription_id,
+      stripe_customer_id: license.stripe_customer_id,
+      plan: license.plan_type,
+      status: license.status,
+      email: license.email,
+      created_at: license.created_at,
+      expires_at: license.expires_at
+    });
+
+    // Calculate cooling days
+    const createdDate = new Date(license.created_at);
+    const now = new Date();
+    const daysSince = Math.floor(
+      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
+    // Calculate deletion days if scheduled
+    let daysUntilDeletion = null;
+    if (license.deletion_scheduled_at) {
+      const deletionDate = new Date(license.deletion_scheduled_at);
+      const diffTime = deletionDate.getTime() - now.getTime();
+      daysUntilDeletion = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
+
     // Try to get from Stripe with proper expansion
-    try {
-      if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
+    if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
+      try {
+        console.log('🔍 Attempting to fetch from Stripe with ID:', license.stripe_subscription_id);
+        console.log('🔑 Using Stripe key mode:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_live') ? 'LIVE' : 'TEST');
+        
         // First get the subscription with expanded payment method
         const stripeResponse = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
@@ -76,10 +115,19 @@ export async function GET() {
           }
         );
         
-        // Cast to any to avoid TypeScript issues
-        const subscription = stripeResponse as any;
+        console.log('✅ Stripe fetch successful!');
+        console.log('📦 Stripe subscription data:', {
+          id: stripeResponse.id,
+          status: stripeResponse.status,
+          current_period_start: stripeResponse.current_period_start,
+          current_period_end: stripeResponse.current_period_end,
+          cancel_at_period_end: stripeResponse.cancel_at_period_end,
+          has_default_payment_method: !!stripeResponse.default_payment_method,
+          customer_id: typeof stripeResponse.customer === 'string' ? stripeResponse.customer : stripeResponse.customer?.id
+        });
 
-        // Get the customer to access default payment method if needed
+        // Cast to any for easier access
+        const subscription = stripeResponse as any;
         const customer = subscription.customer as any;
         
         // Get payment method details
@@ -87,7 +135,8 @@ export async function GET() {
         
         // Try to get from subscription first
         if (subscription.default_payment_method) {
-          const pm = subscription.default_payment_method as any;
+          console.log('💳 Found payment method in subscription');
+          const pm = subscription.default_payment_method;
           if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
@@ -95,11 +144,13 @@ export async function GET() {
               exp_month: pm.card.exp_month,
               exp_year: pm.card.exp_year,
             };
+            console.log('💳 Payment method details:', paymentMethod);
           }
         } 
         // If not in subscription, try customer's default
         else if (customer?.invoice_settings?.default_payment_method) {
-          const pm = customer.invoice_settings.default_payment_method as any;
+          console.log('💳 Found payment method in customer');
+          const pm = customer.invoice_settings.default_payment_method;
           if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
@@ -107,30 +158,31 @@ export async function GET() {
               exp_month: pm.card.exp_month,
               exp_year: pm.card.exp_year,
             };
+            console.log('💳 Payment method details:', paymentMethod);
           }
+        } else {
+          console.log('💳 No payment method found');
         }
 
         // Get upcoming invoice to show next payment
         let upcomingInvoice = null;
         try {
-          // Use type assertion to bypass TypeScript
+          console.log('📄 Fetching upcoming invoice...');
           const invoicesApi = stripe.invoices as any;
           upcomingInvoice = await invoicesApi.retrieveUpcoming({
             subscription: license.stripe_subscription_id,
           });
-        } catch (upcomingError) {
-          console.log('No upcoming invoice found');
+          console.log('📄 Upcoming invoice found:', {
+            amount: upcomingInvoice?.total,
+            next_payment: upcomingInvoice?.next_payment_attempt
+          });
+        } catch (upcomingError: any) {
+          console.log('📄 No upcoming invoice found:', upcomingError.message);
         }
 
         const price = subscription.items?.data[0]?.price;
         
-        // Calculate cooling days
-        const createdDate = new Date(subscription.created * 1000);
-        const now = new Date();
-        const daysSince = Math.floor(
-          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        const coolingDaysLeft = Math.max(0, 14 - daysSince);
+        console.log('✅ Returning Stripe subscription data');
 
         return NextResponse.json({
           subscription: {
@@ -148,27 +200,42 @@ export async function GET() {
             created: new Date(subscription.created * 1000).toISOString(),
             cooling_days_left: coolingDaysLeft,
             deletion_scheduled: !!license.deletion_scheduled_at,
-            days_until_deletion: license.deletion_scheduled_at ? 
-              Math.max(0, Math.ceil((new Date(license.deletion_scheduled_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))) : null,
+            days_until_deletion: daysUntilDeletion,
             deletion_date: license.deletion_scheduled_at,
           }
         });
+      } catch (stripeError: any) {
+        // 👇 THIS WILL SHOW US THE REAL ERROR
+        console.error('❌❌❌ STRIPE FETCH FAILED ❌❌❌');
+        console.error('Error message:', stripeError.message);
+        console.error('Error type:', stripeError.type);
+        console.error('Error code:', stripeError.code);
+        console.error('Status code:', stripeError.statusCode);
+        console.error('Full error:', stripeError);
+        
+        // Log the subscription ID that failed
+        console.error('Failed subscription ID:', license.stripe_subscription_id);
+        
+        // Check if it's a test/live mode mismatch
+        const isTestKey = process.env.STRIPE_SECRET_KEY?.startsWith('sk_test');
+        const isLiveKey = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live');
+        console.error('Stripe key mode:', isTestKey ? 'TEST' : isLiveKey ? 'LIVE' : 'UNKNOWN');
+        
+        // If it's a "no such subscription" error, the ID might be from the wrong mode
+        if (stripeError.code === 'resource_missing') {
+          console.error('⚠️ This subscription does not exist in Stripe with current key mode');
+        }
       }
-    } catch (stripeError: any) {
-      console.log('Stripe fetch failed, using license data:', stripeError.message);
+    } else {
+      console.log('⚠️ No valid Stripe subscription ID found in database');
     }
 
     // Fallback to license data
-    const createdDate = new Date(license.created_at);
-    const now = new Date();
-    const daysSince = Math.floor(
-      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const coolingDaysLeft = Math.max(0, 14 - daysSince);
-
+    console.log('⚠️ Using license data as fallback');
+    
     return NextResponse.json({
       subscription: {
-        id: license.stripe_subscription_id || 'license-' + license.id,
+        id: 'license-' + license.id,
         plan: license.plan_type,
         status: license.status,
         current_period_start: license.created_at,
@@ -182,12 +249,12 @@ export async function GET() {
         created: license.created_at,
         cooling_days_left: coolingDaysLeft,
         deletion_scheduled: !!license.deletion_scheduled_at,
-        days_until_deletion: license.deletion_scheduled_at ? 
-          Math.max(0, Math.ceil((new Date(license.deletion_scheduled_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))) : null,
+        days_until_deletion: daysUntilDeletion,
         deletion_date: license.deletion_scheduled_at,
       }
     });
   } catch (error: any) {
+    console.error('❌❌❌ UNEXPECTED ERROR ❌❌❌');
     console.error('Error:', error);
     return NextResponse.json(
       { error: error.message },
