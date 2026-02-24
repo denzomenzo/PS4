@@ -69,23 +69,26 @@ export async function GET() {
     try {
       if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
         // First get the subscription with expanded payment method
-        const subscription = await stripe.subscriptions.retrieve(
+        const stripeResponse = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
             expand: ['default_payment_method', 'customer'],
           }
         );
+        
+        // Cast to any to avoid TypeScript issues
+        const subscription = stripeResponse as any;
 
         // Get the customer to access default payment method if needed
-        const customer = subscription.customer as Stripe.Customer;
+        const customer = subscription.customer as any;
         
         // Get payment method details
         let paymentMethod = null;
         
         // Try to get from subscription first
         if (subscription.default_payment_method) {
-          const pm = subscription.default_payment_method as Stripe.PaymentMethod;
-          if (pm.card) {
+          const pm = subscription.default_payment_method as any;
+          if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
               last4: pm.card.last4,
@@ -95,9 +98,9 @@ export async function GET() {
           }
         } 
         // If not in subscription, try customer's default
-        else if (customer.invoice_settings?.default_payment_method) {
-          const pm = customer.invoice_settings.default_payment_method as Stripe.PaymentMethod;
-          if (pm.card) {
+        else if (customer?.invoice_settings?.default_payment_method) {
+          const pm = customer.invoice_settings.default_payment_method as any;
+          if (pm?.card) {
             paymentMethod = {
               brand: pm.card.brand,
               last4: pm.card.last4,
@@ -107,7 +110,7 @@ export async function GET() {
           }
         }
 
-        // Get upcoming invoice to show next payment - using type assertion
+        // Get upcoming invoice to show next payment
         let upcomingInvoice = null;
         try {
           // Use type assertion to bypass TypeScript
