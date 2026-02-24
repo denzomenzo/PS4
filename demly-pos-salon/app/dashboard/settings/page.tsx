@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
-  CircleDollarSign, History, ExternalLink, AlertTriangle
+  CircleDollarSign, History, ExternalLink, AlertTriangle, ExternalLink as ExternalLinkIcon
 } from "lucide-react";
 import Link from "next/link";
 
@@ -74,6 +74,7 @@ interface Invoice {
   status: string;
   pdf_url: string | null;
   hosted_url: string | null;
+  paid: boolean;
 }
 
 const COOLING_PERIOD_DAYS = 14;
@@ -550,6 +551,23 @@ export default function Settings() {
     }
   };
 
+  const handleViewInvoices = async () => {
+    try {
+      // First try to open the most recent invoice if available
+      if (invoices.length > 0 && invoices[0].hosted_url) {
+        window.open(invoices[0].hosted_url, '_blank');
+        return;
+      }
+      
+      // If no invoices, open customer portal
+      await handleOpenCustomerPortal();
+      
+    } catch (error: any) {
+      console.error("Error viewing invoices:", error);
+      setCancelError(error.message || "❌ Failed to view invoices. Please try again.");
+    }
+  };
+
   const handleScheduleDeletion = async () => {
     if (!confirm("Are you sure you want to schedule account deletion? This will permanently delete all your data in 14 days.")) {
       return;
@@ -672,7 +690,6 @@ export default function Settings() {
     
     setShowStaffModal(true);
   };
-
 
   const openPinChangeModal = (member: Staff) => {
     console.log("🔒 Opening PIN change modal for:", member.name);
@@ -1033,8 +1050,6 @@ export default function Settings() {
             </div>
           )}
 
-
-
           <div className="space-y-3">
             
             {/* Business Settings */}
@@ -1199,46 +1214,59 @@ export default function Settings() {
                         </div>
                       </div>
 
-{/* Payment Method */}
-{subscription.payment_method && (
-  <div className="bg-muted/30 border border-border rounded-lg p-3">
-    <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
-    <div className="flex items-center gap-3">
-      <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
-        {subscription.payment_method.brand === 'visa' ? 'VISA' : 
-         subscription.payment_method.brand === 'mastercard' ? 'MC' : 
-         subscription.payment_method.brand === 'amex' ? 'AMEX' : 
-         subscription.payment_method.brand === 'discover' ? 'DISC' : 'CARD'}
-      </div>
-      <div className="flex-1">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground">
-            {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
-        </p>
-      </div>
-    </div>
-    
-    {/* Next Payment Info */}
-    {subscription.next_payment_amount && subscription.next_payment_date && (
-      <div className="mt-3 pt-3 border-t border-border">
-        <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Next payment:</span>
-          <span className="font-medium text-foreground">
-            £{subscription.next_payment_amount} on {new Date(subscription.next_payment_date).toLocaleDateString('en-GB', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric'
-            })}
-          </span>
-        </div>
-      </div>
-    )}
-  </div>
-)}
+                      {/* Payment Method */}
+                      {subscription.payment_method ? (
+                        <div className="bg-muted/30 border border-border rounded-lg p-3">
+                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
+                              {subscription.payment_method.brand === 'visa' ? 'VISA' : 
+                               subscription.payment_method.brand === 'mastercard' ? 'MC' : 
+                               subscription.payment_method.brand === 'amex' ? 'AMEX' : 
+                               subscription.payment_method.brand === 'discover' ? 'DISC' : 'CARD'}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-foreground">
+                                  {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
+                                </p>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          {/* Next Payment Info */}
+                          {subscription.next_payment_amount && subscription.next_payment_date && (
+                            <div className="mt-3 pt-3 border-t border-border">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">Next payment:</span>
+                                <span className="font-medium text-foreground">
+                                  £{subscription.next_payment_amount} on {new Date(subscription.next_payment_date).toLocaleDateString('en-GB', {
+                                    day: 'numeric',
+                                    month: 'long',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-muted/30 border border-border rounded-lg p-3">
+                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">No payment method on file</p>
+                            <button
+                              onClick={handleOpenCustomerPortal}
+                              className="text-xs bg-primary/10 text-primary px-3 py-1 rounded hover:bg-primary/20 transition-colors"
+                            >
+                              Add Payment Method
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Action Buttons */}
                       <div className="flex gap-2">
@@ -1247,16 +1275,10 @@ export default function Settings() {
                           className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
                         >
                           <CreditCard className="w-3 h-3" />
-                          Update Payment Method
+                          {subscription.payment_method ? 'Update Payment Method' : 'Add Payment Method'}
                         </button>
                         <button
-                          onClick={() => {
-                            if (invoices.length > 0 && invoices[0].hosted_url) {
-                              window.open(invoices[0].hosted_url, '_blank');
-                            } else if (subscription?.id) {
-                              handleOpenCustomerPortal();
-                            }
-                          }}
+                          onClick={handleViewInvoices}
                           className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
                         >
                           <Receipt className="w-3 h-3" />
@@ -1322,6 +1344,16 @@ export default function Settings() {
                                   <span className="text-xs font-medium text-foreground">
                                     £{invoice.amount}
                                   </span>
+                                  {invoice.hosted_url && (
+                                    <a
+                                      href={invoice.hosted_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-muted-foreground hover:text-foreground"
+                                    >
+                                      <ExternalLinkIcon className="w-3 h-3" />
+                                    </a>
+                                  )}
                                   {invoice.pdf_url && (
                                     <a
                                       href={invoice.pdf_url}
@@ -1335,6 +1367,14 @@ export default function Settings() {
                                 </div>
                               </div>
                             ))}
+                            {invoices.length > 3 && (
+                              <button
+                                onClick={handleViewInvoices}
+                                className="w-full text-center text-xs text-primary hover:text-primary/80 mt-2"
+                              >
+                                View all {invoices.length} invoices →
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -2108,8 +2148,3 @@ export default function Settings() {
     </div>
   );
 }
-
-
-
-
-
