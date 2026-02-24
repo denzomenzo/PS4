@@ -12,7 +12,6 @@ export async function GET() {
     const staffCookie = cookieStore.get('current_staff')?.value;
     
     if (!staffCookie) {
-      console.log('❌ No staff cookie found');
       return NextResponse.json(
         { error: 'Unauthorized - No staff session' }, 
         { status: 401 }
@@ -23,9 +22,7 @@ export async function GET() {
     let staff;
     try {
       staff = JSON.parse(decodeURIComponent(staffCookie));
-      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
     } catch (e) {
-      console.error('❌ Invalid staff cookie');
       return NextResponse.json(
         { error: 'Unauthorized - Invalid staff session' }, 
         { status: 401 }
@@ -53,7 +50,6 @@ export async function GET() {
       .single();
 
     if (error || !license?.stripe_customer_id) {
-      console.log('No customer found for email:', staff.email);
       return NextResponse.json({ invoices: [] });
     }
 
@@ -72,6 +68,9 @@ export async function GET() {
       status: invoice.status,
       pdf_url: invoice.invoice_pdf,
       hosted_url: invoice.hosted_invoice_url,
+      paid: invoice.paid,
+      period_start: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
+      period_end: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
     }));
 
     return NextResponse.json({ invoices: formattedInvoices });
