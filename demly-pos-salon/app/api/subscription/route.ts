@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
+import Stripe from 'stripe'; // Add this import
 
 export async function GET() {
   try {
