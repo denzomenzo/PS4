@@ -56,6 +56,8 @@ interface Subscription {
     exp_month: number;
     exp_year: number;
   };
+  next_payment_amount?: number | null;
+  next_payment_date?: string | null;
   created: string;
   cooling_days_left?: number;
   deletion_scheduled?: boolean;
@@ -1197,24 +1199,46 @@ export default function Settings() {
                         </div>
                       </div>
 
-                      {/* Payment Method */}
-                      {subscription.payment_method && (
-                        <div className="bg-muted/30 border border-border rounded-lg p-3">
-                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                              {subscription.payment_method.brand === 'visa' ? 'VISA' : 
-                               subscription.payment_method.brand === 'mastercard' ? 'MC' : 'CARD'}
-                            </div>
-                            <div>
-                              <p className="text-sm text-foreground">•••• {subscription.payment_method.last4}</p>
-                              <p className="text-xs text-muted-foreground">
-                                Expires {subscription.payment_method.exp_month}/{subscription.payment_method.exp_year}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+{/* Payment Method */}
+{subscription.payment_method && (
+  <div className="bg-muted/30 border border-border rounded-lg p-3">
+    <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+    <div className="flex items-center gap-3">
+      <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
+        {subscription.payment_method.brand === 'visa' ? 'VISA' : 
+         subscription.payment_method.brand === 'mastercard' ? 'MC' : 
+         subscription.payment_method.brand === 'amex' ? 'AMEX' : 
+         subscription.payment_method.brand === 'discover' ? 'DISC' : 'CARD'}
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground">
+            {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
+        </p>
+      </div>
+    </div>
+    
+    {/* Next Payment Info */}
+    {subscription.next_payment_amount && subscription.next_payment_date && (
+      <div className="mt-3 pt-3 border-t border-border">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Next payment:</span>
+          <span className="font-medium text-foreground">
+            £{subscription.next_payment_amount} on {new Date(subscription.next_payment_date).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            })}
+          </span>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
                       {/* Action Buttons */}
                       <div className="flex gap-2">
@@ -2084,6 +2108,7 @@ export default function Settings() {
     </div>
   );
 }
+
 
 
 
