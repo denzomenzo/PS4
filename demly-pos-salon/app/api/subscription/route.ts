@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
-import Stripe from 'stripe'; // Add this import
+import Stripe from 'stripe';
 
 export async function GET() {
   try {
@@ -108,9 +108,15 @@ export async function GET() {
         }
 
         // Get upcoming invoice to show next payment
-        const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
-          subscription: license.stripe_subscription_id,
-        });
+        let upcomingInvoice = null;
+        try {
+          // Use the correct method - it might be `upcoming` instead of `retrieveUpcoming`
+          upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+            subscription: license.stripe_subscription_id,
+          });
+        } catch (upcomingError) {
+          console.log('No upcoming invoice found');
+        }
 
         const price = subscription.items?.data[0]?.price;
         
