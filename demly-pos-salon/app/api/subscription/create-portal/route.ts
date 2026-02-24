@@ -56,27 +56,11 @@ export async function POST() {
       );
     }
 
-    // Create Stripe Customer Portal session
+    // Create Stripe Customer Portal session with your configuration
     const session = await stripe.billingPortal.sessions.create({
       customer: license.stripe_customer_id,
       return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/settings`,
-      configuration: {
-        features: {
-          payment_method_update: {
-            enabled: true,
-          },
-          invoice_history: {
-            enabled: true,
-          },
-          subscription_cancel: {
-            enabled: true,
-          },
-          subscription_update: {
-            enabled: true,
-            default_allowed_updates: ['price'],
-          },
-        },
-      },
+      configuration: process.env.STRIPE_PORTAL_CONFIGURATION_ID,
     });
 
     return NextResponse.json({ url: session.url });
