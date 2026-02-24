@@ -115,19 +115,20 @@ export async function GET() {
           }
         );
         
+        // Cast to any to avoid TypeScript issues
+        const subscription = stripeResponse as any;
+        
         console.log('✅ Stripe fetch successful!');
         console.log('📦 Stripe subscription data:', {
-          id: stripeResponse.id,
-          status: stripeResponse.status,
-          current_period_start: stripeResponse.current_period_start,
-          current_period_end: stripeResponse.current_period_end,
-          cancel_at_period_end: stripeResponse.cancel_at_period_end,
-          has_default_payment_method: !!stripeResponse.default_payment_method,
-          customer_id: typeof stripeResponse.customer === 'string' ? stripeResponse.customer : stripeResponse.customer?.id
+          id: subscription.id,
+          status: subscription.status,
+          current_period_start: subscription.current_period_start,
+          current_period_end: subscription.current_period_end,
+          cancel_at_period_end: subscription.cancel_at_period_end,
+          has_default_payment_method: !!subscription.default_payment_method,
+          customer_id: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
         });
 
-        // Cast to any for easier access
-        const subscription = stripeResponse as any;
         const customer = subscription.customer as any;
         
         // Get payment method details
