@@ -68,7 +68,8 @@ export async function GET() {
       status: invoice.status,
       pdf_url: invoice.invoice_pdf,
       hosted_url: invoice.hosted_invoice_url,
-      paid: invoice.paid,
+      // Use status to determine if paid (status === 'paid')
+      paid: invoice.status === 'paid',
       period_start: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
       period_end: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
     }));
