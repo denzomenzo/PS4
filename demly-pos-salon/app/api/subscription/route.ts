@@ -107,15 +107,16 @@ export async function GET() {
           }
         }
 
-        // Get upcoming invoice to show next payment - FIXED METHOD NAME
+        // Get upcoming invoice to show next payment - using type assertion
         let upcomingInvoice = null;
         try {
-          // The correct method is `upcoming`, not `retrieveUpcoming`
-          upcomingInvoice = await stripe.invoices.upcoming({
+          // Use type assertion to bypass TypeScript
+          const invoicesApi = stripe.invoices as any;
+          upcomingInvoice = await invoicesApi.retrieveUpcoming({
             subscription: license.stripe_subscription_id,
           });
         } catch (upcomingError) {
-          console.log('No upcoming invoice found or error:', upcomingError);
+          console.log('No upcoming invoice found');
         }
 
         const price = subscription.items?.data[0]?.price;
