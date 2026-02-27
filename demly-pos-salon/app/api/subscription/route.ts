@@ -7,6 +7,7 @@ import Stripe from 'stripe';
 
 export async function GET() {
   console.log('🔵 ===== SUBSCRIPTION API CALLED =====');
+  console.log('🔵 Timestamp:', new Date().toISOString());
   
   try {
     const cookieStore = await cookies();
@@ -105,9 +106,17 @@ export async function GET() {
     if (license.stripe_subscription_id && license.stripe_subscription_id !== 'test_subscription_id') {
       try {
         console.log('🔍 Attempting to fetch from Stripe with ID:', license.stripe_subscription_id);
-        console.log('🔑 Using Stripe key mode:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_live') ? 'LIVE' : 'TEST');
         
-        // First get the subscription with expanded payment method
+        // Check Stripe key mode
+        const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+        const keyMode = stripeKey.startsWith('sk_live') ? 'LIVE' : stripeKey.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
+        console.log('🔑 Stripe key mode:', keyMode);
+        console.log('🔑 Stripe key prefix:', stripeKey.substring(0, 7) + '...');
+        
+        // Log the full Stripe key for debugging (masked)
+        const maskedKey = stripeKey.replace(/[^-_]$/g, '*');
+        console.log('🔑 Full key (masked):', maskedKey);
+        
         const stripeResponse = await stripe.subscriptions.retrieve(
           license.stripe_subscription_id,
           {
@@ -115,20 +124,19 @@ export async function GET() {
           }
         );
         
-        // Cast to any to avoid TypeScript issues
-        const subscription = stripeResponse as any;
-        
         console.log('✅ Stripe fetch successful!');
         console.log('📦 Stripe subscription data:', {
-          id: subscription.id,
-          status: subscription.status,
-          current_period_start: subscription.current_period_start,
-          current_period_end: subscription.current_period_end,
-          cancel_at_period_end: subscription.cancel_at_period_end,
-          has_default_payment_method: !!subscription.default_payment_method,
-          customer_id: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
+          id: stripeResponse.id,
+          status: stripeResponse.status,
+          current_period_start: stripeResponse.current_period_start,
+          current_period_end: stripeResponse.current_period_end,
+          cancel_at_period_end: stripeResponse.cancel_at_period_end,
+          has_default_payment_method: !!stripeResponse.default_payment_method,
+          customer_id: typeof stripeResponse.customer === 'string' ? stripeResponse.customer : stripeResponse.customer?.id
         });
 
+        // Cast to any to avoid TypeScript issues
+        const subscription = stripeResponse as any;
         const customer = subscription.customer as any;
         
         // Get payment method details
@@ -146,6 +154,8 @@ export async function GET() {
               exp_year: pm.card.exp_year,
             };
             console.log('💳 Payment method details:', paymentMethod);
+          } else {
+            console.log('💳 Payment method found but no card details:', pm);
           }
         } 
         // If not in subscription, try customer's default
@@ -160,9 +170,11 @@ export async function GET() {
               exp_year: pm.card.exp_year,
             };
             console.log('💳 Payment method details:', paymentMethod);
+          } else {
+            console.log('💳 Customer payment method found but no card details:', pm);
           }
         } else {
-          console.log('💳 No payment method found');
+          console.log('💳 No payment method found in subscription or customer');
         }
 
         // Get upcoming invoice to show next payment
@@ -178,7 +190,7 @@ export async function GET() {
             next_payment: upcomingInvoice?.next_payment_attempt
           });
         } catch (upcomingError: any) {
-          console.log('📄 No upcoming invoice found:', upcomingError.message);
+          console.log('📄 No upcoming invoice found or error:', upcomingError.message);
         }
 
         const price = subscription.items?.data[0]?.price;
@@ -208,11 +220,13 @@ export async function GET() {
       } catch (stripeError: any) {
         // 👇 THIS WILL SHOW US THE REAL ERROR
         console.error('❌❌❌ STRIPE FETCH FAILED ❌❌❌');
+        console.error('Error name:', stripeError.name);
         console.error('Error message:', stripeError.message);
         console.error('Error type:', stripeError.type);
         console.error('Error code:', stripeError.code);
         console.error('Status code:', stripeError.statusCode);
-        console.error('Full error:', stripeError);
+        console.error('Stack:', stripeError.stack);
+        console.error('Full error object:', JSON.stringify(stripeError, null, 2));
         
         // Log the subscription ID that failed
         console.error('Failed subscription ID:', license.stripe_subscription_id);
@@ -222,9 +236,22 @@ export async function GET() {
         const isLiveKey = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live');
         console.error('Stripe key mode:', isTestKey ? 'TEST' : isLiveKey ? 'LIVE' : 'UNKNOWN');
         
+        // Check subscription ID format
+        const subId = license.stripe_subscription_id || '';
+        console.error('Subscription ID format:', {
+          startsWith_sub: subId.startsWith('sub_'),
+          length: subId.length,
+          sample: subId.substring(0, 10) + '...'
+        });
+        
         // If it's a "no such subscription" error, the ID might be from the wrong mode
         if (stripeError.code === 'resource_missing') {
           console.error('⚠️ This subscription does not exist in Stripe with current key mode');
+          console.error('💡 Suggestion: Check if your Stripe key is in the correct mode (test/live) for this subscription');
+        }
+        
+        if (stripeError.type === 'StripeAuthenticationError') {
+          console.error('⚠️ Authentication error - your Stripe key might be invalid or expired');
         }
       }
     } else {
