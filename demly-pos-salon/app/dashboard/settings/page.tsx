@@ -9,7 +9,8 @@ import {
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
-  CircleDollarSign, History, ExternalLink, AlertTriangle, ExternalLink as ExternalLinkIcon
+  CircleDollarSign, History, ExternalLink, AlertTriangle, ExternalLink as ExternalLinkIcon,
+  CheckCircle, XCircle
 } from "lucide-react";
 import Link from "next/link";
 
@@ -206,7 +207,7 @@ export default function Settings() {
     }
   }, [subscription]);
 
-  // FIXED: Simplified permission checking
+  // Permission checking
   useEffect(() => {
     console.log("🔄 Settings page useEffect triggered", { userId, currentStaff });
     
@@ -218,7 +219,6 @@ export default function Settings() {
         permissions: currentStaff.permissions
       });
       
-      // SIMPLIFIED: Direct permission check
       const canAccessSettings = 
         currentStaff.role === "owner" || 
         currentStaff.role === "manager" || 
@@ -252,42 +252,31 @@ export default function Settings() {
     
     if (role === "staff") {
       setStaffPermissions({
-        // Core POS Operations - Required for staff
         access_pos: true,
         manage_transactions: true,
         manage_customers: true,
         access_display: true,
-        
-        // Management Operations - Disabled for staff
         manage_inventory: false,
         view_reports: false,
         manage_hardware: false,
         manage_card_terminal: false,
-        
-        // Administrative Operations - Never for staff
         manage_settings: false,
         manage_staff: false,
       });
     } else if (role === "manager") {
       setStaffPermissions({
-        // Core POS Operations - Required for managers
         access_pos: true,
         manage_transactions: true,
         manage_customers: true,
         access_display: true,
-        
-        // Management Operations - Enabled for managers
         manage_inventory: true,
         view_reports: true,
         manage_hardware: true,
         manage_card_terminal: true,
-        
-        // Administrative Operations - Default false for managers
         manage_settings: false,
         manage_staff: false,
       });
     } else if (role === "owner") {
-      // Owners have everything enabled
       setStaffPermissions({
         access_pos: true,
         manage_transactions: true,
@@ -359,37 +348,29 @@ export default function Settings() {
       }
       
       if (staffData) {
-        // Convert any old format permissions to new format for display
         const normalizedStaffData = staffData.map((member: any) => {
           const dbPermissions = member.permissions || {};
           
-          // Helper to get permission value (handles both old and new names)
           const getPermission = (oldName: string, newName: string, defaultValue: boolean = false) => {
             if (dbPermissions[newName] !== undefined) return Boolean(dbPermissions[newName]);
             if (dbPermissions[oldName] !== undefined) return Boolean(dbPermissions[oldName]);
             return defaultValue;
           };
 
-          // Determine defaults based on role
           const isOwner = member.role === "owner";
           const isManager = member.role === "manager";
           
           return {
             ...member,
             permissions: {
-              // Core POS Operations
               access_pos: getPermission('pos', 'access_pos', true),
               manage_transactions: getPermission('transactions', 'manage_transactions', true) || getPermission('process_transactions', 'manage_transactions', true),
               manage_customers: getPermission('customers', 'manage_customers', true),
               access_display: getPermission('display', 'access_display', true),
-              
-              // Management Operations
               manage_inventory: getPermission('inventory', 'manage_inventory', isManager || isOwner),
               view_reports: getPermission('reports', 'view_reports', isManager || isOwner),
               manage_hardware: getPermission('hardware', 'manage_hardware', isManager || isOwner),
               manage_card_terminal: getPermission('card_terminal', 'manage_card_terminal', isManager || isOwner),
-              
-              // Administrative Operations
               manage_settings: getPermission('settings', 'manage_settings', isOwner),
               manage_staff: dbPermissions.manage_staff || isOwner,
             },
@@ -413,7 +394,6 @@ export default function Settings() {
     setPlanChangeInfo(null);
     
     try {
-      // Fetch subscription from API
       const response = await fetch('/api/subscription');
       
       if (!response.ok) {
@@ -424,7 +404,6 @@ export default function Settings() {
       
       if (data.subscription) {
         setSubscription(data.subscription);
-        // Also load invoices if we have a subscription
         loadInvoices();
       } else {
         setSubscription(null);
@@ -477,21 +456,13 @@ export default function Settings() {
         throw new Error(data.error || 'Failed to cancel subscription');
       }
       
-      // Update local state
       if (data.refunded) {
-        setSubscription(null);
         setSuccessMessage("✅ Subscription cancelled and refunded successfully.");
       } else if (data.cancel_at_period_end) {
-        setSubscription(prev => prev ? {
-          ...prev,
-          cancel_at_period_end: true
-        } : null);
         setSuccessMessage("✅ Subscription will be cancelled at the end of the billing period.");
       }
       
       setShowCancelConfirm(false);
-      
-      // Refresh subscription data
       loadSubscription();
       
     } catch (error: any) {
@@ -521,15 +492,8 @@ export default function Settings() {
         throw new Error(data.error || 'Failed to reactivate subscription');
       }
       
-      // Update local state
-      setSubscription(prev => prev ? {
-        ...prev,
-        cancel_at_period_end: false
-      } : null);
-      
       setSuccessMessage("✅ Subscription reactivated successfully.");
-      
-      // Refresh subscription data
+      setShowCancelConfirm(false);
       loadSubscription();
       
     } catch (error: any) {
@@ -560,7 +524,6 @@ export default function Settings() {
         throw new Error('No URL returned from portal API');
       }
       
-      // Redirect to Stripe Customer Portal
       window.location.href = data.url;
       
     } catch (error: any) {
@@ -571,15 +534,11 @@ export default function Settings() {
 
   const handleViewInvoices = async () => {
     try {
-      // First try to open the most recent invoice if available
       if (invoices.length > 0 && invoices[0].hosted_url) {
         window.open(invoices[0].hosted_url, '_blank');
         return;
       }
-      
-      // If no invoices, open customer portal
       await handleOpenCustomerPortal();
-      
     } catch (error: any) {
       console.error("Error viewing invoices:", error);
       setCancelError(error.message || "❌ Failed to view invoices. Please try again.");
@@ -622,8 +581,6 @@ export default function Settings() {
 
       setSuccessMessage(data.message);
       setShowPlanChangeConfirm(false);
-      
-      // Refresh subscription data
       loadSubscription();
 
     } catch (error: any) {
@@ -656,8 +613,6 @@ export default function Settings() {
       
       setSuccessMessage("✅ Account deletion scheduled. You have 14 days to cancel.");
       setShowDeleteConfirm(false);
-      
-      // Refresh subscription data
       loadSubscription();
       
     } catch (error: any) {
@@ -686,8 +641,6 @@ export default function Settings() {
       
       setSuccessMessage("✅ Account deletion cancelled.");
       setShowDeleteConfirm(false);
-      
-      // Refresh subscription data
       loadSubscription();
       
     } catch (error: any) {
@@ -746,7 +699,6 @@ export default function Settings() {
     setStaffPin("");
     setStaffRole(member.role);
     
-    // Use the member's permissions directly (already normalized)
     setStaffPermissions({
       access_pos: member.permissions.access_pos,
       manage_transactions: member.permissions.manage_transactions,
@@ -863,7 +815,6 @@ export default function Settings() {
       return;
     }
 
-    // If setting a new PIN, require verification
     if (staffPin && staffPin.length >= 4) {
       if (!codeSent) {
         alert("Please send and verify the email code first");
@@ -876,21 +827,15 @@ export default function Settings() {
     }
 
     try {
-      // Save permissions in NEW format only
       const permissions = {
-        // Core POS Operations
         access_pos: staffPermissions.access_pos,
         manage_transactions: staffPermissions.manage_transactions,
         manage_customers: staffPermissions.manage_customers,
         access_display: staffPermissions.access_display,
-        
-        // Management Operations
         manage_inventory: staffPermissions.manage_inventory,
         view_reports: staffPermissions.view_reports,
         manage_hardware: staffPermissions.manage_hardware,
         manage_card_terminal: staffPermissions.manage_card_terminal,
-        
-        // Administrative Operations
         manage_settings: staffPermissions.manage_settings,
         manage_staff: staffPermissions.manage_staff,
       };
@@ -900,7 +845,7 @@ export default function Settings() {
         name: staffName.trim(),
         email: staffEmail.trim(),
         role: staffRole,
-        permissions: permissions, // NEW format only
+        permissions: permissions,
       };
       
       if (staffPin && staffPin.length >= 4) {
@@ -1000,7 +945,6 @@ export default function Settings() {
     }
   };
 
-  // Toggle component for settings
   const ToggleSwitch = ({ 
     enabled, 
     onChange, 
@@ -1094,7 +1038,6 @@ export default function Settings() {
               <p className="text-sm text-muted-foreground">Manage your business configuration</p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Audit Log Button */}
               <Link
                 href="/dashboard/settings/audit-logs"
                 className="flex items-center gap-2 bg-muted hover:bg-accent text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1199,7 +1142,7 @@ export default function Settings() {
               )}
             </div>
 
-            {/* Subscription & Billing (with Danger Zone) */}
+            {/* Subscription & Billing */}
             <div className="bg-card border border-border rounded-xl p-4">
               <div 
                 className="flex items-center justify-between cursor-pointer"
@@ -1229,6 +1172,14 @@ export default function Settings() {
                     </div>
                   ) : subscription ? (
                     <>
+                      {/* 🔍 Debug Display - Remove after fixing */}
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+                        <p className="text-xs font-medium text-blue-600 mb-2">🔍 Debug Subscription State</p>
+                        <pre className="text-[10px] text-blue-600/80 overflow-auto max-h-40">
+                          {JSON.stringify(subscription, null, 2)}
+                        </pre>
+                      </div>
+
                       {/* Plan Overview */}
                       <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
@@ -1254,6 +1205,29 @@ export default function Settings() {
                               <p className="text-xs text-amber-600">
                                 <span className="font-bold">14-Day Cooling Period:</span> You have {coolingDaysLeft} days remaining to cancel for a full refund.
                               </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Cancellation Status Banner */}
+                        {subscription.cancel_at_period_end && (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-3">
+                            <div className="flex items-start gap-3">
+                              <Clock className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm font-medium text-amber-600 mb-1">⚠️ Subscription Cancelled</p>
+                                <p className="text-xs text-amber-600/80 mb-2">
+                                  Your subscription will end on {formatDate(subscription.current_period_end)}. 
+                                  You'll lose access to all features after this date.
+                                </p>
+                                <button
+                                  onClick={handleReactivateSubscription}
+                                  disabled={cancelling}
+                                  className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors inline-flex items-center gap-1"
+                                >
+                                  {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Reactivate Subscription'}
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -1286,8 +1260,8 @@ export default function Settings() {
                         </div>
                       </div>
 
-                      {/* Payment Method */}
-                      {subscription.payment_method ? (
+                      {/* Payment Method - FIXED */}
+                      {subscription?.payment_method ? (
                         <div className="bg-muted/30 border border-border rounded-lg p-3">
                           <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
                           <div className="flex items-center gap-3">
@@ -1302,6 +1276,9 @@ export default function Settings() {
                                 <p className="text-sm font-medium text-foreground">
                                   {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
                                 </p>
+                                <span className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full">
+                                  Active
+                                </span>
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
@@ -1309,8 +1286,8 @@ export default function Settings() {
                             </div>
                           </div>
                           
-                          {/* Next Payment Info */}
-                          {subscription.next_payment_amount && subscription.next_payment_date && (
+                          {/* Next Payment Info - only show if not cancelled */}
+                          {!subscription.cancel_at_period_end && subscription.next_payment_amount && subscription.next_payment_date && (
                             <div className="mt-3 pt-3 border-t border-border">
                               <div className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">Next payment:</span>
@@ -1322,15 +1299,17 @@ export default function Settings() {
                           )}
                         </div>
                       ) : (
-                        <div className="bg-muted/30 border border-border rounded-lg p-3">
-                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">No payment method on file</p>
+                            <div>
+                              <p className="text-xs font-medium text-amber-600 mb-1">⚠️ No Payment Method</p>
+                              <p className="text-xs text-amber-600/80">Add a payment method to ensure uninterrupted service</p>
+                            </div>
                             <button
                               onClick={handleOpenCustomerPortal}
-                              className="text-xs bg-primary/10 text-primary px-3 py-1 rounded hover:bg-primary/20 transition-colors"
+                              className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
                             >
-                              Add Payment Method
+                              Add Now
                             </button>
                           </div>
                         </div>
@@ -1346,10 +1325,12 @@ export default function Settings() {
                         <div className="grid grid-cols-2 gap-3">
                           <button
                             onClick={() => handleChangePlan('monthly')}
-                            disabled={subscription?.plan === 'monthly' || changingPlan}
+                            disabled={subscription?.plan === 'monthly' || changingPlan || subscription.cancel_at_period_end}
                             className={`p-3 rounded-lg border transition-all ${
                               subscription?.plan === 'monthly'
                                 ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
+                                : subscription.cancel_at_period_end
+                                ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
                                 : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
                             }`}
                           >
@@ -1362,10 +1343,12 @@ export default function Settings() {
                           
                           <button
                             onClick={() => handleChangePlan('annual')}
-                            disabled={subscription?.plan === 'annual' || changingPlan}
+                            disabled={subscription?.plan === 'annual' || changingPlan || subscription.cancel_at_period_end}
                             className={`p-3 rounded-lg border transition-all ${
                               subscription?.plan === 'annual'
                                 ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
+                                : subscription.cancel_at_period_end
+                                ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
                                 : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
                             }`}
                           >
@@ -1461,7 +1444,7 @@ export default function Settings() {
                         </button>
                       </div>
 
-                      {/* Cancel/Reactivate */}
+                      {/* Cancel/Reactivate - FIXED */}
                       {!subscription.cancel_at_period_end ? (
                         !showCancelConfirm ? (
                           <button
@@ -1471,37 +1454,44 @@ export default function Settings() {
                             Cancel Subscription
                           </button>
                         ) : (
-                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                            <p className="text-xs text-destructive mb-2">
+                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                            <p className="text-xs font-medium text-destructive mb-3">⚠️ Cancel Subscription</p>
+                            <p className="text-xs text-destructive/80 mb-4">
                               {coolingDaysLeft && coolingDaysLeft > 0 
-                                ? `Are you sure? Since you're within the 14-day cooling period, you'll receive a full refund.`
-                                : 'Are you sure? Your subscription will continue until the end of the billing period.'}
+                                ? `You're within the 14-day cooling period. You'll receive a full refund of £${subscription.price}.`
+                                : 'Your subscription will continue until the end of the current billing period. You will not be refunded for the remaining time.'}
                             </p>
                             <div className="flex gap-2">
                               <button
                                 onClick={() => setShowCancelConfirm(false)}
-                                className="flex-1 bg-muted hover:bg-accent text-foreground py-1.5 rounded text-xs font-medium"
+                                className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
                               >
-                                No, Keep It
+                                Keep Subscription
                               </button>
                               <button
                                 onClick={handleCancelSubscription}
                                 disabled={cancelling}
-                                className="flex-1 bg-destructive text-destructive-foreground py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                                className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
                               >
-                                {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Yes, Cancel'}
+                                {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes, Cancel'}
                               </button>
                             </div>
                           </div>
                         )
                       ) : (
-                        <button
-                          onClick={handleReactivateSubscription}
-                          disabled={cancelling}
-                          className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-                        >
-                          {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Reactivate Subscription'}
-                        </button>
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                          <p className="text-xs font-medium text-amber-600 mb-2">⚠️ Subscription Cancelled</p>
+                          <p className="text-xs text-amber-600/80 mb-3">
+                            Your subscription will end on {formatDate(subscription.current_period_end)}.
+                          </p>
+                          <button
+                            onClick={handleReactivateSubscription}
+                            disabled={cancelling}
+                            className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+                          >
+                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Reactivate Subscription'}
+                          </button>
+                        </div>
                       )}
 
                       {/* Recent Invoices */}
@@ -1554,7 +1544,46 @@ export default function Settings() {
                         </div>
                       )}
 
-                      {/* Account Deletion Section - 14 Day Countdown */}
+                      {/* Account Deletion Status Banner */}
+                      {subscription?.deletion_scheduled && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
+                              <p className="text-xs text-red-600/80 mb-3">
+                                Your account and all data will be permanently deleted in {subscription.days_until_deletion} days.
+                                This action cannot be undone after {formatDate(subscription.deletion_date || '')}.
+                              </p>
+                              
+                              {/* Progress bar */}
+                              <div className="mb-3">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-red-600">Days until deletion</span>
+                                  <span className="text-xs font-medium text-red-600">{subscription.days_until_deletion} days</span>
+                                </div>
+                                <div className="w-full bg-red-500/20 rounded-full h-2">
+                                  <div 
+                                    className="bg-red-600 h-2 rounded-full" 
+                                    style={{ width: `${((14 - (subscription.days_until_deletion || 0)) / 14) * 100}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                              
+                              <button
+                                onClick={handleCancelDeletion}
+                                disabled={deleting}
+                                className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                              >
+                                {deleting ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
+                                Cancel Deletion Request
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Account Deletion Section */}
                       <div className="mt-6 pt-4 border-t border-destructive/20">
                         <div className="flex items-center gap-3 mb-3">
                           <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
@@ -1566,40 +1595,7 @@ export default function Settings() {
                           </div>
                         </div>
 
-                        {subscription?.deletion_scheduled ? (
-                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                            <div className="flex items-center gap-3 mb-3">
-                              <Clock className="w-5 h-5 text-destructive" />
-                              <div>
-                                <p className="text-sm font-bold text-destructive">Deletion Scheduled</p>
-                                <p className="text-xs text-destructive/80">
-                                  Your account will be permanently deleted in {subscription.days_until_deletion} days.
-                                </p>
-                              </div>
-                            </div>
-                            
-                            <div className="bg-destructive/20 rounded-lg p-3 mb-3">
-                              <div className="flex justify-between items-center mb-1">
-                                <span className="text-xs text-destructive">Days until deletion</span>
-                                <span className="text-sm font-bold text-destructive">{subscription.days_until_deletion} days</span>
-                              </div>
-                              <div className="w-full bg-destructive/30 rounded-full h-2">
-                                <div 
-                                  className="bg-destructive h-2 rounded-full" 
-                                  style={{ width: `${((14 - (subscription.days_until_deletion || 0)) / 14) * 100}%` }}
-                                ></div>
-                              </div>
-                            </div>
-
-                            <button
-                              onClick={handleCancelDeletion}
-                              disabled={deleting}
-                              className="w-full bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                            >
-                              {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Cancel Deletion Request'}
-                            </button>
-                          </div>
-                        ) : (
+                        {!subscription?.deletion_scheduled ? (
                           !showDeleteConfirm ? (
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
@@ -1610,37 +1606,24 @@ export default function Settings() {
                           ) : (
                             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
                               <div className="flex items-center gap-3 mb-3">
-                                <Clock className="w-5 h-5 text-destructive" />
+                                <AlertTriangle className="w-5 h-5 text-destructive" />
                                 <div>
-                                  <p className="text-sm font-bold text-destructive">14-Day Cooling Period</p>
-                                  <p className="text-xs text-destructive/80">
-                                    Your account will be permanently deleted in 14 days. You can cancel this request anytime.
-                                  </p>
+                                  <p className="text-sm font-bold text-destructive">⚠️ Warning: This action cannot be undone</p>
                                 </div>
                               </div>
                               
                               <div className="bg-destructive/20 rounded-lg p-3 mb-3">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="text-xs text-destructive">Days until deletion</span>
-                                  <span className="text-sm font-bold text-destructive">14 days</span>
-                                </div>
-                                <div className="w-full bg-destructive/30 rounded-full h-2">
-                                  <div 
-                                    className="bg-destructive h-2 rounded-full" 
-                                    style={{ width: '0%' }}
-                                  ></div>
-                                </div>
+                                <p className="text-xs text-destructive mb-2">This will permanently delete:</p>
+                                <ul className="text-xs text-destructive/80 list-disc list-inside space-y-1">
+                                  <li>All your business settings and staff members</li>
+                                  <li>All transactions, customers, and inventory data</li>
+                                  <li>Your subscription will be cancelled (with refund if applicable)</li>
+                                  <li>Your account and all associated data</li>
+                                </ul>
                               </div>
-
-                              <ul className="text-xs text-destructive/80 mb-3 list-disc list-inside space-y-1">
-                                <li>All your business settings and staff members</li>
-                                <li>All transactions, customers, and inventory data</li>
-                                <li>Your subscription will be cancelled (with refund if applicable)</li>
-                                <li>Your account and all associated data</li>
-                              </ul>
                               
-                              <p className="text-xs text-destructive mb-3 font-bold">
-                                This action cannot be undone after 14 days!
+                              <p className="text-xs text-destructive mb-4 font-medium">
+                                You have 14 days to cancel this request. After that, all data will be permanently lost.
                               </p>
                               
                               <div className="flex gap-2">
@@ -1649,7 +1632,7 @@ export default function Settings() {
                                   className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
                                   disabled={deleting}
                                 >
-                                  Cancel
+                                  Keep Account
                                 </button>
                                 <button
                                   onClick={handleScheduleDeletion}
@@ -1661,7 +1644,7 @@ export default function Settings() {
                               </div>
                             </div>
                           )
-                        )}
+                        ) : null}
                       </div>
                     </>
                   ) : (
@@ -1828,7 +1811,6 @@ export default function Settings() {
                     </h3>
                     
                     <div className="bg-white text-black p-4 rounded-lg max-w-xs mx-auto font-mono text-xs">
-                      {/* Use business logo from Business Settings */}
                       {businessLogoUrl ? (
                         <img
                           src={businessLogoUrl}
@@ -2069,7 +2051,6 @@ export default function Settings() {
                   onChange={(e) => {
                     const newRole = e.target.value as "staff" | "manager" | "owner";
                     setStaffRole(newRole);
-                    // Apply role preset when role changes
                     applyRolePreset(newRole);
                   }}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2091,7 +2072,6 @@ export default function Settings() {
                 <label className="block text-sm font-medium text-foreground mb-2">Permissions</label>
                 
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {/* Core POS Operations */}
                   <div className="mb-2 pt-2 border-t border-border">
                     <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
                     {Object.entries({
@@ -2108,7 +2088,7 @@ export default function Settings() {
                             ...prev,
                             [key]: e.target.checked
                           }))}
-                          disabled={staffRole === "staff"} // Core permissions locked for staff
+                          disabled={staffRole === "staff"}
                           className="rounded text-primary focus:ring-primary disabled:opacity-50"
                         />
                         <div>
@@ -2121,7 +2101,6 @@ export default function Settings() {
                     ))}
                   </div>
                   
-                  {/* Management Operations */}
                   <div className="mb-2 pt-2 border-t border-border">
                     <p className="text-xs font-medium text-foreground mb-2">Management Operations</p>
                     {Object.entries({
@@ -2138,7 +2117,7 @@ export default function Settings() {
                             ...prev,
                             [key]: e.target.checked
                           }))}
-                          disabled={staffRole === "staff"} // Disabled for staff role
+                          disabled={staffRole === "staff"}
                           className="rounded text-primary focus:ring-primary disabled:opacity-50"
                         />
                         <span className="text-sm text-foreground">{label}</span>
@@ -2146,7 +2125,6 @@ export default function Settings() {
                     ))}
                   </div>
                   
-                  {/* Administrative Operations */}
                   <div className="pt-2 border-t border-border">
                     <p className="text-xs font-medium text-foreground mb-2">Administrative Operations</p>
                     {Object.entries({
