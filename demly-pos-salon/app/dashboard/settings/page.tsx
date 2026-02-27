@@ -63,6 +63,9 @@ interface Subscription {
   deletion_scheduled?: boolean;
   days_until_deletion?: number;
   deletion_date?: string;
+  pending_plan?: 'monthly' | 'annual' | null;
+  pending_plan_price?: number | null;
+  pending_plan_effective_date?: string | null;
 }
 
 interface Invoice {
@@ -117,6 +120,15 @@ export default function Settings() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
+
+  // Plan Change
+  const [showPlanChangeConfirm, setShowPlanChangeConfirm] = useState(false);
+  const [selectedNewPlan, setSelectedNewPlan] = useState<'monthly' | 'annual'>('monthly');
+  const [changingPlan, setChangingPlan] = useState(false);
+  const [planChangeInfo, setPlanChangeInfo] = useState<{
+    effective_date: string;
+    prorated_amount: number;
+  } | null>(null);
 
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -398,6 +410,7 @@ export default function Settings() {
   const loadSubscription = async () => {
     setLoadingSubscription(true);
     setCancelError(null);
+    setPlanChangeInfo(null);
     
     try {
       // Fetch subscription from API
@@ -529,6 +542,7 @@ export default function Settings() {
 
   const handleOpenCustomerPortal = async () => {
     try {
+      setCancelError(null);
       const response = await fetch('/api/subscription/create-portal', {
         method: 'POST',
         headers: {
@@ -539,7 +553,11 @@ export default function Settings() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to open customer portal');
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      
+      if (!data.url) {
+        throw new Error('No URL returned from portal API');
       }
       
       // Redirect to Stripe Customer Portal
@@ -568,12 +586,63 @@ export default function Settings() {
     }
   };
 
+  const handleChangePlan = (newPlan: 'monthly' | 'annual') => {
+    if (newPlan === subscription?.plan) {
+      setCancelError(`You are already on the ${newPlan} plan`);
+      return;
+    }
+    setSelectedNewPlan(newPlan);
+    setShowPlanChangeConfirm(true);
+  };
+
+  const confirmPlanChange = async () => {
+    setChangingPlan(true);
+    setCancelError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch('/api/subscription/change-plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ newPlan: selectedNewPlan }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to change plan');
+      }
+
+      setPlanChangeInfo({
+        effective_date: data.effective_date,
+        prorated_amount: data.prorated_amount
+      });
+
+      setSuccessMessage(data.message);
+      setShowPlanChangeConfirm(false);
+      
+      // Refresh subscription data
+      loadSubscription();
+
+    } catch (error: any) {
+      console.error('Error changing plan:', error);
+      setCancelError(error.message || 'Failed to change plan');
+    } finally {
+      setChangingPlan(false);
+    }
+  };
+
   const handleScheduleDeletion = async () => {
     if (!confirm("Are you sure you want to schedule account deletion? This will permanently delete all your data in 14 days.")) {
       return;
     }
     
     setDeleting(true);
+    setCancelError(null);
+    setSuccessMessage(null);
+    
     try {
       const response = await fetch('/api/account/schedule-deletion', {
         method: 'POST',
@@ -593,7 +662,7 @@ export default function Settings() {
       
     } catch (error: any) {
       console.error('Error scheduling deletion:', error);
-      alert(error.message || 'Failed to schedule deletion');
+      setCancelError(error.message || 'Failed to schedule deletion');
     } finally {
       setDeleting(false);
     }
@@ -601,6 +670,9 @@ export default function Settings() {
 
   const handleCancelDeletion = async () => {
     setDeleting(true);
+    setCancelError(null);
+    setSuccessMessage(null);
+    
     try {
       const response = await fetch('/api/account/cancel-deletion', {
         method: 'POST',
@@ -620,7 +692,7 @@ export default function Settings() {
       
     } catch (error: any) {
       console.error('Error cancelling deletion:', error);
-      alert(error.message || 'Failed to cancel deletion');
+      setCancelError(error.message || 'Failed to cancel deletion');
     } finally {
       setDeleting(false);
     }
@@ -1243,11 +1315,7 @@ export default function Settings() {
                               <div className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">Next payment:</span>
                                 <span className="font-medium text-foreground">
-                                  £{subscription.next_payment_amount} on {new Date(subscription.next_payment_date).toLocaleDateString('en-GB', {
-                                    day: 'numeric',
-                                    month: 'long',
-                                    year: 'numeric'
-                                  })}
+                                  £{subscription.next_payment_amount} on {formatDate(subscription.next_payment_date)}
                                 </span>
                               </div>
                             </div>
@@ -1267,6 +1335,113 @@ export default function Settings() {
                           </div>
                         </div>
                       )}
+
+                      {/* Plan Change Options */}
+                      <div className="bg-muted/30 border border-border rounded-lg p-4 mt-2">
+                        <p className="text-xs font-medium text-foreground mb-3">Change Plan</p>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Changes will take effect at the end of your current billing period. You'll receive a prorated invoice for the difference.
+                        </p>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            onClick={() => handleChangePlan('monthly')}
+                            disabled={subscription?.plan === 'monthly' || changingPlan}
+                            className={`p-3 rounded-lg border transition-all ${
+                              subscription?.plan === 'monthly'
+                                ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
+                                : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
+                            }`}
+                          >
+                            <p className="text-sm font-medium">Monthly</p>
+                            <p className="text-xs text-muted-foreground">£29/month</p>
+                            {subscription?.plan === 'monthly' && (
+                              <p className="text-xs text-primary mt-1">Current Plan</p>
+                            )}
+                          </button>
+                          
+                          <button
+                            onClick={() => handleChangePlan('annual')}
+                            disabled={subscription?.plan === 'annual' || changingPlan}
+                            className={`p-3 rounded-lg border transition-all ${
+                              subscription?.plan === 'annual'
+                                ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
+                                : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
+                            }`}
+                          >
+                            <p className="text-sm font-medium">Annual</p>
+                            <p className="text-xs text-muted-foreground">£299/year</p>
+                            <p className="text-xs text-emerald-600">Save 16%</p>
+                            {subscription?.plan === 'annual' && (
+                              <p className="text-xs text-primary mt-1">Current Plan</p>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Plan Change Confirmation Modal */}
+                        {showPlanChangeConfirm && (
+                          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+                              <h3 className="text-lg font-semibold text-foreground mb-2">Confirm Plan Change</h3>
+                              <p className="text-sm text-muted-foreground mb-4">
+                                Are you sure you want to change from <span className="font-medium text-foreground capitalize">{subscription?.plan}</span> to{' '}
+                                <span className="font-medium text-foreground capitalize">{selectedNewPlan}</span>?
+                              </p>
+                              
+                              <div className="bg-muted/30 rounded-lg p-4 mb-4">
+                                <p className="text-xs text-muted-foreground mb-2">What to expect:</p>
+                                <ul className="space-y-2 text-sm">
+                                  <li className="flex items-start gap-2">
+                                    <span className="text-primary">•</span>
+                                    <span className="text-foreground">New plan starts at the end of your current billing period</span>
+                                  </li>
+                                  <li className="flex items-start gap-2">
+                                    <span className="text-primary">•</span>
+                                    <span className="text-foreground">You'll receive a prorated invoice for the price difference</span>
+                                  </li>
+                                  <li className="flex items-start gap-2">
+                                    <span className="text-primary">•</span>
+                                    <span className="text-foreground">Your current features remain until the change takes effect</span>
+                                  </li>
+                                </ul>
+                              </div>
+
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={() => setShowPlanChangeConfirm(false)}
+                                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:bg-accent transition-colors"
+                                  disabled={changingPlan}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={confirmPlanChange}
+                                  disabled={changingPlan}
+                                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center"
+                                >
+                                  {changingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Change'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Plan Change Success Info */}
+                        {planChangeInfo && (
+                          <div className="mt-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
+                            <p className="text-sm font-medium text-emerald-600 mb-2">✅ Plan Change Scheduled</p>
+                            <p className="text-xs text-emerald-600/80 mb-1">
+                              Your plan will change to {selectedNewPlan} on{' '}
+                              {formatDate(planChangeInfo.effective_date)}
+                            </p>
+                            {planChangeInfo.prorated_amount > 0 && (
+                              <p className="text-xs text-emerald-600/80">
+                                A prorated invoice for £{planChangeInfo.prorated_amount.toFixed(2)} will be generated.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       {/* Action Buttons */}
                       <div className="flex gap-2">
