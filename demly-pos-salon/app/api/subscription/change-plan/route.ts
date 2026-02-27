@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get the price ID for the new plan - fix typing here
+    // Get the price ID for the new plan
     const planType = newPlan as 'monthly' | 'annual';
     const newPriceId = SUBSCRIPTION_PRICES[planType];
     
@@ -103,12 +103,15 @@ export async function POST(req: Request) {
     });
 
     // Get current subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(
+    const stripeResponse = await stripe.subscriptions.retrieve(
       license.stripe_subscription_id
-    ) as Stripe.Subscription;
+    );
+    
+    // Cast to any to avoid TypeScript issues
+    const subscription = stripeResponse as any;
 
     // Check if already on this plan
-    const currentPriceId = subscription.items.data[0]?.price.id;
+    const currentPriceId = subscription.items?.data[0]?.price?.id;
     if (currentPriceId === newPriceId) {
       return NextResponse.json(
         { error: 'Already on this plan' },
@@ -119,7 +122,7 @@ export async function POST(req: Request) {
     console.log('🔄 Updating subscription...');
 
     // Calculate proration and schedule the change at period end
-    const updatedSubscription = await stripe.subscriptions.update(
+    const updateResponse = await stripe.subscriptions.update(
       license.stripe_subscription_id,
       {
         items: [{
@@ -131,6 +134,9 @@ export async function POST(req: Request) {
         cancel_at_period_end: false,
       }
     );
+    
+    // Cast to any to avoid TypeScript issues
+    const updatedSubscription = updateResponse as any;
 
     console.log('✅ Subscription updated successfully:', {
       id: updatedSubscription.id,
