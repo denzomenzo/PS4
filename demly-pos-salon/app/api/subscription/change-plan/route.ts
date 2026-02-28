@@ -122,6 +122,7 @@ export async function POST(req: Request) {
     console.log('🔄 Updating subscription...');
 
     // Calculate proration and schedule the change at period end
+    // FIXED: Removed unsupported parameters
     const updateResponse = await stripe.subscriptions.update(
       license.stripe_subscription_id,
       {
@@ -131,7 +132,7 @@ export async function POST(req: Request) {
         }],
         proration_behavior: 'always_invoice',
         payment_behavior: 'pending_if_incomplete',
-        cancel_at_period_end: false,
+        // REMOVED: cancel_at_period_end: false - this parameter is not supported with pending_if_incomplete
       }
     );
     
