@@ -24,7 +24,7 @@ export async function POST() {
     let staff;
     try {
       staff = JSON.parse(decodeURIComponent(staffCookie));
-      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, role: staff.role });
+      console.log('✅ Staff from cookie:', { id: staff.id, name: staff.name, email: staff.email });
     } catch (e) {
       console.error('❌ Invalid staff cookie');
       return NextResponse.json(
@@ -61,9 +61,11 @@ export async function POST() {
     }
 
     // Get the subscription from Stripe
-    const stripeSubscription = await stripe.subscriptions.retrieve(
+    const stripeResponse = await stripe.subscriptions.retrieve(
       license.stripe_subscription_id
-    ) as Stripe.Subscription;
+    );
+    
+    const stripeSubscription = stripeResponse as any;
 
     // Check if within 14-day cooling period
     const createdDate = new Date(stripeSubscription.created * 1000);
