@@ -169,6 +169,9 @@ export default function Settings() {
     manage_settings: false,
     manage_staff: false,
   });
+
+    const applyRolePreset = (role: "staff" | "manager" | "owner") => {
+    console.log("🎭 Applying role preset:", role);
   
   // PIN Change Modal
   const [showPinModal, setShowPinModal] = useState(false);
@@ -2322,3 +2325,4 @@ export default function Settings() {
     </div>
   );
 }
+
