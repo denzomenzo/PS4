@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
+import Stripe from 'stripe';
 
 export async function POST() {
   try {
@@ -56,7 +57,7 @@ export async function POST() {
       // Get subscription from Stripe
       const subscription = await stripe.subscriptions.retrieve(
         license.stripe_subscription_id
-      );
+      ) as Stripe.Subscription;
 
       // Check if within 14-day cooling period
       const createdDate = new Date(subscription.created * 1000);
@@ -76,7 +77,7 @@ export async function POST() {
         });
 
         if (invoices.data.length > 0) {
-          const latestInvoice = invoices.data[0];
+          const latestInvoice = invoices.data[0] as any; // Cast to any to access payment_intent
           
           // Get payment intent from invoice
           if (latestInvoice.payment_intent) {
