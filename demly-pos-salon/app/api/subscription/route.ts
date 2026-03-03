@@ -99,14 +99,14 @@ export async function GET() {
             'latest_invoice'
           ],
         }
-      );
+      ) as any; // Cast to any to avoid TypeScript issues
 
       // Get payment method details
       let paymentMethod = null;
       
       // Try subscription default payment method first
       if (subscription.default_payment_method) {
-        const pm = subscription.default_payment_method as any;
+        const pm = subscription.default_payment_method;
         if (pm?.card) {
           paymentMethod = {
             brand: pm.card.brand,
@@ -118,7 +118,7 @@ export async function GET() {
       } 
       // Try customer default payment method
       else if (subscription.customer && typeof subscription.customer !== 'string') {
-        const customer = subscription.customer as any;
+        const customer = subscription.customer;
         if (customer.invoice_settings?.default_payment_method?.card) {
           const pm = customer.invoice_settings.default_payment_method;
           paymentMethod = {
@@ -130,17 +130,17 @@ export async function GET() {
         }
       }
 
-      // Get upcoming invoice for next payment
+      // Get upcoming invoice for next payment - FIXED: use 'upcoming' not 'retrieveUpcoming'
       let upcomingInvoice = null;
       try {
-        upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+        upcomingInvoice = await stripe.invoices.upcoming({
           subscription: license.stripe_subscription_id,
-        });
+        }) as any;
       } catch (invoiceError) {
         console.log('No upcoming invoice');
       }
 
-      const price = subscription.items.data[0]?.price;
+      const price = subscription.items?.data[0]?.price;
 
       return NextResponse.json({
         subscription: {
@@ -162,13 +162,15 @@ export async function GET() {
           deletion_scheduled: !!license.deletion_scheduled_at,
           days_until_deletion: daysUntilDeletion,
           deletion_date: license.deletion_scheduled_at,
+          failed_payment_count: license.failed_payment_count || 0,
+          payment_failed_at: license.payment_failed_at,
         }
       });
 
     } catch (stripeError: any) {
       console.error('❌ Stripe fetch failed:', stripeError.message);
       
-      // Return license data as fallback but with payment_method as null
+      // Return license data as fallback
       return NextResponse.json({
         subscription: {
           id: 'license-' + license.id,
@@ -187,6 +189,8 @@ export async function GET() {
           deletion_scheduled: !!license.deletion_scheduled_at,
           days_until_deletion: daysUntilDeletion,
           deletion_date: license.deletion_scheduled_at,
+          failed_payment_count: license.failed_payment_count || 0,
+          payment_failed_at: license.payment_failed_at,
         }
       });
     }
