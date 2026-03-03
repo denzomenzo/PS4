@@ -7,28 +7,17 @@ export async function POST() {
   try {
     const cookieStore = await cookies();
     
-    // Get the staff cookie first
     const staffCookie = cookieStore.get('current_staff')?.value;
     
     if (!staffCookie) {
       return NextResponse.json(
-        { error: 'Unauthorized - No staff session' }, 
+        { error: 'Unauthorized' }, 
         { status: 401 }
       );
     }
 
-    // Parse staff data from cookie
-    let staff;
-    try {
-      staff = JSON.parse(decodeURIComponent(staffCookie));
-    } catch (e) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Invalid staff session' }, 
-        { status: 401 }
-      );
-    }
+    const staff = JSON.parse(decodeURIComponent(staffCookie));
 
-    // Use service role client for database access
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -41,25 +30,25 @@ export async function POST() {
       }
     );
 
-    // Get the user_id from staff table
-    const { data: staffData, error: staffError } = await supabase
+    // Get user_id from staff table
+    const { data: staffData } = await supabase
       .from('staff')
       .select('user_id')
       .eq('id', staff.id)
       .single();
 
-    if (staffError || !staffData?.user_id) {
+    if (!staffData) {
       return NextResponse.json(
-        { error: 'User not found' },
+        { error: 'Staff not found' },
         { status: 404 }
       );
     }
 
-    // Set deletion scheduled date to 14 days from now
+    // Set deletion date to 14 days from now
     const deletionDate = new Date();
     deletionDate.setDate(deletionDate.getDate() + 14);
 
-    // Update the license with deletion scheduled date
+    // Update license with deletion date
     const { error: updateError } = await supabase
       .from('licenses')
       .update({ 
@@ -69,19 +58,31 @@ export async function POST() {
       .eq('email', staff.email);
 
     if (updateError) {
-      console.error('Error scheduling deletion:', updateError);
       return NextResponse.json(
         { error: 'Failed to schedule deletion' },
         { status: 500 }
       );
     }
 
+    // Send confirmation email
+    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/deletion-scheduled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: staff.email,
+        name: staff.name,
+        deletion_date: deletionDate.toISOString()
+      }),
+    });
+
     return NextResponse.json({ 
-      message: 'Account deletion scheduled',
+      success: true,
+      message: 'Deletion scheduled',
       deletion_date: deletionDate.toISOString()
     });
+
   } catch (error: any) {
-    console.error('Error:', error);
+    console.error('Schedule deletion error:', error);
     return NextResponse.json(
       { error: error.message },
       { status: 500 }
