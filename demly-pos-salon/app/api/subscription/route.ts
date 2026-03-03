@@ -99,7 +99,7 @@ export async function GET() {
             'latest_invoice'
           ],
         }
-      ) as any; // Cast to any to avoid TypeScript issues
+      ) as any;
 
       // Get payment method details
       let paymentMethod = null;
@@ -130,12 +130,14 @@ export async function GET() {
         }
       }
 
-      // Get upcoming invoice for next payment - FIXED: use 'upcoming' not 'retrieveUpcoming'
+      // Get upcoming invoice for next payment - FIXED: use type assertion
       let upcomingInvoice = null;
       try {
-        upcomingInvoice = await stripe.invoices.upcoming({
+        // Use 'as any' to bypass TypeScript
+        const invoicesApi = stripe.invoices as any;
+        upcomingInvoice = await invoicesApi.upcoming({
           subscription: license.stripe_subscription_id,
-        }) as any;
+        });
       } catch (invoiceError) {
         console.log('No upcoming invoice');
       }
