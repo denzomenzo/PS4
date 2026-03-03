@@ -169,9 +169,6 @@ export default function Settings() {
     manage_settings: false,
     manage_staff: false,
   });
-
-    const applyRolePreset = (role: "staff" | "manager" | "owner") => {
-    console.log("🎭 Applying role preset:", role);
   
   // PIN Change Modal
   const [showPinModal, setShowPinModal] = useState(false);
@@ -194,6 +191,55 @@ export default function Settings() {
       ...prev,
       [section]: !prev[section]
     }));
+  };
+
+  // Staff username
+  const [staffUsername, setStaffUsername] = useState("");
+
+  // Apply role preset function - defined early so it can be used in JSX
+  const applyRolePreset = (role: "staff" | "manager" | "owner") => {
+    console.log("🎭 Applying role preset:", role);
+    
+    if (role === "staff") {
+      setStaffPermissions({
+        access_pos: true,
+        manage_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        manage_inventory: false,
+        view_reports: false,
+        manage_hardware: false,
+        manage_card_terminal: false,
+        manage_settings: false,
+        manage_staff: false,
+      });
+    } else if (role === "manager") {
+      setStaffPermissions({
+        access_pos: true,
+        manage_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        manage_inventory: true,
+        view_reports: true,
+        manage_hardware: true,
+        manage_card_terminal: true,
+        manage_settings: false,
+        manage_staff: false,
+      });
+    } else if (role === "owner") {
+      setStaffPermissions({
+        access_pos: true,
+        manage_transactions: true,
+        manage_customers: true,
+        access_display: true,
+        manage_inventory: true,
+        view_reports: true,
+        manage_hardware: true,
+        manage_card_terminal: true,
+        manage_settings: true,
+        manage_staff: true,
+      });
+    }
   };
 
   // Real-time subscription updates
@@ -1322,7 +1368,7 @@ export default function Settings() {
                         </div>
                       </div>
 
-                      {/* Payment Method - FIXED */}
+                      {/* Payment Method */}
                       {subscription?.payment_method ? (
                         <div className="bg-muted/30 border border-border rounded-lg p-3">
                           <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
@@ -2322,6 +2368,6 @@ export default function Settings() {
           </div>
         </div>
       )}
-    </div> 
-  ); 
-} 
+    </div>
+  );
+}
