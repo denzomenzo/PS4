@@ -10,9 +10,10 @@ import {
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
   Calendar, Clock, Download, ChevronDown, ChevronUp, Receipt, Zap,
   CircleDollarSign, History, ExternalLink, AlertTriangle, ExternalLink as ExternalLinkIcon,
-  CheckCircle, XCircle
+  CheckCircle, XCircle, Snowflake
 } from "lucide-react";
 import Link from "next/link";
+import { format, differenceInDays } from "date-fns";
 
 // Import Staff type from useStaffAuth to ensure consistency
 import type { Staff as StaffType } from "@/hooks/useStaffAuth";
@@ -45,7 +46,7 @@ interface Staff {
 interface Subscription {
   id: string;
   plan: 'monthly' | 'annual';
-  status: 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
+  status: 'active' | 'canceled' | 'past_due' | 'frozen' | 'deletion_scheduled' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
   current_period_start: string;
   current_period_end: string;
   cancel_at_period_end: boolean;
@@ -67,6 +68,8 @@ interface Subscription {
   pending_plan?: 'monthly' | 'annual' | null;
   pending_plan_price?: number | null;
   pending_plan_effective_date?: string | null;
+  failed_payment_count?: number;
+  payment_failed_at?: string | null;
 }
 
 interface Invoice {
@@ -134,6 +137,17 @@ export default function Settings() {
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletionCountdown, setDeletionCountdown] = useState<{
+    days: number;
+    date: string;
+  } | null>(null);
+
+  // Payment Status
+  const [paymentStatus, setPaymentStatus] = useState<{
+    status: 'active' | 'past_due' | 'frozen';
+    lastFailed?: string;
+    attempts?: number;
+  }>({ status: 'active' });
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -144,19 +158,14 @@ export default function Settings() {
   const [staffPin, setStaffPin] = useState("");
   const [staffRole, setStaffRole] = useState<"staff" | "manager" | "owner">("staff");
   const [staffPermissions, setStaffPermissions] = useState({
-    // Core POS Operations
     access_pos: true,
     manage_transactions: true,
     manage_customers: true,
     access_display: true,
-    
-    // Management Operations
     manage_inventory: false,
     view_reports: false,
     manage_hardware: false,
     manage_card_terminal: false,
-    
-    // Administrative Operations
     manage_settings: false,
     manage_staff: false,
   });
@@ -184,8 +193,64 @@ export default function Settings() {
     }));
   };
 
-  // Username field for staff
-  const [staffUsername, setStaffUsername] = useState("");
+  // Real-time subscription updates
+  useEffect(() => {
+    if (!userId || !currentStaff?.email) return;
+
+    const channel = supabase
+      .channel('license_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'licenses',
+          filter: `email=eq.${currentStaff.email}`,
+        },
+        (payload) => {
+          console.log('🔄 License updated:', payload.new);
+          
+          // Update deletion countdown
+          if (payload.new.deletion_scheduled_at) {
+            const days = differenceInDays(
+              new Date(payload.new.deletion_scheduled_at),
+              new Date()
+            );
+            setDeletionCountdown({
+              days: Math.max(0, days),
+              date: payload.new.deletion_scheduled_at,
+            });
+          } else {
+            setDeletionCountdown(null);
+          }
+
+          // Update payment status
+          if (payload.new.status === 'frozen') {
+            setPaymentStatus({
+              status: 'frozen',
+              lastFailed: payload.new.payment_failed_at,
+              attempts: payload.new.failed_payment_count,
+            });
+          } else if (payload.new.status === 'past_due') {
+            setPaymentStatus({
+              status: 'past_due',
+              lastFailed: payload.new.payment_failed_at,
+              attempts: payload.new.failed_payment_count,
+            });
+          } else {
+            setPaymentStatus({ status: 'active' });
+          }
+
+          // Refresh subscription data
+          loadSubscription();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [userId, currentStaff?.email]);
 
   // Clear messages after 5 seconds
   useEffect(() => {
@@ -205,114 +270,70 @@ export default function Settings() {
     } else {
       setCoolingDaysLeft(null);
     }
+
+    // Set payment status from subscription
+    if (subscription?.status === 'frozen') {
+      setPaymentStatus({
+        status: 'frozen',
+        lastFailed: subscription.payment_failed_at || undefined,
+        attempts: subscription.failed_payment_count,
+      });
+    } else if (subscription?.status === 'past_due') {
+      setPaymentStatus({
+        status: 'past_due',
+        lastFailed: subscription.payment_failed_at || undefined,
+        attempts: subscription.failed_payment_count,
+      });
+    } else {
+      setPaymentStatus({ status: 'active' });
+    }
+
+    // Set deletion countdown
+    if (subscription?.deletion_scheduled && subscription.deletion_date) {
+      const days = differenceInDays(
+        new Date(subscription.deletion_date),
+        new Date()
+      );
+      setDeletionCountdown({
+        days: Math.max(0, days),
+        date: subscription.deletion_date,
+      });
+    } else {
+      setDeletionCountdown(null);
+    }
   }, [subscription]);
 
   // Permission checking
   useEffect(() => {
-    console.log("🔄 Settings page useEffect triggered", { userId, currentStaff });
-    
     if (userId && currentStaff) {
-      console.log("👤 Current staff:", {
-        id: currentStaff.id,
-        name: currentStaff.name,
-        role: currentStaff.role,
-        permissions: currentStaff.permissions
-      });
-      
       const canAccessSettings = 
         currentStaff.role === "owner" || 
         currentStaff.role === "manager" || 
         currentStaff.permissions.manage_settings === true;
       
-      console.log("🔐 Settings access check:", {
-        role: currentStaff.role,
-        manage_settings: currentStaff.permissions.manage_settings,
-        canAccessSettings
-      });
-      
       if (!canAccessSettings) {
-        console.log("❌ Access denied to settings");
         setAccessDenied(true);
         setLoading(false);
         return;
       }
       
-      console.log("✅ Access granted to settings, loading data...");
       loadData();
       loadSubscription();
     } else if (!currentStaff) {
-      console.log("❌ No staff logged in");
       setLoading(false);
     }
   }, [userId, currentStaff]);
 
-  // Function to apply role-based permission presets
-  const applyRolePreset = (role: "staff" | "manager" | "owner") => {
-    console.log("🎭 Applying role preset:", role);
-    
-    if (role === "staff") {
-      setStaffPermissions({
-        access_pos: true,
-        manage_transactions: true,
-        manage_customers: true,
-        access_display: true,
-        manage_inventory: false,
-        view_reports: false,
-        manage_hardware: false,
-        manage_card_terminal: false,
-        manage_settings: false,
-        manage_staff: false,
-      });
-    } else if (role === "manager") {
-      setStaffPermissions({
-        access_pos: true,
-        manage_transactions: true,
-        manage_customers: true,
-        access_display: true,
-        manage_inventory: true,
-        view_reports: true,
-        manage_hardware: true,
-        manage_card_terminal: true,
-        manage_settings: false,
-        manage_staff: false,
-      });
-    } else if (role === "owner") {
-      setStaffPermissions({
-        access_pos: true,
-        manage_transactions: true,
-        manage_customers: true,
-        access_display: true,
-        manage_inventory: true,
-        view_reports: true,
-        manage_hardware: true,
-        manage_card_terminal: true,
-        manage_settings: true,
-        manage_staff: true,
-      });
-    }
-  };
-
   const loadData = async () => {
-    console.log("🔄 Starting loadData...");
     setLoading(true);
-
     try {
-      console.log("📊 Loading settings data for user:", userId);
-      
       const { data: settingsData, error: settingsError } = await supabase
         .from("settings")
         .select("*")
         .eq("user_id", userId)
         .maybeSingle();
       
-      console.log("Settings query result:", { settingsData, settingsError });
-      
-      if (settingsError) {
-        console.error("Error loading settings:", settingsError);
-      }
-      
       if (settingsData) {
-        console.log("✅ Settings data loaded:", settingsData);
         setShopName(settingsData.shop_name || settingsData.business_name || "");
         setBusinessLogoUrl(settingsData.business_logo_url || "");
         setVatEnabled(settingsData.vat_enabled !== false);
@@ -330,22 +351,13 @@ export default function Settings() {
         setReceiptFontSize(settingsData.receipt_font_size?.toString() || "12");
         setBarcodeType(settingsData.barcode_type || "code128");
         setShowBarcodeOnReceipt(settingsData.show_barcode_on_receipt !== false);
-      } else {
-        console.log("ℹ️ No settings data found, using defaults");
       }
 
-      console.log("👥 Loading staff data...");
       const { data: staffData, error: staffError } = await supabase
         .from("staff")
         .select("*")
         .eq("user_id", userId)
         .order("name");
-      
-      console.log("Staff query result:", { staffData: staffData?.length, staffError });
-      
-      if (staffError) {
-        console.error("Error loading staff:", staffError);
-      }
       
       if (staffData) {
         const normalizedStaffData = staffData.map((member: any) => {
@@ -376,14 +388,12 @@ export default function Settings() {
             },
           };
         });
-        console.log(`✅ Loaded ${normalizedStaffData.length} staff members`);
         setStaff(normalizedStaffData);
       }
 
     } catch (error) {
       console.error("❌ Error loading settings:", error);
     } finally {
-      console.log("🏁 loadData completed");
       setLoading(false);
     }
   };
@@ -550,6 +560,10 @@ export default function Settings() {
       setCancelError(`You are already on the ${newPlan} plan`);
       return;
     }
+    if (subscription?.status === 'frozen') {
+      setCancelError("Cannot change plan while account is frozen. Please update payment method first.");
+      return;
+    }
     setSelectedNewPlan(newPlan);
     setShowPlanChangeConfirm(true);
   };
@@ -662,7 +676,6 @@ export default function Settings() {
   const resetModalStates = () => {
     setStaffName("");
     setStaffEmail("");
-    setStaffUsername("");
     setStaffPin("");
     setStaffRole("staff");
     setStaffPermissions({
@@ -685,17 +698,14 @@ export default function Settings() {
   };
 
   const openAddStaffModal = () => {
-    console.log("➕ Opening add staff modal");
     resetModalStates();
     setShowStaffModal(true);
   };
 
   const openEditStaffModal = (member: Staff) => {
-    console.log("✏️ Opening edit staff modal for:", member.name);
     setEditingStaff(member);
     setStaffName(member.name);
     setStaffEmail(member.email || "");
-    setStaffUsername(member.email?.split('@')[0] || "");
     setStaffPin("");
     setStaffRole(member.role);
     
@@ -716,7 +726,6 @@ export default function Settings() {
   };
 
   const openPinChangeModal = (member: Staff) => {
-    console.log("🔒 Opening PIN change modal for:", member.name);
     setPinChangeStaff(member);
     setStaffEmail(member.email || "");
     setStaffPin("");
@@ -727,7 +736,6 @@ export default function Settings() {
   };
 
   const sendVerificationCode = async () => {
-    console.log("📧 Sending verification code to:", staffEmail);
     if (!staffEmail || !staffEmail.includes('@')) {
       alert("Please enter a valid email address");
       return;
@@ -749,7 +757,6 @@ export default function Settings() {
       );
 
       if (functionError) {
-        console.error("❌ Failed to send verification email:", functionError);
         alert("❌ Failed to send verification email. Please try again.");
         setCodeSent(false);
         setSentCode("");
@@ -759,7 +766,6 @@ export default function Settings() {
       setCodeSent(true);
       alert(`✅ Verification code sent to ${staffEmail}`);
     } catch (error) {
-      console.error("❌ Failed to send verification email:", error);
       alert("❌ Failed to send verification email. Please check your connection.");
       setCodeSent(false);
       setSentCode("");
@@ -767,7 +773,6 @@ export default function Settings() {
   };
 
   const verifyAndSavePin = async () => {
-    console.log("✅ Verifying and saving PIN");
     if (verificationCode !== sentCode) {
       alert("❌ Invalid verification code");
       return;
@@ -796,7 +801,6 @@ export default function Settings() {
       resetModalStates();
       loadData();
     } catch (error: any) {
-      console.error("❌ Error updating PIN:", error);
       alert("❌ Error updating PIN: " + error.message);
     } finally {
       setVerifying(false);
@@ -804,7 +808,6 @@ export default function Settings() {
   };
 
   const saveStaffMember = async () => {
-    console.log("💾 Saving staff member...");
     if (!staffName.trim()) {
       alert("Name is required");
       return;
@@ -853,7 +856,6 @@ export default function Settings() {
       }
       
       if (editingStaff) {
-        console.log("✏️ Updating existing staff member:", editingStaff.id);
         const { error } = await supabase
           .from("staff")
           .update(staffData)
@@ -862,7 +864,6 @@ export default function Settings() {
         
         if (error) throw error;
       } else {
-        console.log("➕ Adding new staff member");
         const { error } = await supabase
           .from("staff")
           .insert(staffData);
@@ -875,13 +876,11 @@ export default function Settings() {
       loadData();
       alert("✅ Staff member saved successfully!");
     } catch (error: any) {
-      console.error("❌ Error saving staff member:", error);
       alert("Error saving staff member: " + error.message);
     }
   };
 
   const deleteStaffMember = async (id: number) => {
-    console.log("🗑️ Deleting staff member:", id);
     if (!confirm("Are you sure you want to delete this staff member?")) return;
     
     try {
@@ -895,13 +894,11 @@ export default function Settings() {
       
       loadData();
     } catch (error: any) {
-      console.error("❌ Error deleting staff member:", error);
       alert("Error deleting staff member: " + error.message);
     }
   };
 
   const saveAllSettings = async () => {
-    console.log("💾 Saving all settings...");
     setSaving(true);
     try {
       const { error } = await supabase
@@ -931,14 +928,11 @@ export default function Settings() {
         );
 
       if (error) {
-        console.error("❌ Error saving settings:", error);
         alert("❌ Error saving settings: " + error.message);
       } else {
-        console.log("✅ Settings saved successfully");
         alert("✅ All settings saved successfully!");
       }
     } catch (err) {
-      console.error("❌ Unexpected error saving settings:", err);
       alert("❌ An unexpected error occurred");
     } finally {
       setSaving(false);
@@ -987,12 +981,10 @@ export default function Settings() {
   };
 
   if (!userId || !currentStaff) {
-    console.log("⏳ Waiting for user ID or current staff...");
     return null;
   }
 
   if (loading) {
-    console.log("⏳ Loading settings page...");
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
         <div className="text-center">
@@ -1004,7 +996,6 @@ export default function Settings() {
   }
 
   if (accessDenied) {
-    console.log("🚫 Access denied to settings page");
     return (
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-8">
         <div className="bg-card/50 backdrop-blur-xl rounded-xl p-8 max-w-md border border-border">
@@ -1065,6 +1056,91 @@ export default function Settings() {
             </div>
           )}
 
+          {/* Frozen Account Banner */}
+          {paymentStatus.status === 'frozen' && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Snowflake className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-600 mb-1">❄️ Account Frozen</p>
+                  <p className="text-xs text-red-600/80 mb-2">
+                    Your account has been frozen due to {paymentStatus.attempts} failed payment attempts.
+                    Please update your payment method to reactivate your account.
+                  </p>
+                  <button
+                    onClick={handleOpenCustomerPortal}
+                    className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Update Payment Method
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Past Due Banner */}
+          {paymentStatus.status === 'past_due' && (
+            <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-600 mb-1">⚠️ Payment Past Due</p>
+                  <p className="text-xs text-amber-600/80 mb-2">
+                    Payment attempt {paymentStatus.attempts} of 3 failed. 
+                    {paymentStatus.attempts && paymentStatus.attempts >= 3 
+                      ? ' Your account will be frozen if payment is not received.'
+                      : ' Please update your payment method to avoid service interruption.'}
+                  </p>
+                  <button
+                    onClick={handleOpenCustomerPortal}
+                    className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Update Payment Method
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Deletion Countdown Banner */}
+          {deletionCountdown && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
+                  <p className="text-xs text-red-600/80 mb-3">
+                    Your account will be permanently deleted in {deletionCountdown.days} days on{' '}
+                    {format(new Date(deletionCountdown.date), 'MMMM do, yyyy')}.
+                  </p>
+                  
+                  {/* Progress bar */}
+                  <div className="mb-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-red-600">Days until deletion</span>
+                      <span className="text-xs font-medium text-red-600">{deletionCountdown.days} days</span>
+                    </div>
+                    <div className="w-full bg-red-500/20 rounded-full h-2">
+                      <div 
+                        className="bg-red-600 h-2 rounded-full" 
+                        style={{ width: `${((14 - deletionCountdown.days) / 14) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleCancelDeletion}
+                    disabled={deleting}
+                    className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    {deleting ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
+                    Cancel Deletion Request
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             
             {/* Business Settings */}
@@ -1099,7 +1175,6 @@ export default function Settings() {
                       placeholder="e.g. Your Business Name"
                       className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">This name appears on the POS sidebar</p>
                   </div>
 
                   <div>
@@ -1114,17 +1189,6 @@ export default function Settings() {
                       placeholder="https://example.com/logo.png"
                       className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     />
-                    {businessLogoUrl && (
-                      <div className="mt-2 bg-muted rounded-lg p-2">
-                        <p className="text-xs text-muted-foreground mb-1">Logo Preview:</p>
-                        <img
-                          src={businessLogoUrl}
-                          alt="Business logo preview"
-                          className="max-w-[100px] max-h-[50px] object-contain"
-                          onError={(e) => e.currentTarget.style.display = 'none'}
-                        />
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex items-center justify-between bg-muted/30 border border-border rounded-lg p-3">
@@ -1172,14 +1236,6 @@ export default function Settings() {
                     </div>
                   ) : subscription ? (
                     <>
-                      {/* 🔍 Debug Display - Remove after fixing */}
-                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
-                        <p className="text-xs font-medium text-blue-600 mb-2">🔍 Debug Subscription State</p>
-                        <pre className="text-[10px] text-blue-600/80 overflow-auto max-h-40">
-                          {JSON.stringify(subscription, null, 2)}
-                        </pre>
-                      </div>
-
                       {/* Plan Overview */}
                       <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
@@ -1236,10 +1292,13 @@ export default function Settings() {
                         <div className="flex items-center gap-2 mb-3">
                           <div className={`w-2 h-2 rounded-full ${
                             subscription.status === 'active' ? 'bg-green-500' :
+                            subscription.status === 'frozen' ? 'bg-blue-500' :
                             subscription.status === 'past_due' ? 'bg-red-500' :
                             subscription.status === 'canceled' ? 'bg-gray-500' : 'bg-yellow-500'
                           }`}></div>
-                          <span className="text-xs capitalize text-foreground">{subscription.status}</span>
+                          <span className="text-xs capitalize text-foreground">
+                            {subscription.status === 'frozen' ? 'Frozen' : subscription.status}
+                          </span>
                           {subscription.cancel_at_period_end && (
                             <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded-full">
                               Cancels at period end
@@ -1286,7 +1345,7 @@ export default function Settings() {
                             </div>
                           </div>
                           
-                          {/* Next Payment Info - only show if not cancelled */}
+                          {/* Next Payment Info */}
                           {!subscription.cancel_at_period_end && subscription.next_payment_amount && subscription.next_payment_date && (
                             <div className="mt-3 pt-3 border-t border-border">
                               <div className="flex justify-between text-xs">
@@ -1325,11 +1384,11 @@ export default function Settings() {
                         <div className="grid grid-cols-2 gap-3">
                           <button
                             onClick={() => handleChangePlan('monthly')}
-                            disabled={subscription?.plan === 'monthly' || changingPlan || subscription.cancel_at_period_end}
+                            disabled={subscription?.plan === 'monthly' || changingPlan || subscription.cancel_at_period_end || paymentStatus.status === 'frozen'}
                             className={`p-3 rounded-lg border transition-all ${
                               subscription?.plan === 'monthly'
                                 ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
-                                : subscription.cancel_at_period_end
+                                : subscription.cancel_at_period_end || paymentStatus.status === 'frozen'
                                 ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
                                 : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
                             }`}
@@ -1343,11 +1402,11 @@ export default function Settings() {
                           
                           <button
                             onClick={() => handleChangePlan('annual')}
-                            disabled={subscription?.plan === 'annual' || changingPlan || subscription.cancel_at_period_end}
+                            disabled={subscription?.plan === 'annual' || changingPlan || subscription.cancel_at_period_end || paymentStatus.status === 'frozen'}
                             className={`p-3 rounded-lg border transition-all ${
                               subscription?.plan === 'annual'
                                 ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
-                                : subscription.cancel_at_period_end
+                                : subscription.cancel_at_period_end || paymentStatus.status === 'frozen'
                                 ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
                                 : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
                             }`}
@@ -1444,12 +1503,13 @@ export default function Settings() {
                         </button>
                       </div>
 
-                      {/* Cancel/Reactivate - FIXED */}
+                      {/* Cancel/Reactivate */}
                       {!subscription.cancel_at_period_end ? (
                         !showCancelConfirm ? (
                           <button
                             onClick={() => setShowCancelConfirm(true)}
                             className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+                            disabled={paymentStatus.status === 'frozen'}
                           >
                             Cancel Subscription
                           </button>
@@ -1544,59 +1604,20 @@ export default function Settings() {
                         </div>
                       )}
 
-                      {/* Account Deletion Status Banner */}
-                      {subscription?.deletion_scheduled && (
-                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
-                          <div className="flex items-start gap-3">
-                            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
-                              <p className="text-xs text-red-600/80 mb-3">
-                                Your account and all data will be permanently deleted in {subscription.days_until_deletion} days.
-                                This action cannot be undone after {formatDate(subscription.deletion_date || '')}.
-                              </p>
-                              
-                              {/* Progress bar */}
-                              <div className="mb-3">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="text-xs text-red-600">Days until deletion</span>
-                                  <span className="text-xs font-medium text-red-600">{subscription.days_until_deletion} days</span>
-                                </div>
-                                <div className="w-full bg-red-500/20 rounded-full h-2">
-                                  <div 
-                                    className="bg-red-600 h-2 rounded-full" 
-                                    style={{ width: `${((14 - (subscription.days_until_deletion || 0)) / 14) * 100}%` }}
-                                  ></div>
-                                </div>
-                              </div>
-                              
-                              <button
-                                onClick={handleCancelDeletion}
-                                disabled={deleting}
-                                className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                              >
-                                {deleting ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
-                                Cancel Deletion Request
-                              </button>
+                      {/* Account Deletion Section */}
+                      {!deletionCountdown && (
+                        <div className="mt-6 pt-4 border-t border-destructive/20">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
+                              <AlertTriangle className="w-4 h-4 text-destructive" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-semibold text-foreground">Delete Account</h3>
+                              <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
                             </div>
                           </div>
-                        </div>
-                      )}
 
-                      {/* Account Deletion Section */}
-                      <div className="mt-6 pt-4 border-t border-destructive/20">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
-                            <AlertTriangle className="w-4 h-4 text-destructive" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-semibold text-foreground">Delete Account</h3>
-                            <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
-                          </div>
-                        </div>
-
-                        {!subscription?.deletion_scheduled ? (
-                          !showDeleteConfirm ? (
+                          {!showDeleteConfirm ? (
                             <button
                               onClick={() => setShowDeleteConfirm(true)}
                               className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
@@ -1643,9 +1664,9 @@ export default function Settings() {
                                 </button>
                               </div>
                             </div>
-                          )
-                        ) : null}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
