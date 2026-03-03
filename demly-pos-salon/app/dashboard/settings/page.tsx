@@ -2314,15 +2314,14 @@ export default function Settings() {
               <button
                 onClick={verifyAndSavePin}
                 disabled={!codeSent || !verificationCode || verifying || staffPin.length < 4}
-                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center"
               >
-                {verifying ? "Saving..." : "Save PIN"}
+                {verifying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save PIN"}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </div> 
   ); 
-
-
+} 
