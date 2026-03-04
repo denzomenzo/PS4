@@ -111,7 +111,7 @@ const PROVIDERS: Provider[] = [
   }
 ];
 
-export default function CardTerminalContent() {
+  function CardTerminalContent() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -843,3 +843,4 @@ export default function CardTerminalPage() {
     </ProtectedRoute>
   );
 }
+
