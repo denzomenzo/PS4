@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
+import ProtectedRoute from "@/components/ProtectedRoute"; 
 import Link from "next/link";
 import {
   Plus,
@@ -78,7 +79,7 @@ interface ServiceType {
   usage_count?: number;
 }
 
-export default function Inventory() {
+function InventoryContent() {
   const userId = useUserId();
   const [products, setProducts] = useState<Product[]>([]);
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
@@ -2167,5 +2168,13 @@ export default function Inventory() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function InventoryPage() {
+  return (
+    <ProtectedRoute requiredPermission="manage_inventory">
+      <InventoryContent />
+    </ProtectedRoute>
   );
 }
