@@ -4,7 +4,6 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,12 +12,14 @@ const supabase = createClient(
 // Store connected clients for SSE
 const clients = new Map<string, ReadableStreamDefaultController[]>();
 
+// Helper function to generate license key
 function generateLicenseKey(): string {
   return Array.from({ length: 4 }, () =>
     Math.random().toString(36).substring(2, 8).toUpperCase()
   ).join('-');
 }
 
+// Helper to get Stripe ID
 function getStripeId(value: any): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value;
@@ -26,6 +27,7 @@ function getStripeId(value: any): string | null {
   return null;
 }
 
+// Helper to get subscription ID
 function getSubscriptionId(invoice: any): string | null {
   if (!invoice) return null;
   if (typeof invoice.subscription === 'string') return invoice.subscription;
@@ -33,7 +35,27 @@ function getSubscriptionId(invoice: any): string | null {
   return null;
 }
 
-// SSE endpoint for live payment streaming
+// Helper to broadcast events to clients
+async function broadcastToUser(email: string, event: any) {
+  const { data: license } = await supabase
+    .from('licenses')
+    .select('id')
+    .eq('email', email)
+    .single();
+
+  if (license) {
+    const userClients = clients.get(license.id.toString()) || [];
+    userClients.forEach(controller => {
+      try {
+        controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (e) {
+        console.error('Failed to send SSE event');
+      }
+    });
+  }
+}
+
+// SSE endpoint for live updates
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get('userId');
@@ -44,16 +66,13 @@ export async function GET(req: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
-      // Send initial connection message
       controller.enqueue(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
 
-      // Store controller for this user
       if (!clients.has(userId)) {
         clients.set(userId, []);
       }
       clients.get(userId)!.push(controller);
 
-      // Clean up on close
       req.signal.addEventListener('abort', () => {
         const userClients = clients.get(userId);
         if (userClients) {
@@ -73,7 +92,15 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// Broadcast endpoint for internal use
 export async function POST(req: NextRequest) {
+  const { email, event } = await req.json();
+  await broadcastToUser(email, event);
+  return NextResponse.json({ success: true });
+}
+
+// Main webhook handler
+export async function PUT(req: NextRequest) {
   console.log('🔔 ===== WEBHOOK RECEIVED =====');
   
   try {
@@ -199,30 +226,12 @@ export async function POST(req: NextRequest) {
 
       console.log('✅ Account unfrozen and expiry updated');
 
-      // Get user_id for SSE broadcast
-      const { data: staff } = await supabase
-        .from('staff')
-        .select('user_id')
-        .eq('email', license.email)
-        .single();
-
-      if (staff?.user_id) {
-        // Broadcast to all connected clients
-        const userClients = clients.get(staff.user_id) || [];
-        const paymentEvent = {
-          type: 'payment_success',
-          amount: invoice.total / 100,
-          date: new Date().toISOString(),
-        };
-        
-        userClients.forEach(controller => {
-          try {
-            controller.enqueue(`data: ${JSON.stringify(paymentEvent)}\n\n`);
-          } catch (e) {
-            console.error('Failed to send SSE event');
-          }
-        });
-      }
+      // Broadcast success event
+      await broadcastToUser(license.email, {
+        type: 'payment_success',
+        amount: invoice.total / 100,
+        date: new Date().toISOString(),
+      });
     }
 
     // Handle payment failure
@@ -270,46 +279,87 @@ export async function POST(req: NextRequest) {
           .eq('id', license.id);
       }
 
-      // Get user_id for SSE broadcast
-      const { data: staff } = await supabase
-        .from('staff')
-        .select('user_id')
-        .eq('email', license.email)
-        .single();
-
-      if (staff?.user_id) {
-        // Broadcast to all connected clients
-        const userClients = clients.get(staff.user_id) || [];
-        const paymentEvent = {
-          type: 'payment_failed',
-          amount: invoice.total / 100,
-          date: new Date().toISOString(),
-          attempt: attemptCount,
-        };
-        
-        userClients.forEach(controller => {
-          try {
-            controller.enqueue(`data: ${JSON.stringify(paymentEvent)}\n\n`);
-          } catch (e) {
-            console.error('Failed to send SSE event');
-          }
-        });
-      }
+      // Broadcast failure event
+      await broadcastToUser(license.email, {
+        type: 'payment_failed',
+        amount: invoice.total / 100,
+        date: new Date().toISOString(),
+        attempt: attemptCount,
+      });
     }
 
-    // Handle subscription cancellation
+    // Handle subscription cancellation/deletion
     if (event.type === 'customer.subscription.deleted') {
       console.log('🚫 ===== SUBSCRIPTION CANCELLED =====');
       
       const subscription = event.data.object as Stripe.Subscription;
       
-      await supabase
+      // Get license
+      const { data: license } = await supabase
         .from('licenses')
-        .update({ 
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString()
-        })
-        .eq('stripe_subscription_id', subscription.id);
+        .select('*')
+        .eq('stripe_subscription_id', subscription.id)
+        .single();
+
+      if (license) {
+        // Check if it was cancelled during cooling period
+        const createdDate = new Date(subscription.created * 1000);
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const cancelledDuringCooling = daysSince <= 14;
+
+        await supabase
+          .from('licenses')
+          .update({ 
+            status: 'cancelled',
+            cancelled_at: new Date().toISOString(),
+            cancelled_during_cooling: cancelledDuringCooling
+          })
+          .eq('stripe_subscription_id', subscription.id);
+
+        // Broadcast cancellation event
+        await broadcastToUser(license.email, {
+          type: 'subscription_cancelled',
+          message: cancelledDuringCooling ? 'Subscription cancelled and refunded' : 'Subscription cancelled',
+          date: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Handle subscription update (for cancel_at_period_end)
+    if (event.type === 'customer.subscription.updated') {
+      console.log('📝 ===== SUBSCRIPTION UPDATED =====');
+      
+      const subscription = event.data.object as Stripe.Subscription;
+      
+      if (subscription.cancel_at_period_end) {
+        // Subscription is scheduled to cancel at period end
+        const { data: license } = await supabase
+          .from('licenses')
+          .select('*')
+          .eq('stripe_subscription_id', subscription.id)
+          .single();
+
+        if (license) {
+          await supabase
+            .from('licenses')
+            .update({ 
+              cancel_at_period_end: true,
+              scheduled_for_deletion_at: new Date(subscription.current_period_end * 1000).toISOString(),
+            })
+            .eq('id', license.id);
+
+          // Broadcast scheduled cancellation event
+          await broadcastToUser(license.email, {
+            type: 'subscription_cancelled_scheduled',
+            message: 'Subscription will end at billing period',
+            date: new Date().toISOString(),
+            end_date: new Date(subscription.current_period_end * 1000).toISOString(),
+          });
+        }
+      }
     }
 
     return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
