@@ -301,98 +301,110 @@ export default function DashboardHome() {
     }
   };
 
-  const loadDashboardData = async () => {
-    setLoading(true);
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+const loadDashboardData = async () => {
+  setLoading(true);
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Load total customers
-      const { count: customerCount } = await supabase
-        .from('customers')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
+    // Load total customers
+    const { count: customerCount } = await supabase
+      .from('customers')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
 
-      // Load recent transactions
-      const { data: transactions } = await supabase
-        .from('transactions')
-        .select(`
-          id,
-          created_at,
-          total,
-          payment_method,
-          customer:customer_id (name)
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(5);
+    // Load recent transactions
+    const { data: transactions, error: transError } = await supabase
+      .from('transactions')
+      .select(`
+        id,
+        created_at,
+        total,
+        payment_method,
+        customer:customer_id (name)
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(5);
 
-if (transactions) {
-  setRecentTransactions((transactions as TransactionWithCustomer[]).map(t => ({
-    id: t.id,
-    created_at: t.created_at,
-    total: t.total || 0,
-    payment_method: t.payment_method || 'cash',
-    customer_name: t.customer?.[0]?.name || null
-  })));
-}
-        const todayTransactionsList = transactions.filter(t => 
-          new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
-        );
-        setStats(prev => ({
-          ...prev,
-          todaySales: todayTransactionsList.reduce((sum, t) => sum + (t.total || 0), 0),
-          todayTransactions: todayTransactionsList.length,
-          totalCustomers: customerCount || 0,
-        }));
-      }
-
-      // Load low stock items
-      const { data: inventory } = await supabase
-        .from('products')
-        .select('id, name, stock_quantity, reorder_level')
-        .eq('user_id', userId)
-        .or('stock_quantity.lte.reorder_level,stock_quantity.lte.5')
-        .order('stock_quantity', { ascending: true })
-        .limit(5);
-
-      if (inventory) {
-        setLowStockItems(inventory);
-        setStats(prev => ({ ...prev, lowStockCount: inventory.length }));
-      }
-
-      // Load upcoming appointments
-      const { data: appointments } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          appointment_time,
-          service,
-          customer:customer_id (name)
-        `)
-        .eq('user_id', userId)
-        .gte('appointment_time', new Date().toISOString())
-        .order('appointment_time', { ascending: true })
-        .limit(5);
-
-      if (appointments) {
-        setUpcomingAppointments(appointments.map(a => ({
-          id: a.id,
-          customer_name: a.customer?.name || 'Unknown',
-          appointment_time: a.appointment_time,
-          service: a.service || 'Appointment'
-        })));
-        setStats(prev => ({ ...prev, todayAppointments: appointments.length }));
-      }
-
-    } catch (error) {
-      console.error("Error loading dashboard data:", error);
-    } finally {
-      setLoading(false);
+    if (transError) {
+      console.error("Error loading transactions:", transError);
     }
-  };
+
+    if (transactions) {
+      setRecentTransactions(transactions.map((t: any) => ({
+        id: t.id,
+        created_at: t.created_at,
+        total: t.total || 0,
+        payment_method: t.payment_method || 'cash',
+        customer_name: t.customer?.[0]?.name || null
+      })));
+
+      const todayTransactionsList = transactions.filter((t: any) => 
+        new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
+      );
+      setStats(prev => ({
+        ...prev,
+        todaySales: todayTransactionsList.reduce((sum: number, t: any) => sum + (t.total || 0), 0),
+        todayTransactions: todayTransactionsList.length,
+        totalCustomers: customerCount || 0,
+      }));
+    }
+
+    // Load low stock items
+    const { data: inventory, error: invError } = await supabase
+      .from('products')
+      .select('id, name, stock_quantity, reorder_level')
+      .eq('user_id', userId)
+      .or('stock_quantity.lte.reorder_level,stock_quantity.lte.5')
+      .order('stock_quantity', { ascending: true })
+      .limit(5);
+
+    if (invError) {
+      console.error("Error loading inventory:", invError);
+    }
+
+    if (inventory) {
+      setLowStockItems(inventory);
+      setStats(prev => ({ ...prev, lowStockCount: inventory.length }));
+    }
+
+    // Load upcoming appointments
+    const { data: appointments, error: appError } = await supabase
+      .from('appointments')
+      .select(`
+        id,
+        appointment_time,
+        service,
+        customer:customer_id (name)
+      `)
+      .eq('user_id', userId)
+      .gte('appointment_time', new Date().toISOString())
+      .order('appointment_time', { ascending: true })
+      .limit(5);
+
+    if (appError) {
+      console.error("Error loading appointments:", appError);
+    }
+
+    if (appointments) {
+      setUpcomingAppointments(appointments.map((a: any) => ({
+        id: a.id,
+        customer_name: a.customer?.[0]?.name || 'Unknown',
+        appointment_time: a.appointment_time,
+        service: a.service || 'Appointment'
+      })));
+      setStats(prev => ({ ...prev, todayAppointments: appointments.length }));
+    }
+
+  } catch (error) {
+    console.error("Error loading dashboard data:", error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleOpenCustomerPortal = async () => {
     try {
@@ -817,4 +829,5 @@ if (transactions) {
     </div>
   );
 }
+
 
