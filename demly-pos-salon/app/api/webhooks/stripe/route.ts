@@ -329,38 +329,38 @@ export async function PUT(req: NextRequest) {
     }
 
     // Handle subscription update (for cancel_at_period_end)
-    if (event.type === 'customer.subscription.updated') {
-      console.log('📝 ===== SUBSCRIPTION UPDATED =====');
-      
-      const subscription = event.data.object as Stripe.Subscription;
-      
-      if (subscription.cancel_at_period_end) {
-        // Subscription is scheduled to cancel at period end
-        const { data: license } = await supabase
-          .from('licenses')
-          .select('*')
-          .eq('stripe_subscription_id', subscription.id)
-          .single();
+if (event.type === 'customer.subscription.updated') {
+  console.log('📝 ===== SUBSCRIPTION UPDATED =====');
+  
+  const stripeSubscription = event.data.object as any; // Cast to any to avoid TypeScript issues
+  
+  if (stripeSubscription.cancel_at_period_end) {
+    // Subscription is scheduled to cancel at period end
+    const { data: license } = await supabase
+      .from('licenses')
+      .select('*')
+      .eq('stripe_subscription_id', stripeSubscription.id)
+      .single();
 
-        if (license) {
-          await supabase
-            .from('licenses')
-            .update({ 
-              cancel_at_period_end: true,
-              scheduled_for_deletion_at: new Date(subscription.current_period_end * 1000).toISOString(),
-            })
-            .eq('id', license.id);
+    if (license) {
+      await supabase
+        .from('licenses')
+        .update({ 
+          cancel_at_period_end: true,
+          scheduled_for_deletion_at: new Date(stripeSubscription.current_period_end * 1000).toISOString(),
+        })
+        .eq('id', license.id);
 
-          // Broadcast scheduled cancellation event
-          await broadcastToUser(license.email, {
-            type: 'subscription_cancelled_scheduled',
-            message: 'Subscription will end at billing period',
-            date: new Date().toISOString(),
-            end_date: new Date(subscription.current_period_end * 1000).toISOString(),
-          });
-        }
-      }
+      // Broadcast scheduled cancellation event
+      await broadcastToUser(license.email, {
+        type: 'subscription_cancelled_scheduled',
+        message: 'Subscription will end at billing period',
+        date: new Date().toISOString(),
+        end_date: new Date(stripeSubscription.current_period_end * 1000).toISOString(),
+      });
     }
+  }
+}
 
     return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
 
@@ -369,3 +369,4 @@ export async function PUT(req: NextRequest) {
     return new NextResponse(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
+
