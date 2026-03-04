@@ -5,7 +5,6 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
-import ProtectedRoute from "@/components/ProtectedRoute";
 import { 
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
@@ -42,7 +41,7 @@ interface Staff {
 interface Subscription {
   id: string;
   plan: 'monthly' | 'annual';
-  status: 'active' | 'canceled' | 'past_due' | 'frozen' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
+  status: 'active' | 'canceled' | 'past_due' | 'frozen' | 'deletion_scheduled' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
   current_period_start: string;
   current_period_end: string;
   cancel_at_period_end: boolean;
@@ -58,11 +57,11 @@ interface Subscription {
   next_payment_date?: string | null;
   created: string;
   cooling_days_left?: number;
+  deletion_scheduled?: boolean;
   days_until_deletion?: number;
   deletion_date?: string;
   failed_payment_count?: number;
   payment_failed_at?: string | null;
-  scheduled_for_deletion_at?: string | null;
 }
 
 interface Invoice {
@@ -78,12 +77,10 @@ interface Invoice {
 }
 
 interface PaymentEvent {
-  type: 'payment_success' | 'payment_failed' | 'subscription_cancelled' | 'subscription_cancelled_scheduled';
-  amount?: number;
-  message?: string;
+  type: 'payment_success' | 'payment_failed';
+  amount: number;
   date: string;
-  attempt?: number;
-  end_date?: string;
+  attempt: number;
 }
 
 const COOLING_PERIOD_DAYS = 14;
@@ -125,6 +122,10 @@ export default function Settings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
 
+  // Live Payment Events
+  const [paymentEvents, setPaymentEvents] = useState<PaymentEvent[]>([]);
+  const [paymentConnected, setPaymentConnected] = useState(false);
+
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -139,11 +140,6 @@ export default function Settings() {
     lastFailed?: string;
     attempts?: number;
   }>({ status: 'active' });
-
-  // Live Payment Events
-  const [paymentEvents, setPaymentEvents] = useState<PaymentEvent[]>([]);
-  const [paymentConnected, setPaymentConnected] = useState(false);
-  const [showPaymentToast, setShowPaymentToast] = useState<PaymentEvent | null>(null);
 
   // Staff
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -237,7 +233,7 @@ export default function Settings() {
   useEffect(() => {
     if (!userId) return;
 
-    const eventSource = new EventSource(`/api/webhooks/stripe?userId=${userId}`);
+    const eventSource = new EventSource(`/api/webhooks/stripe/stream?userId=${userId}`);
 
     eventSource.onopen = () => {
       setPaymentConnected(true);
@@ -248,25 +244,13 @@ export default function Settings() {
       if (data.type === 'connected') return;
       
       setPaymentEvents(prev => [data, ...prev].slice(0, 10));
-      setShowPaymentToast(data);
       
-      // Handle different event types
-      if (data.type === 'subscription_cancelled') {
-        setSuccessMessage(`✅ ${data.message}`);
-        loadSubscription();
-      } else if (data.type === 'subscription_cancelled_scheduled') {
-        setSuccessMessage(`✅ ${data.message} on ${data.end_date ? format(new Date(data.end_date), 'MMMM do, yyyy') : 'your billing date'}`);
-        loadSubscription();
-      } else if (data.type === 'payment_success') {
-        setSuccessMessage(`✅ Payment of £${data.amount} received!`);
-        loadSubscription();
+      // Show success/error messages
+      if (data.type === 'payment_success') {
+        setSuccessMessage(`✅ Payment of £${data.amount} received successfully!`);
       } else if (data.type === 'payment_failed') {
-        setCancelError(`❌ Payment of £${data.amount} failed`);
-        loadSubscription();
+        setCancelError(`❌ Payment of £${data.amount} failed (Attempt ${data.attempt})`);
       }
-      
-      // Auto-hide toast after 5 seconds
-      setTimeout(() => setShowPaymentToast(null), 5000);
     };
 
     eventSource.onerror = () => {
@@ -293,28 +277,16 @@ export default function Settings() {
           filter: `email=eq.${currentStaff.email}`,
         },
         (payload) => {
-          // Calculate cooling days from creation date
-          const createdDate = new Date(payload.new.created_at);
-          const now = new Date();
-          const daysSince = Math.floor(
-            (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-          );
-          const coolingDaysLeft = Math.max(0, 14 - daysSince);
-
-          // Update deletion countdown from scheduled_for_deletion_at
-          if (payload.new.scheduled_for_deletion_at) {
+          // Update deletion countdown
+          if (payload.new.deletion_scheduled_at) {
             const days = differenceInDays(
-              new Date(payload.new.scheduled_for_deletion_at),
+              new Date(payload.new.deletion_scheduled_at),
               new Date()
             );
-            if (days > 0) {
-              setDeletionCountdown({
-                days,
-                date: payload.new.scheduled_for_deletion_at,
-              });
-            } else {
-              setDeletionCountdown(null);
-            }
+            setDeletionCountdown({
+              days: Math.max(0, days),
+              date: payload.new.deletion_scheduled_at,
+            });
           } else {
             setDeletionCountdown(null);
           }
@@ -336,7 +308,6 @@ export default function Settings() {
             setPaymentStatus({ status: 'active' });
           }
 
-          // Refresh subscription data
           loadSubscription();
         }
       )
@@ -382,20 +353,15 @@ export default function Settings() {
       setPaymentStatus({ status: 'active' });
     }
 
-    // Set deletion countdown from scheduled_for_deletion_at
-    if (subscription?.scheduled_for_deletion_at) {
+    if (subscription?.deletion_scheduled && subscription.deletion_date) {
       const days = differenceInDays(
-        new Date(subscription.scheduled_for_deletion_at),
+        new Date(subscription.deletion_date),
         new Date()
       );
-      if (days > 0) {
-        setDeletionCountdown({
-          days,
-          date: subscription.scheduled_for_deletion_at,
-        });
-      } else {
-        setDeletionCountdown(null);
-      }
+      setDeletionCountdown({
+        days: Math.max(0, days),
+        date: subscription.deletion_date,
+      });
     } else {
       setDeletionCountdown(null);
     }
@@ -992,1151 +958,1135 @@ export default function Settings() {
   }
 
   return (
-    <ProtectedRoute requiredPermission="manage_settings">
-      <div className="min-h-screen bg-background flex flex-col">
-        <div className="flex-1 overflow-y-auto pb-32">
-          <div className="max-w-4xl mx-auto p-4 sm:p-6">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-                <p className="text-sm text-muted-foreground">Manage your business configuration</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/dashboard/settings/audit-logs"
-                  className="flex items-center gap-2 bg-muted hover:bg-accent text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <History className="w-4 h-4" />
-                  Audit Logs
-                </Link>
-                <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                  Back
-                </Link>
-              </div>
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="flex-1 overflow-y-auto pb-32">
+        <div className="max-w-4xl mx-auto p-4 sm:p-6">
+          
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+              <p className="text-sm text-muted-foreground">Manage your business configuration</p>
             </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/dashboard/settings/audit-logs"
+                className="flex items-center gap-2 bg-muted hover:bg-accent text-foreground px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <History className="w-4 h-4" />
+                Audit Logs
+              </Link>
+              <Link href="/dashboard" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Link>
+            </div>
+          </div>
 
-            {/* Payment Toast Notification */}
-            {showPaymentToast && (
-              <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg border ${
-                showPaymentToast.type.includes('success') || showPaymentToast.type.includes('cancelled')
-                  ? 'bg-green-500/10 border-green-500/30 text-green-600'
-                  : 'bg-red-500/10 border-red-500/30 text-red-600'
-              }`}>
-                <div className="flex items-center gap-3">
-                  {showPaymentToast.type.includes('success') ? (
-                    <CheckCircle className="w-5 h-5" />
-                  ) : (
-                    <XCircle className="w-5 h-5" />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium">
-                      {showPaymentToast.message || (
-                        showPaymentToast.type === 'payment_success' 
-                          ? `Payment of £${showPaymentToast.amount} received!` 
-                          : `Payment of £${showPaymentToast.amount} failed`
+          {/* Success/Error Messages */}
+          {successMessage && (
+            <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-600 text-sm">
+              {successMessage}
+            </div>
+          )}
+          
+          {cancelError && (
+            <div className="mb-4 bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-destructive text-sm">
+              {cancelError}
+            </div>
+          )}
+
+          {/* Live Payment Stream */}
+          <div className="mb-4 bg-card border border-border rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-2 h-2 rounded-full ${paymentConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></div>
+              <h3 className="text-sm font-medium text-foreground">Live Payment Status</h3>
+            </div>
+            
+            {paymentEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                No recent payment activity
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {paymentEvents.map((event, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center justify-between p-2 rounded-lg ${
+                      event.type === 'payment_success'
+                        ? 'bg-green-500/10 border border-green-500/30'
+                        : 'bg-red-500/10 border border-red-500/30'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {event.type === 'payment_success' ? (
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-600" />
                       )}
-                    </p>
-                    <p className="text-xs opacity-80">
-                      {new Date(showPaymentToast.date).toLocaleTimeString()}
-                    </p>
+                      <div>
+                        <p className="text-xs font-medium text-foreground">
+                          {event.type === 'payment_success' ? 'Payment Received' : `Payment Failed (Attempt ${event.attempt})`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(event.date).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-sm font-bold text-foreground">
+                      £{event.amount.toFixed(2)}
+                    </span>
                   </div>
-                </div>
+                ))}
               </div>
             )}
+          </div>
 
-            {/* Live Payment Stream */}
-            <div className="mb-4 bg-card border border-border rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`w-2 h-2 rounded-full ${paymentConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></div>
-                <h3 className="text-sm font-medium text-foreground">Live Payment Status</h3>
+          {/* Frozen Account Banner */}
+          {paymentStatus.status === 'frozen' && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Snowflake className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-600 mb-1">❄️ Account Frozen</p>
+                  <p className="text-xs text-red-600/80 mb-2">
+                    Your account has been frozen due to {paymentStatus.attempts} failed payment attempts.
+                    Please update your payment method to reactivate your account.
+                  </p>
+                  <button
+                    onClick={handleOpenCustomerPortal}
+                    className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Update Payment Method
+                  </button>
+                </div>
               </div>
-              
-              {paymentEvents.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-2">
-                  No recent activity
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {paymentEvents.map((event, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center justify-between p-2 rounded-lg ${
-                        event.type.includes('success') || event.type.includes('cancelled')
-                          ? 'bg-green-500/10 border border-green-500/30'
-                          : 'bg-red-500/10 border border-red-500/30'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {event.type.includes('success') ? (
-                          <CheckCircle className="w-4 h-4 text-green-600" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-red-600" />
-                        )}
-                        <div>
-                          <p className="text-xs font-medium text-foreground">
-                            {event.message || (event.type === 'payment_success' 
-                              ? 'Payment Received' 
-                              : event.type === 'payment_failed'
-                              ? `Payment Failed (Attempt ${event.attempt})`
-                              : event.type === 'subscription_cancelled'
-                              ? 'Subscription Cancelled'
-                              : 'Cancellation Scheduled')}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {new Date(event.date).toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
-                      {event.amount && (
-                        <span className="text-sm font-bold text-foreground">
-                          £{event.amount.toFixed(2)}
-                        </span>
-                      )}
+            </div>
+          )}
+
+          {/* Past Due Banner */}
+          {paymentStatus.status === 'past_due' && (
+            <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-600 mb-1">⚠️ Payment Past Due</p>
+                  <p className="text-xs text-amber-600/80 mb-2">
+                    Payment attempt {paymentStatus.attempts} of 3 failed. 
+                    {paymentStatus.attempts && paymentStatus.attempts >= 3 
+                      ? ' Your account will be frozen if payment is not received.'
+                      : ' Please update your payment method to avoid service interruption.'}
+                  </p>
+                  <button
+                    onClick={handleOpenCustomerPortal}
+                    className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Update Payment Method
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Deletion Countdown Banner */}
+          {deletionCountdown && (
+            <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
+                  <p className="text-xs text-red-600/80 mb-3">
+                    Your account will be permanently deleted in {deletionCountdown.days} days on{' '}
+                    {format(new Date(deletionCountdown.date), 'MMMM do, yyyy')}.
+                  </p>
+                  
+                  {/* Progress bar */}
+                  <div className="mb-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-red-600">Days until deletion</span>
+                      <span className="text-xs font-medium text-red-600">{deletionCountdown.days} days</span>
                     </div>
-                  ))}
+                    <div className="w-full bg-red-500/20 rounded-full h-2">
+                      <div 
+                        className="bg-red-600 h-2 rounded-full" 
+                        style={{ width: `${((14 - deletionCountdown.days) / 14) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleCancelDeletion}
+                    disabled={deleting}
+                    className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    {deleting ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
+                    Cancel Deletion Request
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            
+            {/* Business Settings */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('business')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-primary to-primary/80 rounded-lg flex items-center justify-center">
+                    <Store className="w-4 h-4 text-primary-foreground" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Business Settings</h2>
+                    <p className="text-xs text-muted-foreground">Configure your business information</p>
+                  </div>
+                </div>
+                {expandedSections.business ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+
+              {expandedSections.business && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <div>
+                    <label className="block text-xs font-medium text-foreground mb-1.5">Business Name (POS Display)</label>
+                    <input
+                      value={shopName}
+                      onChange={(e) => setShopName(e.target.value)}
+                      placeholder="e.g. Your Business Name"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1">
+                      <Image className="w-3 h-3" />
+                      Business Logo (Optional)
+                    </label>
+                    <input
+                      type="url"
+                      value={businessLogoUrl}
+                      onChange={(e) => setBusinessLogoUrl(e.target.value)}
+                      placeholder="https://example.com/logo.png"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between bg-muted/30 border border-border rounded-lg p-3">
+                    <div>
+                      <p className="text-xs font-medium text-foreground">VAT (20%)</p>
+                      <p className="text-xs text-muted-foreground">Add VAT to all transactions</p>
+                    </div>
+                    <ToggleSwitch 
+                      enabled={vatEnabled} 
+                      onChange={() => setVatEnabled(!vatEnabled)}
+                      size="small"
+                    />
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Success/Error Messages */}
-            {successMessage && (
-              <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-600 text-sm">
-                {successMessage}
-              </div>
-            )}
-            
-            {cancelError && (
-              <div className="mb-4 bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-destructive text-sm">
-                {cancelError}
-              </div>
-            )}
-
-            {/* Frozen Account Banner */}
-            {paymentStatus.status === 'frozen' && (
-              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <Snowflake className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-red-600 mb-1">❄️ Account Frozen</p>
-                    <p className="text-xs text-red-600/80 mb-2">
-                      Your account has been frozen due to {paymentStatus.attempts} failed payment attempts.
-                      Please update your payment method to reactivate your account.
-                    </p>
-                    <button
-                      onClick={handleOpenCustomerPortal}
-                      className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                    >
-                      Update Payment Method
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Past Due Banner */}
-            {paymentStatus.status === 'past_due' && (
-              <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-600 mb-1">⚠️ Payment Past Due</p>
-                    <p className="text-xs text-amber-600/80 mb-2">
-                      Payment attempt {paymentStatus.attempts} of 3 failed. 
-                      {paymentStatus.attempts && paymentStatus.attempts >= 3 
-                        ? ' Your account will be frozen if payment is not received.'
-                        : ' Please update your payment method to avoid service interruption.'}
-                    </p>
-                    <button
-                      onClick={handleOpenCustomerPortal}
-                      className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                    >
-                      Update Payment Method
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Cooling Period Banner - Only show if > 0 days */}
-            {coolingDaysLeft && coolingDaysLeft > 0 && (
-              <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+            {/* Subscription & Billing */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('subscription')}
+              >
                 <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-amber-600" />
+                  <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                    <CreditCard className="w-4 h-4 text-white" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium text-amber-600">
-                      14-Day Cooling Period: {coolingDaysLeft} {coolingDaysLeft === 1 ? 'day' : 'days'} remaining
-                    </p>
-                    <p className="text-xs text-amber-600/80">
-                      You can cancel for a full refund within this period
-                    </p>
+                    <h2 className="text-sm font-semibold text-foreground">Subscription & Billing</h2>
+                    <p className="text-xs text-muted-foreground">Manage your plan and payment methods</p>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Deletion Countdown Banner - Only show if > 0 days */}
-            {deletionCountdown && deletionCountdown.days > 0 && (
-              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <Clock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
-                    <p className="text-xs text-red-600/80 mb-3">
-                      Your account will be permanently deleted in {deletionCountdown.days} {deletionCountdown.days === 1 ? 'day' : 'days'} on{' '}
-                      {format(new Date(deletionCountdown.date), 'MMMM do, yyyy')}.
-                    </p>
-                    
-                    {/* Progress bar */}
-                    <div className="mb-3">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs text-red-600">Days until deletion</span>
-                        <span className="text-xs font-medium text-red-600">{deletionCountdown.days} days</span>
-                      </div>
-                      <div className="w-full bg-red-500/20 rounded-full h-2">
-                        <div 
-                          className="bg-red-600 h-2 rounded-full" 
-                          style={{ width: `${((14 - deletionCountdown.days) / 14) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <button
-                      onClick={handleCancelDeletion}
-                      disabled={deleting}
-                      className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                    >
-                      {deleting ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
-                      Cancel Deletion Request
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              
-              {/* Business Settings */}
-              <div className="bg-card border border-border rounded-xl p-4">
-                <div 
-                  className="flex items-center justify-between cursor-pointer"
-                  onClick={() => toggleSection('business')}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-r from-primary to-primary/80 rounded-lg flex items-center justify-center">
-                      <Store className="w-4 h-4 text-primary-foreground" />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Business Settings</h2>
-                      <p className="text-xs text-muted-foreground">Configure your business information</p>
-                    </div>
-                  </div>
-                  {expandedSections.business ? (
-                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                {expandedSections.business && (
-                  <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
-                    <div>
-                      <label className="block text-xs font-medium text-foreground mb-1.5">Business Name (POS Display)</label>
-                      <input
-                        value={shopName}
-                        onChange={(e) => setShopName(e.target.value)}
-                        placeholder="e.g. Your Business Name"
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-foreground mb-1.5 flex items-center gap-1">
-                        <Image className="w-3 h-3" />
-                        Business Logo (Optional)
-                      </label>
-                      <input
-                        type="url"
-                        value={businessLogoUrl}
-                        onChange={(e) => setBusinessLogoUrl(e.target.value)}
-                        placeholder="https://example.com/logo.png"
-                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between bg-muted/30 border border-border rounded-lg p-3">
-                      <div>
-                        <p className="text-xs font-medium text-foreground">VAT (20%)</p>
-                        <p className="text-xs text-muted-foreground">Add VAT to all transactions</p>
-                      </div>
-                      <ToggleSwitch 
-                        enabled={vatEnabled} 
-                        onChange={() => setVatEnabled(!vatEnabled)}
-                        size="small"
-                      />
-                    </div>
-                  </div>
+                {expandedSections.subscription ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
                 )}
               </div>
 
-              {/* Subscription & Billing - SIMPLIFIED */}
-              <div className="bg-card border border-border rounded-xl p-4">
-                <div 
-                  className="flex items-center justify-between cursor-pointer"
-                  onClick={() => toggleSection('subscription')}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
-                      <CreditCard className="w-4 h-4 text-white" />
+              {expandedSections.subscription && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  {loadingSubscription ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
                     </div>
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Subscription & Billing</h2>
-                      <p className="text-xs text-muted-foreground">Manage your plan and payment methods</p>
-                    </div>
-                  </div>
-                  {expandedSections.subscription ? (
-                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                {expandedSections.subscription && (
-                  <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
-                    {loadingSubscription ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                      </div>
-                    ) : subscription ? (
-                      <>
-                        {/* Plan Overview */}
-                        <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <p className="text-xs text-muted-foreground">Current Plan</p>
-                              <p className="text-lg font-bold text-foreground capitalize">
-                                {subscription.plan === 'annual' ? 'Annual Plan' : 'Monthly Plan'}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-muted-foreground">Price</p>
-                              <p className="text-lg font-bold text-primary">
-                                £{subscription.price}/{subscription.plan === 'annual' ? 'yr' : 'mo'}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Status Badge */}
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className={`w-2 h-2 rounded-full ${
-                              subscription.status === 'active' ? 'bg-green-500' :
-                              subscription.status === 'frozen' ? 'bg-blue-500' :
-                              subscription.status === 'past_due' ? 'bg-red-500' :
-                              subscription.status === 'canceled' ? 'bg-gray-500' : 'bg-yellow-500'
-                            }`}></div>
-                            <span className="text-xs capitalize text-foreground">
-                              {subscription.status === 'frozen' ? 'Frozen' : subscription.status}
-                            </span>
-                            {subscription.cancel_at_period_end && (
-                              <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded-full">
-                                Cancels at period end
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Billing Dates */}
-                          <div className="grid grid-cols-2 gap-3 text-xs">
-                            <div className="bg-muted/30 rounded-lg p-2">
-                              <p className="text-muted-foreground">Current Period Start</p>
-                              <p className="font-medium text-foreground">{formatDate(subscription.current_period_start)}</p>
-                            </div>
-                            <div className="bg-muted/30 rounded-lg p-2">
-                              <p className="text-muted-foreground">Current Period End</p>
-                              <p className="font-medium text-foreground">{formatDate(subscription.current_period_end)}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Stripe Customer Portal Button - SIMPLIFIED */}
-                        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                          <p className="text-xs font-medium text-foreground mb-2">Manage Subscription</p>
-                          <p className="text-xs text-muted-foreground mb-3">
-                            Use Stripe's secure portal to update payment methods, view invoices, change plans, or cancel your subscription.
-                          </p>
-                          <button
-                            onClick={handleOpenCustomerPortal}
-                            className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Open Billing Portal
-                          </button>
-                        </div>
-
-                        {/* Cancellation Notice - If cancelled at period end */}
-                        {subscription.cancel_at_period_end && (
-                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-                            <p className="text-xs font-medium text-amber-600 mb-2">⚠️ Subscription Cancelled</p>
-                            <p className="text-xs text-amber-600/80">
-                              Your subscription will end on {formatDate(subscription.current_period_end)} and your account will be deleted.
+                  ) : subscription ? (
+                    <>
+                      {/* Plan Overview */}
+                      <div className="bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/30 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Current Plan</p>
+                            <p className="text-lg font-bold text-foreground capitalize">
+                              {subscription.plan === 'annual' ? 'Annual Plan' : 'Monthly Plan'}
                             </p>
                           </div>
-                        )}
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Price</p>
+                            <p className="text-lg font-bold text-primary">
+                              £{subscription.price}/{subscription.plan === 'annual' ? 'yr' : 'mo'}
+                            </p>
+                          </div>
+                        </div>
 
-                        {/* Recent Invoices */}
-                        {invoices.length > 0 && (
-                          <div className="mt-4">
-                            <p className="text-xs font-medium text-foreground mb-2">Recent Invoices</p>
-                            <div className="space-y-2">
-                              {invoices.slice(0, 3).map((invoice) => (
-                                <div key={invoice.id} className="flex items-center justify-between bg-muted/30 rounded-lg p-2">
-                                  <div>
-                                    <p className="text-xs font-medium text-foreground">Invoice #{invoice.number}</p>
-                                    <p className="text-[10px] text-muted-foreground">{formatDate(invoice.date)}</p>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-foreground">
-                                      £{invoice.amount}
-                                    </span>
-                                    {invoice.hosted_url && (
-                                      <a
-                                        href={invoice.hosted_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-muted-foreground hover:text-foreground"
-                                      >
-                                        <ExternalLinkIcon className="w-3 h-3" />
-                                      </a>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                              {invoices.length > 3 && (
-                                <button
-                                  onClick={handleViewInvoices}
-                                  className="w-full text-center text-xs text-primary hover:text-primary/80 mt-2"
-                                >
-                                  View all {invoices.length} invoices →
-                                </button>
-                              )}
+                        {/* 14-Day Cooling Period Notice */}
+                        {coolingDaysLeft && coolingDaysLeft > 0 && (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-3">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-amber-600" />
+                              <p className="text-xs text-amber-600">
+                                <span className="font-bold">14-Day Cooling Period:</span> You have {coolingDaysLeft} days remaining to cancel for a full refund.
+                              </p>
                             </div>
                           </div>
                         )}
 
-                        {/* Account Deletion Section (for manual requests) - Only if no deletion scheduled */}
-                        {!deletionCountdown && !subscription.cancel_at_period_end && (
-                          <div className="mt-6 pt-4 border-t border-destructive/20">
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
-                                <AlertTriangle className="w-4 h-4 text-destructive" />
-                              </div>
-                              <div>
-                                <h3 className="text-sm font-semibold text-foreground">Delete Account</h3>
-                                <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
-                              </div>
-                            </div>
+                        {/* Status Badge */}
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className={`w-2 h-2 rounded-full ${
+                            subscription.status === 'active' ? 'bg-green-500' :
+                            subscription.status === 'frozen' ? 'bg-blue-500' :
+                            subscription.status === 'past_due' ? 'bg-red-500' :
+                            subscription.status === 'canceled' ? 'bg-gray-500' : 'bg-yellow-500'
+                          }`}></div>
+                          <span className="text-xs capitalize text-foreground">
+                            {subscription.status === 'frozen' ? 'Frozen' : subscription.status}
+                          </span>
+                        </div>
 
-                            {!showDeleteConfirm ? (
-                              <button
-                                onClick={() => setShowDeleteConfirm(true)}
-                                className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-                              >
-                                Request Account Deletion
-                              </button>
-                            ) : (
-                              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                                <div className="flex items-center gap-3 mb-3">
-                                  <AlertTriangle className="w-5 h-5 text-destructive" />
-                                  <div>
-                                    <p className="text-sm font-bold text-destructive">⚠️ Warning: This action cannot be undone</p>
-                                  </div>
-                                </div>
-                                
-                                <div className="bg-destructive/20 rounded-lg p-3 mb-3">
-                                  <p className="text-xs text-destructive mb-2">This will permanently delete:</p>
-                                  <ul className="text-xs text-destructive/80 list-disc list-inside space-y-1">
-                                    <li>All your business settings and staff members</li>
-                                    <li>All transactions, customers, and inventory data</li>
-                                    <li>Your subscription will be cancelled</li>
-                                    <li>Your account and all associated data</li>
-                                  </ul>
-                                </div>
-                                
-                                <p className="text-xs text-destructive mb-4 font-medium">
-                                  You have 14 days to cancel this request. After that, all data will be permanently lost.
+                        {/* Billing Dates */}
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="bg-muted/30 rounded-lg p-2">
+                            <p className="text-muted-foreground">Current Period Start</p>
+                            <p className="font-medium text-foreground">{formatDate(subscription.current_period_start)}</p>
+                          </div>
+                          <div className="bg-muted/30 rounded-lg p-2">
+                            <p className="text-muted-foreground">Current Period End</p>
+                            <p className="font-medium text-foreground">{formatDate(subscription.current_period_end)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Method */}
+                      {subscription?.payment_method ? (
+                        <div className="bg-muted/30 border border-border rounded-lg p-3">
+                          <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
+                              {subscription.payment_method.brand === 'visa' ? 'VISA' : 
+                               subscription.payment_method.brand === 'mastercard' ? 'MC' : 
+                               subscription.payment_method.brand === 'amex' ? 'AMEX' : 
+                               subscription.payment_method.brand === 'discover' ? 'DISC' : 'CARD'}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-foreground">
+                                  {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
                                 </p>
-                                
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => setShowDeleteConfirm(false)}
-                                    className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
-                                    disabled={deleting}
-                                  >
-                                    Keep Account
-                                  </button>
-                                  <button
-                                    onClick={handleScheduleDeletion}
-                                    disabled={deleting}
-                                    className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                                  >
-                                    {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Schedule Deletion'}
-                                  </button>
-                                </div>
+                                <span className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full">
+                                  Active
+                                </span>
                               </div>
-                            )}
+                              <p className="text-xs text-muted-foreground">
+                                Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
+                              </p>
+                            </div>
                           </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
-                        <CreditCard className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">No active subscription</p>
-                        <Link
-                          href="/pay"
-                          className="inline-block mt-3 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-xs font-medium"
+                        </div>
+                      ) : (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-amber-600 mb-1">⚠️ No Payment Method</p>
+                              <p className="text-xs text-amber-600/80">Add a payment method to ensure uninterrupted service</p>
+                            </div>
+                            <button
+                              onClick={handleOpenCustomerPortal}
+                              className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+                            >
+                              Add Now
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Stripe Customer Portal Button - SIMPLIFIED */}
+                      <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                        <p className="text-xs font-medium text-foreground mb-2">Manage Subscription</p>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Use Stripe's secure portal to update payment methods, view invoices, change plans, or cancel your subscription.
+                        </p>
+                        <button
+                          onClick={handleOpenCustomerPortal}
+                          className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                         >
-                          Purchase License
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Receipt Customization */}
-              <div className="bg-card border border-border rounded-xl p-4">
-                <div 
-                  className="flex items-center justify-between cursor-pointer"
-                  onClick={() => toggleSection('receipt')}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
-                      <Receipt className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Receipt Customization</h2>
-                      <p className="text-xs text-muted-foreground">Customize how your receipts look</p>
-                    </div>
-                  </div>
-                  {expandedSections.receipt ? (
-                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                {expandedSections.receipt && (
-                  <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="space-y-3">
-                        <h3 className="text-xs font-medium text-foreground">Receipt Information</h3>
-                        
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Business Name on Receipt</label>
-                          <input
-                            type="text"
-                            value={businessName}
-                            onChange={(e) => setBusinessName(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="Your Business"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Address</label>
-                          <textarea
-                            value={businessAddress}
-                            onChange={(e) => setBusinessAddress(e.target.value)}
-                            rows={2}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
-                            placeholder="123 Main St, London, UK"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Phone</label>
-                          <input
-                            type="tel"
-                            value={businessPhone}
-                            onChange={(e) => setBusinessPhone(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="+44 20 1234 5678"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Email</label>
-                          <input
-                            type="email"
-                            value={businessEmail}
-                            onChange={(e) => setBusinessEmail(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="info@mysalon.com"
-                          />
-                        </div>
+                          <ExternalLink className="w-3 h-3" />
+                          Open Billing Portal
+                        </button>
                       </div>
 
-                      <div className="space-y-3">
-                        <h3 className="text-xs font-medium text-foreground">Receipt Design</h3>
-                        
-                        <div className="opacity-50">
-                          <label className="block text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                            <Image className="w-3 h-3" />
-                            Logo URL (Optional)
-                          </label>
-                          <input
-                            type="url"
-                            value={receiptLogoUrl}
-                            onChange={(e) => setReceiptLogoUrl(e.target.value)}
-                            placeholder="Logo field disabled - uses main business logo"
-                            disabled
-                            className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground placeholder:text-muted-foreground cursor-not-allowed"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Tax/VAT Number</label>
-                          <input
-                            type="text"
-                            value={taxNumber}
-                            onChange={(e) => setTaxNumber(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="GB123456789"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Website</label>
-                          <input
-                            type="url"
-                            value={businessWebsite}
-                            onChange={(e) => setBusinessWebsite(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="www.yourshop.com"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Receipt Message</label>
-                          <textarea
-                            value={receiptFooter}
-                            onChange={(e) => setReceiptFooter(e.target.value)}
-                            rows={2}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
-                            placeholder="Thank you for your business!"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Refund Days (Optional)</label>
-                          <input
-                            type="number"
-                            value={refundDays}
-                            onChange={(e) => setRefundDays(e.target.value)}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
-                            placeholder="e.g., 30"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Receipt Preview */}
-                    <div className="mt-4 bg-muted/30 rounded-lg p-4 border border-border">
-                      <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1">
-                        <FileText className="w-3 h-3" />
-                        Receipt Preview
-                      </h3>
-                      
-                      <div className="bg-white text-black p-4 rounded-lg max-w-xs mx-auto font-mono text-xs">
-                        {businessLogoUrl ? (
-                          <img
-                            src={businessLogoUrl}
-                            alt="Logo"
-                            className="max-w-[80px] h-auto mx-auto mb-2"
-                            onError={(e) => e.currentTarget.style.display = 'none'}
-                          />
-                        ) : (
-                          <div className="w-[80px] h-[30px] bg-gradient-to-r from-primary to-primary/80 rounded mx-auto mb-2 flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">LOGO</span>
-                          </div>
-                        )}
-                        
-                        <div className="text-center font-bold mb-1">
-                          {businessName || shopName || "Your Business"}
-                        </div>
-                        
-                        {businessAddress && (
-                          <div className="text-center mb-1 whitespace-pre-line text-[10px]">{businessAddress}</div>
-                        )}
-                        
-                        {businessPhone && <div className="text-center text-[10px]">{businessPhone}</div>}
-                        {businessEmail && <div className="text-center text-[10px]">{businessEmail}</div>}
-                        {businessWebsite && <div className="text-center text-[10px]">{businessWebsite}</div>}
-                        {taxNumber && <div className="text-center text-[10px] mb-1">Tax No: {taxNumber}</div>}
-                        
-                        <div className="border-t border-dashed border-gray-400 my-2"></div>
-                        
-                        <div className="space-y-1 mb-2">
-                          <div className="flex justify-between text-[10px]">
-                            <span>✂️ Haircut</span>
-                            <span>£25.00</span>
-                          </div>
-                          <div className="flex justify-between text-[10px]">
-                            <span>🧴 Shampoo</span>
-                            <span>£8.99</span>
-                          </div>
-                        </div>
-                        
-                        <div className="border-t-2 border-gray-800 pt-2">
-                          <div className="flex justify-between text-xs">
-                            <span className="font-bold">TOTAL:</span>
-                            <span className="font-bold">£33.99</span>
-                          </div>
-                        </div>
-                        
-                        <div className="text-center mt-2 text-[10px]">
-                          {receiptFooter}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Staff Members */}
-              <div className="bg-card border border-border rounded-xl p-4">
-                <div 
-                  className="flex items-center justify-between cursor-pointer"
-                  onClick={() => toggleSection('staff')}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                      <Users className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Staff Members</h2>
-                      <p className="text-xs text-muted-foreground">{staff.length} team members</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {expandedSections.staff ? (
-                      <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </div>
-
-                {expandedSections.staff && (
-                  <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
-                    <button
-                      onClick={openAddStaffModal}
-                      className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add Staff Member
-                    </button>
-
-                    {staff.length === 0 ? (
-                      <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed border-border">
-                        <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">No staff members yet</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-2">
-                        {staff.map((member) => (
-                          <div
-                            key={member.id}
-                            className="bg-background border border-border rounded-lg p-3 hover:border-primary/50 transition-colors"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">
-                                  {member.name.charAt(0).toUpperCase()}
-                                </div>
+                      {/* Recent Invoices */}
+                      {invoices.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-xs font-medium text-foreground mb-2">Recent Invoices</p>
+                          <div className="space-y-2">
+                            {invoices.slice(0, 3).map((invoice) => (
+                              <div key={invoice.id} className="flex items-center justify-between bg-muted/30 rounded-lg p-2">
                                 <div>
-                                  <p className="text-xs font-medium text-foreground">{member.name}</p>
-                                  {member.email && (
-                                    <p className="text-[10px] text-muted-foreground">{member.email}</p>
+                                  <p className="text-xs font-medium text-foreground">Invoice #{invoice.number}</p>
+                                  <p className="text-[10px] text-muted-foreground">{formatDate(invoice.date)}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-foreground">
+                                    £{invoice.amount}
+                                  </span>
+                                  {invoice.hosted_url && (
+                                    <a
+                                      href={invoice.hosted_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-muted-foreground hover:text-foreground"
+                                    >
+                                      <ExternalLinkIcon className="w-3 h-3" />
+                                    </a>
                                   )}
                                 </div>
                               </div>
-                              <div className="flex gap-1">
+                            ))}
+                            {invoices.length > 3 && (
+                              <button
+                                onClick={handleViewInvoices}
+                                className="w-full text-center text-xs text-primary hover:text-primary/80 mt-2"
+                              >
+                                View all {invoices.length} invoices →
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Account Deletion Section */}
+                      {!deletionCountdown && (
+                        <div className="mt-6 pt-4 border-t border-destructive/20">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
+                              <AlertTriangle className="w-4 h-4 text-destructive" />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-semibold text-foreground">Delete Account</h3>
+                              <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
+                            </div>
+                          </div>
+
+                          {!showDeleteConfirm ? (
+                            <button
+                              onClick={() => setShowDeleteConfirm(true)}
+                              className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
+                            >
+                              Request Account Deletion
+                            </button>
+                          ) : (
+                            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                              <div className="flex items-center gap-3 mb-3">
+                                <AlertTriangle className="w-5 h-5 text-destructive" />
+                                <div>
+                                  <p className="text-sm font-bold text-destructive">⚠️ Warning: This action cannot be undone</p>
+                                </div>
+                              </div>
+                              
+                              <div className="bg-destructive/20 rounded-lg p-3 mb-3">
+                                <p className="text-xs text-destructive mb-2">This will permanently delete:</p>
+                                <ul className="text-xs text-destructive/80 list-disc list-inside space-y-1">
+                                  <li>All your business settings and staff members</li>
+                                  <li>All transactions, customers, and inventory data</li>
+                                  <li>Your subscription will be cancelled</li>
+                                  <li>Your account and all associated data</li>
+                                </ul>
+                              </div>
+                              
+                              <p className="text-xs text-destructive mb-4 font-medium">
+                                You have 14 days to cancel this request. After that, all data will be permanently lost.
+                              </p>
+                              
+                              <div className="flex gap-2">
                                 <button
-                                  onClick={() => openEditStaffModal(member)}
-                                  className="p-1 text-muted-foreground hover:text-foreground"
-                                  title="Edit"
+                                  onClick={() => setShowDeleteConfirm(false)}
+                                  className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
+                                  disabled={deleting}
                                 >
-                                  <Edit2 className="w-3 h-3" />
+                                  Keep Account
                                 </button>
                                 <button
-                                  onClick={() => deleteStaffMember(member.id)}
-                                  className="p-1 text-muted-foreground hover:text-destructive"
-                                  title="Delete"
+                                  onClick={handleScheduleDeletion}
+                                  disabled={deleting}
+                                  className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Schedule Deletion'}
                                 </button>
                               </div>
                             </div>
-                            
-                            <div className="flex flex-wrap gap-1 mb-2">
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                                member.role === "owner" ? "bg-emerald-100 text-emerald-800" :
-                                member.role === "manager" ? "bg-blue-100 text-blue-800" :
-                                "bg-gray-100 text-gray-800"
-                              }`}>
-                                {member.role}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between pt-1 border-t border-border">
-                              <span className="text-[10px] flex items-center gap-1">
-                                {member.pin ? (
-                                  <>
-                                    <Lock className="w-3 h-3 text-emerald-500" />
-                                    <span className="text-emerald-500">PIN Set</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Lock className="w-3 h-3 text-muted-foreground" />
-                                    <span className="text-muted-foreground">No PIN</span>
-                                  </>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-8 bg-muted/30 rounded-lg border border-dashed border-border">
+                      <CreditCard className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No active subscription</p>
+                      <Link
+                        href="/pay"
+                        className="inline-block mt-3 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-xs font-medium"
+                      >
+                        Purchase License
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Receipt Customization */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('receipt')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
+                    <Receipt className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Receipt Customization</h2>
+                    <p className="text-xs text-muted-foreground">Customize how your receipts look</p>
+                  </div>
+                </div>
+                {expandedSections.receipt ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+
+              {expandedSections.receipt && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-medium text-foreground">Receipt Information</h3>
+                      
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Business Name on Receipt</label>
+                        <input
+                          type="text"
+                          value={businessName}
+                          onChange={(e) => setBusinessName(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="Your Business"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Address</label>
+                        <textarea
+                          value={businessAddress}
+                          onChange={(e) => setBusinessAddress(e.target.value)}
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
+                          placeholder="123 Main St, London, UK"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Phone</label>
+                        <input
+                          type="tel"
+                          value={businessPhone}
+                          onChange={(e) => setBusinessPhone(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="+44 20 1234 5678"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={businessEmail}
+                          onChange={(e) => setBusinessEmail(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="info@mysalon.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-medium text-foreground">Receipt Design</h3>
+                      
+                      <div className="opacity-50">
+                        <label className="block text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                          <Image className="w-3 h-3" />
+                          Logo URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          value={receiptLogoUrl}
+                          onChange={(e) => setReceiptLogoUrl(e.target.value)}
+                          placeholder="Logo field disabled - uses main business logo"
+                          disabled
+                          className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground placeholder:text-muted-foreground cursor-not-allowed"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Tax/VAT Number</label>
+                        <input
+                          type="text"
+                          value={taxNumber}
+                          onChange={(e) => setTaxNumber(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="GB123456789"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Website</label>
+                        <input
+                          type="url"
+                          value={businessWebsite}
+                          onChange={(e) => setBusinessWebsite(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="www.yourshop.com"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Receipt Message</label>
+                        <textarea
+                          value={receiptFooter}
+                          onChange={(e) => setReceiptFooter(e.target.value)}
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none"
+                          placeholder="Thank you for your business!"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Refund Days (Optional)</label>
+                        <input
+                          type="number"
+                          value={refundDays}
+                          onChange={(e) => setRefundDays(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground"
+                          placeholder="e.g., 30"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Receipt Preview */}
+                  <div className="mt-4 bg-muted/30 rounded-lg p-4 border border-border">
+                    <h3 className="text-xs font-medium text-foreground mb-3 flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      Receipt Preview
+                    </h3>
+                    
+                    <div className="bg-white text-black p-4 rounded-lg max-w-xs mx-auto font-mono text-xs">
+                      {businessLogoUrl ? (
+                        <img
+                          src={businessLogoUrl}
+                          alt="Logo"
+                          className="max-w-[80px] h-auto mx-auto mb-2"
+                          onError={(e) => e.currentTarget.style.display = 'none'}
+                        />
+                      ) : (
+                        <div className="w-[80px] h-[30px] bg-gradient-to-r from-primary to-primary/80 rounded mx-auto mb-2 flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">LOGO</span>
+                        </div>
+                      )}
+                      
+                      <div className="text-center font-bold mb-1">
+                        {businessName || shopName || "Your Business"}
+                      </div>
+                      
+                      {businessAddress && (
+                        <div className="text-center mb-1 whitespace-pre-line text-[10px]">{businessAddress}</div>
+                      )}
+                      
+                      {businessPhone && <div className="text-center text-[10px]">{businessPhone}</div>}
+                      {businessEmail && <div className="text-center text-[10px]">{businessEmail}</div>}
+                      {businessWebsite && <div className="text-center text-[10px]">{businessWebsite}</div>}
+                      {taxNumber && <div className="text-center text-[10px] mb-1">Tax No: {taxNumber}</div>}
+                      
+                      <div className="border-t border-dashed border-gray-400 my-2"></div>
+                      
+                      <div className="space-y-1 mb-2">
+                        <div className="flex justify-between text-[10px]">
+                          <span>✂️ Haircut</span>
+                          <span>£25.00</span>
+                        </div>
+                        <div className="flex justify-between text-[10px]">
+                          <span>🧴 Shampoo</span>
+                          <span>£8.99</span>
+                        </div>
+                      </div>
+                      
+                      <div className="border-t-2 border-gray-800 pt-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-bold">TOTAL:</span>
+                          <span className="font-bold">£33.99</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-center mt-2 text-[10px]">
+                        {receiptFooter}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Staff Members */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={() => toggleSection('staff')}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                    <Users className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Staff Members</h2>
+                    <p className="text-xs text-muted-foreground">{staff.length} team members</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {expandedSections.staff ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+
+              {expandedSections.staff && (
+                <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                  <button
+                    onClick={openAddStaffModal}
+                    className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add Staff Member
+                  </button>
+
+                  {staff.length === 0 ? (
+                    <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed border-border">
+                      <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">No staff members yet</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {staff.map((member) => (
+                        <div
+                          key={member.id}
+                          className="bg-background border border-border rounded-lg p-3 hover:border-primary/50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                {member.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-foreground">{member.name}</p>
+                                {member.email && (
+                                  <p className="text-[10px] text-muted-foreground">{member.email}</p>
                                 )}
-                              </span>
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
                               <button
-                                onClick={() => openPinChangeModal(member)}
-                                className="text-[10px] text-primary hover:text-primary/80"
+                                onClick={() => openEditStaffModal(member)}
+                                className="p-1 text-muted-foreground hover:text-foreground"
+                                title="Edit"
                               >
-                                {member.pin ? "Change" : "Set PIN"}
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => deleteStaffMember(member.id)}
+                                className="p-1 text-muted-foreground hover:text-destructive"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Fixed Save Button */}
-        <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-6 pb-3 px-4">
-          <div className="max-w-4xl mx-auto">
-            <button
-              onClick={saveAllSettings}
-              disabled={saving}
-              className="w-fit mx-auto bg-primary hover:opacity-90 text-primary-foreground px-6 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Settings
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Staff Modal */}
-        {showStaffModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-foreground">
-                  {editingStaff ? "Edit Staff Member" : "Add Staff Member"}
-                </h3>
-                <button onClick={() => { setShowStaffModal(false); resetModalStates(); }} className="text-muted-foreground hover:text-foreground">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
-                  <input
-                    value={staffName}
-                    onChange={(e) => setStaffName(e.target.value)}
-                    placeholder="Staff member name"
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    autoFocus
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Email *</label>
-                  <input
-                    type="email"
-                    value={staffEmail}
-                    onChange={(e) => setStaffEmail(e.target.value)}
-                    placeholder="staff@example.com"
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Required for PIN verification</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Role *</label>
-                  <select
-                    value={staffRole}
-                    onChange={(e) => {
-                      const newRole = e.target.value as "staff" | "manager" | "owner";
-                      setStaffRole(newRole);
-                      applyRolePreset(newRole);
-                    }}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="staff">Staff</option>
-                    <option value="manager">Manager</option>
-                    {isOwner() && <option value="owner">Owner</option>}
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {staffRole === "staff" 
-                      ? "Staff members have core POS access only"
-                      : staffRole === "manager"
-                      ? "Managers have POS + management access"
-                      : "Owners have full access to all features"}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Permissions</label>
-                  
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    <div className="mb-2 pt-2 border-t border-border">
-                      <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
-                      {Object.entries({
-                        access_pos: "Access Point of Sale",
-                        manage_transactions: "Process Sales & Returns",
-                        manage_customers: "Manage Customers",
-                        access_display: "Access Customer Display",
-                      }).map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={staffPermissions[key as keyof typeof staffPermissions]}
-                            onChange={(e) => setStaffPermissions(prev => ({
-                              ...prev,
-                              [key]: e.target.checked
-                            }))}
-                            disabled={staffRole === "staff"}
-                            className="rounded text-primary focus:ring-primary disabled:opacity-50"
-                          />
-                          <div>
-                            <span className="text-sm text-foreground">{label}</span>
-                            {staffRole === "staff" && (
-                              <p className="text-xs text-muted-foreground">Required for staff role</p>
-                            )}
+                          
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                              member.role === "owner" ? "bg-emerald-100 text-emerald-800" :
+                              member.role === "manager" ? "bg-blue-100 text-blue-800" :
+                              "bg-gray-100 text-gray-800"
+                            }`}>
+                              {member.role}
+                            </span>
                           </div>
-                        </label>
-                      ))}
-                    </div>
-                    
-                    <div className="mb-2 pt-2 border-t border-border">
-                      <p className="text-xs font-medium text-foreground mb-2">Management Operations</p>
-                      {Object.entries({
-                        manage_inventory: "Manage Inventory",
-                        view_reports: "View Reports & Analytics",
-                        manage_hardware: "Manage Hardware (Printers)",
-                        manage_card_terminal: "Manage Card Terminal",
-                      }).map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={staffPermissions[key as keyof typeof staffPermissions]}
-                            onChange={(e) => setStaffPermissions(prev => ({
-                              ...prev,
-                              [key]: e.target.checked
-                            }))}
-                            disabled={staffRole === "staff"}
-                            className="rounded text-primary focus:ring-primary disabled:opacity-50"
-                          />
-                          <span className="text-sm text-foreground">{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                    
-                    <div className="pt-2 border-t border-border">
-                      <p className="text-xs font-medium text-foreground mb-2">Administrative Operations</p>
-                      {Object.entries({
-                        manage_settings: "Manage Business Settings",
-                        manage_staff: "Manage Staff Members",
-                      }).map(([key, label]) => (
-                        <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={staffPermissions[key as keyof typeof staffPermissions]}
-                            onChange={(e) => setStaffPermissions(prev => ({
-                              ...prev,
-                              [key]: e.target.checked
-                            }))}
-                            disabled={staffRole === "staff" || (staffRole === "manager" && !isOwner())}
-                            className="rounded text-primary focus:ring-primary disabled:opacity-50"
-                          />
-                          <span className="text-sm text-foreground">{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">PIN (Optional)</label>
-                  <input
-                    type="password"
-                    value={staffPin}
-                    onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="4-6 digit PIN"
-                    maxLength={6}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  {staffPin && staffPin.length >= 4 && (
-                    <div className="mt-3 space-y-2">
-                      {!codeSent ? (
-                        <button
-                          onClick={sendVerificationCode}
-                          className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
-                        >
-                          Send Verification Code to Email
-                        </button>
-                      ) : (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={verificationCode}
-                            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                            placeholder="Enter 6-digit code"
-                            maxLength={6}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary"
-                          />
-                          <button
-                            onClick={sendVerificationCode}
-                            className="w-full text-xs text-primary hover:text-primary/80 transition-colors"
-                          >
-                            Resend Code
-                          </button>
+                          
+                          <div className="flex items-center justify-between pt-1 border-t border-border">
+                            <span className="text-[10px] flex items-center gap-1">
+                              {member.pin ? (
+                                <>
+                                  <Lock className="w-3 h-3 text-emerald-500" />
+                                  <span className="text-emerald-500">PIN Set</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="w-3 h-3 text-muted-foreground" />
+                                  <span className="text-muted-foreground">No PIN</span>
+                                </>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => openPinChangeModal(member)}
+                              className="text-[10px] text-primary hover:text-primary/80"
+                            >
+                              {member.pin ? "Change" : "Set PIN"}
+                            </button>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => { setShowStaffModal(false); resetModalStates(); }}
-                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveStaffMember}
-                  disabled={verifying}
-                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-                >
-                  {verifying ? "Saving..." : editingStaff ? "Save Changes" : "Add Staff"}
-                </button>
-              </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* PIN Change Modal */}
-        {showPinModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-foreground">Change PIN</h3>
-                <button onClick={() => { setShowPinModal(false); resetModalStates(); }} className="text-muted-foreground hover:text-foreground">
-                  <X className="w-5 h-5" />
-                </button>
+      {/* Fixed Save Button */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-6 pb-3 px-4">
+        <div className="max-w-4xl mx-auto">
+          <button
+            onClick={saveAllSettings}
+            disabled={saving}
+            className="w-fit mx-auto bg-primary hover:opacity-90 text-primary-foreground px-6 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Settings
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Staff Modal */}
+      {showStaffModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                {editingStaff ? "Edit Staff Member" : "Add Staff Member"}
+              </h3>
+              <button onClick={() => { setShowStaffModal(false); resetModalStates(); }} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
+                <input
+                  value={staffName}
+                  onChange={(e) => setStaffName(e.target.value)}
+                  placeholder="Staff member name"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  autoFocus
+                />
               </div>
 
-              <div className="space-y-4">
-                <div className="bg-primary/10 border border-primary/20 rounded-lg p-3">
-                  <p className="text-sm text-primary">
-                    Changing PIN for: <strong>{pinChangeStaff?.name}</strong>
-                  </p>
-                  {staffEmail && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Verification code will be sent to: {staffEmail}
-                    </p>
-                  )}
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Email *</label>
+                <input
+                  type="email"
+                  value={staffEmail}
+                  onChange={(e) => setStaffEmail(e.target.value)}
+                  placeholder="staff@example.com"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Required for PIN verification</p>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">New PIN</label>
-                  <input
-                    type="password"
-                    value={staffPin}
-                    onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="4-6 digit PIN"
-                    maxLength={6}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    autoFocus
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Role *</label>
+                <select
+                  value={staffRole}
+                  onChange={(e) => {
+                    const newRole = e.target.value as "staff" | "manager" | "owner";
+                    setStaffRole(newRole);
+                    applyRolePreset(newRole);
+                  }}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="staff">Staff</option>
+                  <option value="manager">Manager</option>
+                  {isOwner() && <option value="owner">Owner</option>}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {staffRole === "staff" 
+                    ? "Staff members have core POS access only"
+                    : staffRole === "manager"
+                    ? "Managers have POS + management access"
+                    : "Owners have full access to all features"}
+                </p>
+              </div>
 
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Permissions</label>
+                
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  <div className="mb-2 pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Core POS Operations</p>
+                    {Object.entries({
+                      access_pos: "Access Point of Sale",
+                      manage_transactions: "Process Sales & Returns",
+                      manage_customers: "Manage Customers",
+                      access_display: "Access Customer Display",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff"}
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <div>
+                          <span className="text-sm text-foreground">{label}</span>
+                          {staffRole === "staff" && (
+                            <p className="text-xs text-muted-foreground">Required for staff role</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  
+                  <div className="mb-2 pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Management Operations</p>
+                    {Object.entries({
+                      manage_inventory: "Manage Inventory",
+                      view_reports: "View Reports & Analytics",
+                      manage_hardware: "Manage Hardware (Printers)",
+                      manage_card_terminal: "Manage Card Terminal",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff"}
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <span className="text-sm text-foreground">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-xs font-medium text-foreground mb-2">Administrative Operations</p>
+                    {Object.entries({
+                      manage_settings: "Manage Business Settings",
+                      manage_staff: "Manage Staff Members",
+                    }).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={staffPermissions[key as keyof typeof staffPermissions]}
+                          onChange={(e) => setStaffPermissions(prev => ({
+                            ...prev,
+                            [key]: e.target.checked
+                          }))}
+                          disabled={staffRole === "staff" || (staffRole === "manager" && !isOwner())}
+                          className="rounded text-primary focus:ring-primary disabled:opacity-50"
+                        />
+                        <span className="text-sm text-foreground">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">PIN (Optional)</label>
+                <input
+                  type="password"
+                  value={staffPin}
+                  onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="4-6 digit PIN"
+                  maxLength={6}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
                 {staffPin && staffPin.length >= 4 && (
-                  <>
+                  <div className="mt-3 space-y-2">
                     {!codeSent ? (
                       <button
                         onClick={sendVerificationCode}
-                        className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                        className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity text-sm"
                       >
-                        Send Verification Code
+                        Send Verification Code to Email
                       </button>
                     ) : (
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-foreground mb-1">Verification Code</label>
-                          <input
-                            type="text"
-                            value={verificationCode}
-                            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                            placeholder="Enter 6-digit code"
-                            maxLength={6}
-                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary"
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="Enter 6-digit code"
+                          maxLength={6}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
                         <button
                           onClick={sendVerificationCode}
-                          className="w-full text-sm text-primary hover:text-primary/80 transition-colors"
+                          className="w-full text-xs text-primary hover:text-primary/80 transition-colors"
                         >
                           Resend Code
                         </button>
                       </div>
                     )}
-                  </>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowStaffModal(false); resetModalStates(); }}
+                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveStaffMember}
+                disabled={verifying}
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {verifying ? "Saving..." : editingStaff ? "Save Changes" : "Add Staff"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PIN Change Modal */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Change PIN</h3>
+              <button onClick={() => { setShowPinModal(false); resetModalStates(); }} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-3">
+                <p className="text-sm text-primary">
+                  Changing PIN for: <strong>{pinChangeStaff?.name}</strong>
+                </p>
+                {staffEmail && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Verification code will be sent to: {staffEmail}
+                  </p>
                 )}
               </div>
 
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => { setShowPinModal(false); resetModalStates(); }}
-                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={verifyAndSavePin}
-                  disabled={!codeSent || !verificationCode || verifying || staffPin.length < 4}
-                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center"
-                >
-                  {verifying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save PIN"}
-                </button>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">New PIN</label>
+                <input
+                  type="password"
+                  value={staffPin}
+                  onChange={(e) => setStaffPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="4-6 digit PIN"
+                  maxLength={6}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  autoFocus
+                />
               </div>
+
+              {staffPin && staffPin.length >= 4 && (
+                <>
+                  {!codeSent ? (
+                    <button
+                      onClick={sendVerificationCode}
+                      className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Send Verification Code
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">Verification Code</label>
+                        <input
+                          type="text"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="Enter 6-digit code"
+                          maxLength={6}
+                          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                      <button
+                        onClick={sendVerificationCode}
+                        className="w-full text-sm text-primary hover:text-primary/80 transition-colors"
+                      >
+                        Resend Code
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowPinModal(false); resetModalStates(); }}
+                className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={verifyAndSavePin}
+                disabled={!codeSent || !verificationCode || verifying || staffPin.length < 4}
+                className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center"
+              >
+                {verifying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save PIN"}
+              </button>
             </div>
           </div>
-        )}
-      </div>
-    </ProtectedRoute>
+        </div>
+      )}
+    </div>
   );
 }
