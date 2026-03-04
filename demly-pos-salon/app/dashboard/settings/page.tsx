@@ -15,7 +15,7 @@ import {
 import Link from "next/link";
 import { format, differenceInDays } from "date-fns";
 
-// Import Staff type from useStaffAuth to ensure consistency
+// Import Staff type from useStaffAuth
 import type { Staff as StaffType } from "@/hooks/useStaffAuth";
 
 interface Staff {
@@ -25,19 +25,14 @@ interface Staff {
   pin?: string | null;
   role: "staff" | "manager" | "owner";
   permissions: {
-    // Core POS Operations
     access_pos: boolean;
     manage_transactions: boolean;
     manage_customers: boolean;
     access_display: boolean;
-    
-    // Management Operations
     manage_inventory: boolean;
     view_reports: boolean;
     manage_hardware: boolean;
     manage_card_terminal: boolean;
-    
-    // Administrative Operations
     manage_settings: boolean;
     manage_staff: boolean;
   };
@@ -65,9 +60,6 @@ interface Subscription {
   deletion_scheduled?: boolean;
   days_until_deletion?: number;
   deletion_date?: string;
-  pending_plan?: 'monthly' | 'annual' | null;
-  pending_plan_price?: number | null;
-  pending_plan_effective_date?: string | null;
   failed_payment_count?: number;
   payment_failed_at?: string | null;
 }
@@ -82,6 +74,13 @@ interface Invoice {
   pdf_url: string | null;
   hosted_url: string | null;
   paid: boolean;
+}
+
+interface PaymentEvent {
+  type: 'payment_success' | 'payment_failed';
+  amount: number;
+  date: string;
+  attempt: number;
 }
 
 const COOLING_PERIOD_DAYS = 14;
@@ -119,20 +118,13 @@ export default function Settings() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
 
-  // Plan Change
-  const [showPlanChangeConfirm, setShowPlanChangeConfirm] = useState(false);
-  const [selectedNewPlan, setSelectedNewPlan] = useState<'monthly' | 'annual'>('monthly');
-  const [changingPlan, setChangingPlan] = useState(false);
-  const [planChangeInfo, setPlanChangeInfo] = useState<{
-    effective_date: string;
-    prorated_amount: number;
-  } | null>(null);
+  // Live Payment Events
+  const [paymentEvents, setPaymentEvents] = useState<PaymentEvent[]>([]);
+  const [paymentConnected, setPaymentConnected] = useState(false);
 
   // Account Deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -193,13 +185,8 @@ export default function Settings() {
     }));
   };
 
-  // Staff username
-  const [staffUsername, setStaffUsername] = useState("");
-
-  // Apply role preset function - defined early so it can be used in JSX
+  // Apply role preset function
   const applyRolePreset = (role: "staff" | "manager" | "owner") => {
-    console.log("🎭 Applying role preset:", role);
-    
     if (role === "staff") {
       setStaffPermissions({
         access_pos: true,
@@ -242,6 +229,39 @@ export default function Settings() {
     }
   };
 
+  // Live payment stream
+  useEffect(() => {
+    if (!userId) return;
+
+    const eventSource = new EventSource(`/api/webhooks/stripe/stream?userId=${userId}`);
+
+    eventSource.onopen = () => {
+      setPaymentConnected(true);
+    };
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'connected') return;
+      
+      setPaymentEvents(prev => [data, ...prev].slice(0, 10));
+      
+      // Show success/error messages
+      if (data.type === 'payment_success') {
+        setSuccessMessage(`✅ Payment of £${data.amount} received successfully!`);
+      } else if (data.type === 'payment_failed') {
+        setCancelError(`❌ Payment of £${data.amount} failed (Attempt ${data.attempt})`);
+      }
+    };
+
+    eventSource.onerror = () => {
+      setPaymentConnected(false);
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [userId]);
+
   // Real-time subscription updates
   useEffect(() => {
     if (!userId || !currentStaff?.email) return;
@@ -257,8 +277,6 @@ export default function Settings() {
           filter: `email=eq.${currentStaff.email}`,
         },
         (payload) => {
-          console.log('🔄 License updated:', payload.new);
-          
           // Update deletion countdown
           if (payload.new.deletion_scheduled_at) {
             const days = differenceInDays(
@@ -290,7 +308,6 @@ export default function Settings() {
             setPaymentStatus({ status: 'active' });
           }
 
-          // Refresh subscription data
           loadSubscription();
         }
       )
@@ -320,7 +337,6 @@ export default function Settings() {
       setCoolingDaysLeft(null);
     }
 
-    // Set payment status from subscription
     if (subscription?.status === 'frozen') {
       setPaymentStatus({
         status: 'frozen',
@@ -337,7 +353,6 @@ export default function Settings() {
       setPaymentStatus({ status: 'active' });
     }
 
-    // Set deletion countdown
     if (subscription?.deletion_scheduled && subscription.deletion_date) {
       const days = differenceInDays(
         new Date(subscription.deletion_date),
@@ -376,7 +391,7 @@ export default function Settings() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data: settingsData, error: settingsError } = await supabase
+      const { data: settingsData } = await supabase
         .from("settings")
         .select("*")
         .eq("user_id", userId)
@@ -402,7 +417,7 @@ export default function Settings() {
         setShowBarcodeOnReceipt(settingsData.show_barcode_on_receipt !== false);
       }
 
-      const { data: staffData, error: staffError } = await supabase
+      const { data: staffData } = await supabase
         .from("staff")
         .select("*")
         .eq("user_id", userId)
@@ -450,7 +465,6 @@ export default function Settings() {
   const loadSubscription = async () => {
     setLoadingSubscription(true);
     setCancelError(null);
-    setPlanChangeInfo(null);
     
     try {
       const response = await fetch('/api/subscription');
@@ -496,81 +510,11 @@ export default function Settings() {
     }
   };
 
-  const handleCancelSubscription = async () => {
-    setCancelling(true);
-    setCancelError(null);
-    setSuccessMessage(null);
-    
-    try {
-      const response = await fetch('/api/subscription/cancel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to cancel subscription');
-      }
-      
-      if (data.refunded) {
-        setSuccessMessage("✅ Subscription cancelled and refunded successfully.");
-      } else if (data.cancel_at_period_end) {
-        setSuccessMessage("✅ Subscription will be cancelled at the end of the billing period.");
-      }
-      
-      setShowCancelConfirm(false);
-      loadSubscription();
-      
-    } catch (error: any) {
-      console.error("Error cancelling subscription:", error);
-      setCancelError(error.message || "❌ Failed to cancel subscription. Please try again.");
-    } finally {
-      setCancelling(false);
-    }
-  };
-
-  const handleReactivateSubscription = async () => {
-    setCancelling(true);
-    setCancelError(null);
-    setSuccessMessage(null);
-    
-    try {
-      const response = await fetch('/api/subscription/reactivate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to reactivate subscription');
-      }
-      
-      setSuccessMessage("✅ Subscription reactivated successfully.");
-      setShowCancelConfirm(false);
-      loadSubscription();
-      
-    } catch (error: any) {
-      console.error("Error reactivating subscription:", error);
-      setCancelError(error.message || "❌ Failed to reactivate subscription. Please try again.");
-    } finally {
-      setCancelling(false);
-    }
-  };
-
   const handleOpenCustomerPortal = async () => {
     try {
       setCancelError(null);
       const response = await fetch('/api/subscription/create-portal', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
       });
       
       const data = await response.json();
@@ -601,56 +545,6 @@ export default function Settings() {
     } catch (error: any) {
       console.error("Error viewing invoices:", error);
       setCancelError(error.message || "❌ Failed to view invoices. Please try again.");
-    }
-  };
-
-  const handleChangePlan = (newPlan: 'monthly' | 'annual') => {
-    if (newPlan === subscription?.plan) {
-      setCancelError(`You are already on the ${newPlan} plan`);
-      return;
-    }
-    if (subscription?.status === 'frozen') {
-      setCancelError("Cannot change plan while account is frozen. Please update payment method first.");
-      return;
-    }
-    setSelectedNewPlan(newPlan);
-    setShowPlanChangeConfirm(true);
-  };
-
-  const confirmPlanChange = async () => {
-    setChangingPlan(true);
-    setCancelError(null);
-    setSuccessMessage(null);
-
-    try {
-      const response = await fetch('/api/subscription/change-plan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ newPlan: selectedNewPlan }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to change plan');
-      }
-
-      setPlanChangeInfo({
-        effective_date: data.effective_date,
-        prorated_amount: data.prorated_amount
-      });
-
-      setSuccessMessage(data.message);
-      setShowPlanChangeConfirm(false);
-      loadSubscription();
-
-    } catch (error: any) {
-      console.error('Error changing plan:', error);
-      setCancelError(error.message || 'Failed to change plan');
-    } finally {
-      setChangingPlan(false);
     }
   };
 
@@ -991,13 +885,11 @@ export default function Settings() {
   const ToggleSwitch = ({ 
     enabled, 
     onChange, 
-    size = 'default',
-    label 
+    size = 'default'
   }: { 
     enabled: boolean; 
     onChange: () => void; 
     size?: 'small' | 'default';
-    label?: string;
   }) => {
     const width = size === 'small' ? 'w-12' : 'w-16';
     const height = size === 'small' ? 'h-6' : 'h-8';
@@ -1012,7 +904,6 @@ export default function Settings() {
             ? 'bg-green-500 hover:bg-green-600 shadow-lg shadow-green-500/30' 
             : 'bg-red-400 hover:bg-red-500 shadow-lg shadow-red-500/30'
         }`}
-        aria-label={label}
       >
         <div
           className={`absolute top-0.5 left-0.5 ${circleSize} bg-white rounded-full shadow-md transition-transform ${
@@ -1104,6 +995,52 @@ export default function Settings() {
               {cancelError}
             </div>
           )}
+
+          {/* Live Payment Stream */}
+          <div className="mb-4 bg-card border border-border rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-2 h-2 rounded-full ${paymentConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></div>
+              <h3 className="text-sm font-medium text-foreground">Live Payment Status</h3>
+            </div>
+            
+            {paymentEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                No recent payment activity
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {paymentEvents.map((event, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center justify-between p-2 rounded-lg ${
+                      event.type === 'payment_success'
+                        ? 'bg-green-500/10 border border-green-500/30'
+                        : 'bg-red-500/10 border border-red-500/30'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {event.type === 'payment_success' ? (
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-600" />
+                      )}
+                      <div>
+                        <p className="text-xs font-medium text-foreground">
+                          {event.type === 'payment_success' ? 'Payment Received' : `Payment Failed (Attempt ${event.attempt})`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(event.date).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-sm font-bold text-foreground">
+                      £{event.amount.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Frozen Account Banner */}
           {paymentStatus.status === 'frozen' && (
@@ -1267,7 +1204,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">Subscription & Billing</h2>
-                    <p className="text-xs text-muted-foreground">Manage your plan, payment methods, and account</p>
+                    <p className="text-xs text-muted-foreground">Manage your plan and payment methods</p>
                   </div>
                 </div>
                 {expandedSections.subscription ? (
@@ -1314,29 +1251,6 @@ export default function Settings() {
                           </div>
                         )}
 
-                        {/* Cancellation Status Banner */}
-                        {subscription.cancel_at_period_end && (
-                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-3">
-                            <div className="flex items-start gap-3">
-                              <Clock className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                              <div>
-                                <p className="text-sm font-medium text-amber-600 mb-1">⚠️ Subscription Cancelled</p>
-                                <p className="text-xs text-amber-600/80 mb-2">
-                                  Your subscription will end on {formatDate(subscription.current_period_end)}. 
-                                  You'll lose access to all features after this date.
-                                </p>
-                                <button
-                                  onClick={handleReactivateSubscription}
-                                  disabled={cancelling}
-                                  className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors inline-flex items-center gap-1"
-                                >
-                                  {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Reactivate Subscription'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {/* Status Badge */}
                         <div className="flex items-center gap-2 mb-3">
                           <div className={`w-2 h-2 rounded-full ${
@@ -1348,11 +1262,6 @@ export default function Settings() {
                           <span className="text-xs capitalize text-foreground">
                             {subscription.status === 'frozen' ? 'Frozen' : subscription.status}
                           </span>
-                          {subscription.cancel_at_period_end && (
-                            <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded-full">
-                              Cancels at period end
-                            </span>
-                          )}
                         </div>
 
                         {/* Billing Dates */}
@@ -1393,18 +1302,6 @@ export default function Settings() {
                               </p>
                             </div>
                           </div>
-                          
-                          {/* Next Payment Info */}
-                          {!subscription.cancel_at_period_end && subscription.next_payment_amount && subscription.next_payment_date && (
-                            <div className="mt-3 pt-3 border-t border-border">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-muted-foreground">Next payment:</span>
-                                <span className="font-medium text-foreground">
-                                  £{subscription.next_payment_amount} on {formatDate(subscription.next_payment_date)}
-                                </span>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       ) : (
                         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
@@ -1423,185 +1320,20 @@ export default function Settings() {
                         </div>
                       )}
 
-                      {/* Plan Change Options */}
-                      <div className="bg-muted/30 border border-border rounded-lg p-4 mt-2">
-                        <p className="text-xs font-medium text-foreground mb-3">Change Plan</p>
+                      {/* Stripe Customer Portal Button - SIMPLIFIED */}
+                      <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                        <p className="text-xs font-medium text-foreground mb-2">Manage Subscription</p>
                         <p className="text-xs text-muted-foreground mb-3">
-                          Changes will take effect at the end of your current billing period. You'll receive a prorated invoice for the difference.
+                          Use Stripe's secure portal to update payment methods, view invoices, change plans, or cancel your subscription.
                         </p>
-                        
-                        <div className="grid grid-cols-2 gap-3">
-                          <button
-                            onClick={() => handleChangePlan('monthly')}
-                            disabled={subscription?.plan === 'monthly' || changingPlan || subscription.cancel_at_period_end || paymentStatus.status === 'frozen'}
-                            className={`p-3 rounded-lg border transition-all ${
-                              subscription?.plan === 'monthly'
-                                ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
-                                : subscription.cancel_at_period_end || paymentStatus.status === 'frozen'
-                                ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
-                                : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
-                            }`}
-                          >
-                            <p className="text-sm font-medium">Monthly</p>
-                            <p className="text-xs text-muted-foreground">£29/month</p>
-                            {subscription?.plan === 'monthly' && (
-                              <p className="text-xs text-primary mt-1">Current Plan</p>
-                            )}
-                          </button>
-                          
-                          <button
-                            onClick={() => handleChangePlan('annual')}
-                            disabled={subscription?.plan === 'annual' || changingPlan || subscription.cancel_at_period_end || paymentStatus.status === 'frozen'}
-                            className={`p-3 rounded-lg border transition-all ${
-                              subscription?.plan === 'annual'
-                                ? 'bg-primary/10 border-primary/30 text-primary cursor-not-allowed'
-                                : subscription.cancel_at_period_end || paymentStatus.status === 'frozen'
-                                ? 'bg-muted/30 border-border text-muted-foreground cursor-not-allowed'
-                                : 'bg-background border-border hover:border-primary/50 hover:bg-primary/5'
-                            }`}
-                          >
-                            <p className="text-sm font-medium">Annual</p>
-                            <p className="text-xs text-muted-foreground">£299/year</p>
-                            <p className="text-xs text-emerald-600">Save 16%</p>
-                            {subscription?.plan === 'annual' && (
-                              <p className="text-xs text-primary mt-1">Current Plan</p>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Plan Change Confirmation Modal */}
-                        {showPlanChangeConfirm && (
-                          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
-                              <h3 className="text-lg font-semibold text-foreground mb-2">Confirm Plan Change</h3>
-                              <p className="text-sm text-muted-foreground mb-4">
-                                Are you sure you want to change from <span className="font-medium text-foreground capitalize">{subscription?.plan}</span> to{' '}
-                                <span className="font-medium text-foreground capitalize">{selectedNewPlan}</span>?
-                              </p>
-                              
-                              <div className="bg-muted/30 rounded-lg p-4 mb-4">
-                                <p className="text-xs text-muted-foreground mb-2">What to expect:</p>
-                                <ul className="space-y-2 text-sm">
-                                  <li className="flex items-start gap-2">
-                                    <span className="text-primary">•</span>
-                                    <span className="text-foreground">New plan starts at the end of your current billing period</span>
-                                  </li>
-                                  <li className="flex items-start gap-2">
-                                    <span className="text-primary">•</span>
-                                    <span className="text-foreground">You'll receive a prorated invoice for the price difference</span>
-                                  </li>
-                                  <li className="flex items-start gap-2">
-                                    <span className="text-primary">•</span>
-                                    <span className="text-foreground">Your current features remain until the change takes effect</span>
-                                  </li>
-                                </ul>
-                              </div>
-
-                              <div className="flex gap-3">
-                                <button
-                                  onClick={() => setShowPlanChangeConfirm(false)}
-                                  className="flex-1 bg-muted text-foreground py-2 rounded-lg font-medium hover:bg-accent transition-colors"
-                                  disabled={changingPlan}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={confirmPlanChange}
-                                  disabled={changingPlan}
-                                  className="flex-1 bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center"
-                                >
-                                  {changingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Change'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Plan Change Success Info */}
-                        {planChangeInfo && (
-                          <div className="mt-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
-                            <p className="text-sm font-medium text-emerald-600 mb-2">✅ Plan Change Scheduled</p>
-                            <p className="text-xs text-emerald-600/80 mb-1">
-                              Your plan will change to {selectedNewPlan} on{' '}
-                              {formatDate(planChangeInfo.effective_date)}
-                            </p>
-                            {planChangeInfo.prorated_amount > 0 && (
-                              <p className="text-xs text-emerald-600/80">
-                                A prorated invoice for £{planChangeInfo.prorated_amount.toFixed(2)} will be generated.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex gap-2">
                         <button
                           onClick={handleOpenCustomerPortal}
-                          className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
+                          className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                         >
-                          <CreditCard className="w-3 h-3" />
-                          {subscription.payment_method ? 'Update Payment Method' : 'Add Payment Method'}
-                        </button>
-                        <button
-                          onClick={handleViewInvoices}
-                          className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
-                        >
-                          <Receipt className="w-3 h-3" />
-                          View Invoices
+                          <ExternalLink className="w-3 h-3" />
+                          Open Billing Portal
                         </button>
                       </div>
-
-                      {/* Cancel/Reactivate */}
-                      {!subscription.cancel_at_period_end ? (
-                        !showCancelConfirm ? (
-                          <button
-                            onClick={() => setShowCancelConfirm(true)}
-                            className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-                            disabled={paymentStatus.status === 'frozen'}
-                          >
-                            Cancel Subscription
-                          </button>
-                        ) : (
-                          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                            <p className="text-xs font-medium text-destructive mb-3">⚠️ Cancel Subscription</p>
-                            <p className="text-xs text-destructive/80 mb-4">
-                              {coolingDaysLeft && coolingDaysLeft > 0 
-                                ? `You're within the 14-day cooling period. You'll receive a full refund of £${subscription.price}.`
-                                : 'Your subscription will continue until the end of the current billing period. You will not be refunded for the remaining time.'}
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => setShowCancelConfirm(false)}
-                                className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
-                              >
-                                Keep Subscription
-                              </button>
-                              <button
-                                onClick={handleCancelSubscription}
-                                disabled={cancelling}
-                                className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                              >
-                                {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes, Cancel'}
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      ) : (
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-                          <p className="text-xs font-medium text-amber-600 mb-2">⚠️ Subscription Cancelled</p>
-                          <p className="text-xs text-amber-600/80 mb-3">
-                            Your subscription will end on {formatDate(subscription.current_period_end)}.
-                          </p>
-                          <button
-                            onClick={handleReactivateSubscription}
-                            disabled={cancelling}
-                            className="w-full bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-                          >
-                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : 'Reactivate Subscription'}
-                          </button>
-                        </div>
-                      )}
 
                       {/* Recent Invoices */}
                       {invoices.length > 0 && (
@@ -1626,16 +1358,6 @@ export default function Settings() {
                                       className="text-muted-foreground hover:text-foreground"
                                     >
                                       <ExternalLinkIcon className="w-3 h-3" />
-                                    </a>
-                                  )}
-                                  {invoice.pdf_url && (
-                                    <a
-                                      href={invoice.pdf_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-muted-foreground hover:text-foreground"
-                                    >
-                                      <Download className="w-3 h-3" />
                                     </a>
                                   )}
                                 </div>
@@ -1687,7 +1409,7 @@ export default function Settings() {
                                 <ul className="text-xs text-destructive/80 list-disc list-inside space-y-1">
                                   <li>All your business settings and staff members</li>
                                   <li>All transactions, customers, and inventory data</li>
-                                  <li>Your subscription will be cancelled (with refund if applicable)</li>
+                                  <li>Your subscription will be cancelled</li>
                                   <li>Your account and all associated data</li>
                                 </ul>
                               </div>
@@ -1822,9 +1544,6 @@ export default function Settings() {
                           disabled
                           className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground placeholder:text-muted-foreground cursor-not-allowed"
                         />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Receipt will use your main business logo from Business Settings
-                        </p>
                       </div>
 
                       <div>
