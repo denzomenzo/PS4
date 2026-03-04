@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth } from "@/hooks/useStaffAuth";
+import ProtectedRoute from "@/components/ProtectedRoute"; // ← ADD THIS IMPORT
 import { 
   Plus, Trash2, Edit2, Check, ArrowLeft, Users, Store, Loader2, X, 
   FileText, Image, Save, Lock, Shield, AlertCircle, Mail, CreditCard,
@@ -35,6 +36,8 @@ interface Staff {
     manage_card_terminal: boolean;
     manage_settings: boolean;
     manage_staff: boolean;
+    // Add manage_apps permission
+    manage_apps: boolean;
   };
 }
 
@@ -85,7 +88,8 @@ interface PaymentEvent {
 
 const COOLING_PERIOD_DAYS = 14;
 
-export default function Settings() {
+// Rename the original component
+function SettingsContent() {
   const userId = useUserId();
   const { staff: currentStaff, isOwner, isManager } = useStaffAuth();
   
@@ -160,6 +164,7 @@ export default function Settings() {
     manage_card_terminal: false,
     manage_settings: false,
     manage_staff: false,
+    manage_apps: false, // ← ADDED manage_apps permission
   });
   
   // PIN Change Modal
@@ -185,7 +190,7 @@ export default function Settings() {
     }));
   };
 
-  // Apply role preset function
+  // Apply role preset function - UPDATED with manage_apps
   const applyRolePreset = (role: "staff" | "manager" | "owner") => {
     if (role === "staff") {
       setStaffPermissions({
@@ -199,6 +204,7 @@ export default function Settings() {
         manage_card_terminal: false,
         manage_settings: false,
         manage_staff: false,
+        manage_apps: false,
       });
     } else if (role === "manager") {
       setStaffPermissions({
@@ -212,6 +218,7 @@ export default function Settings() {
         manage_card_terminal: true,
         manage_settings: false,
         manage_staff: false,
+        manage_apps: false, // Managers don't get apps by default
       });
     } else if (role === "owner") {
       setStaffPermissions({
@@ -225,6 +232,7 @@ export default function Settings() {
         manage_card_terminal: true,
         manage_settings: true,
         manage_staff: true,
+        manage_apps: true, // Owners get apps permission
       });
     }
   };
@@ -449,6 +457,7 @@ export default function Settings() {
               manage_card_terminal: getPermission('card_terminal', 'manage_card_terminal', isManager || isOwner),
               manage_settings: getPermission('settings', 'manage_settings', isOwner),
               manage_staff: dbPermissions.manage_staff || isOwner,
+              manage_apps: dbPermissions.manage_apps || isOwner, // ← ADDED manage_apps
             },
           };
         });
@@ -632,6 +641,7 @@ export default function Settings() {
       manage_card_terminal: false,
       manage_settings: false,
       manage_staff: false,
+      manage_apps: false,
     });
     setVerificationCode("");
     setSentCode("");
@@ -663,6 +673,7 @@ export default function Settings() {
       manage_card_terminal: member.permissions.manage_card_terminal,
       manage_settings: member.permissions.manage_settings,
       manage_staff: member.permissions.manage_staff,
+      manage_apps: member.permissions.manage_apps,
     });
     
     setShowStaffModal(true);
@@ -784,6 +795,7 @@ export default function Settings() {
         manage_card_terminal: staffPermissions.manage_card_terminal,
         manage_settings: staffPermissions.manage_settings,
         manage_staff: staffPermissions.manage_staff,
+        manage_apps: staffPermissions.manage_apps, // ← ADDED manage_apps
       };
 
       const staffData: any = {
@@ -1897,6 +1909,7 @@ export default function Settings() {
                       view_reports: "View Reports & Analytics",
                       manage_hardware: "Manage Hardware (Printers)",
                       manage_card_terminal: "Manage Card Terminal",
+                      manage_apps: "Manage Apps & Integrations", // ← ADDED manage_apps
                     }).map(([key, label]) => (
                       <label key={key} className="flex items-center gap-2 p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
                         <input
@@ -2088,5 +2101,14 @@ export default function Settings() {
         </div>
       )}
     </div>
+  );
+}
+
+// Add the ProtectedRoute wrapper export
+export default function SettingsPage() {
+  return (
+    <ProtectedRoute requiredPermission="manage_settings">
+      <SettingsContent />
+    </ProtectedRoute>
   );
 }
