@@ -13,7 +13,6 @@ export async function POST() {
     const staffCookie = cookieStore.get('current_staff')?.value;
     
     if (!staffCookie) {
-      console.log('❌ No staff cookie found');
       return NextResponse.json(
         { error: 'Unauthorized - No staff session' }, 
         { status: 401 }
@@ -27,11 +26,9 @@ export async function POST() {
       console.log('✅ Staff from cookie:', { 
         id: staff.id, 
         name: staff.name, 
-        email: staff.email,
-        role: staff.role
+        email: staff.email
       });
     } catch (e) {
-      console.error('❌ Invalid staff cookie:', e);
       return NextResponse.json(
         { error: 'Unauthorized - Invalid staff session' }, 
         { status: 401 }
@@ -51,58 +48,59 @@ export async function POST() {
       }
     );
 
-    // First, check if license exists for this email
-    const { data: existingLicense, error: checkError } = await supabase
+    // First, get the current license to see its status
+    const { data: currentLicense, error: fetchError } = await supabase
       .from('licenses')
-      .select('id, email, status, deletion_scheduled_at')
+      .select('*')
       .eq('email', staff.email)
-      .maybeSingle();
+      .single();
 
-    if (checkError) {
-      console.error('❌ Error checking license:', checkError);
+    if (fetchError) {
+      console.error('❌ Error fetching license:', fetchError);
       return NextResponse.json(
-        { error: 'Database error: ' + checkError.message },
-        { status: 500 }
-      );
-    }
-
-    if (!existingLicense) {
-      console.error('❌ No license found for email:', staff.email);
-      return NextResponse.json(
-        { error: 'No license found for this account' },
+        { error: 'License not found' },
         { status: 404 }
       );
     }
+
+    console.log('📋 Current license before update:', {
+      id: currentLicense.id,
+      status: currentLicense.status,
+      deletion_scheduled_at: currentLicense.deletion_scheduled_at
+    });
 
     // Set deletion scheduled date to 14 days from now
     const deletionDate = new Date();
     deletionDate.setDate(deletionDate.getDate() + 14);
     
-    console.log('📅 Scheduling deletion for:', {
-      email: staff.email,
-      deletion_date: deletionDate.toISOString(),
-      license_id: existingLicense.id
-    });
+    console.log('📅 Scheduling deletion for:', deletionDate.toISOString());
 
-    // Update the license with deletion scheduled date
-    const { error: updateError } = await supabase
+    // Try to update ONLY the deletion_scheduled_at field
+    const { data: updatedData, error: updateError } = await supabase
       .from('licenses')
       .update({ 
         deletion_scheduled_at: deletionDate.toISOString(),
-        status: 'deletion_scheduled',
         updated_at: new Date().toISOString()
       })
-      .eq('id', existingLicense.id);
+      .eq('id', currentLicense.id)
+      .select();
 
     if (updateError) {
-      console.error('❌ Failed to update license:', updateError);
+      console.error('❌ Update error details:', {
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+        code: updateError.code
+      });
+      
       return NextResponse.json(
         { error: 'Failed to schedule deletion: ' + updateError.message },
         { status: 500 }
       );
     }
 
-    console.log('✅ Deletion scheduled successfully for:', staff.email);
+    console.log('✅ Update successful:', updatedData);
+    console.log('✅ Deletion scheduled for:', staff.email);
 
     return NextResponse.json({ 
       success: true,
