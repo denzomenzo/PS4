@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { getThermalPrinterManager } from "@/lib/thermalPrinter";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import ReceiptPrint, { ReceiptData as ReceiptPrintData } from "@/components/receipts/ReceiptPrint";
 import {
   ArrowLeft,
@@ -89,7 +90,7 @@ const getSafeNumber = (value: any): number => {
   return 0;
 };
 
-export default function Reports() {
+function ReportsContent() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1118,5 +1119,13 @@ export default function Reports() {
         />
       )}
     </div>
+  );
+}
+
+export default function ReportsPage() {
+  return (
+    <ProtectedRoute requiredPermission="view_reports">
+      <ReportsContent />
+    </ProtectedRoute>
   );
 }
