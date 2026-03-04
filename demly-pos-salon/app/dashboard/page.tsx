@@ -74,16 +74,6 @@ interface PaymentEvent {
   attempt?: number;
 }
 
-
-interface TransactionWithCustomer {
-  id: string;
-  created_at: string;
-  total: number;
-  payment_method: string;
-  customer: { name: string }[] | null;
-}
-
-
 const menuItems = [
   {
     href: "/dashboard/pos",
@@ -174,6 +164,12 @@ export default function DashboardHome() {
   const [paymentConnected, setPaymentConnected] = useState(false);
   const [showPaymentToast, setShowPaymentToast] = useState<PaymentEvent | null>(null);
 
+  // Deletion countdown
+  const [deletionCountdown, setDeletionCountdown] = useState<{
+    days: number;
+    date: string;
+  } | null>(null);
+
   // Live payment stream
   useEffect(() => {
     if (!userId) return;
@@ -219,6 +215,14 @@ export default function DashboardHome() {
           filter: `email=eq.${currentStaff.email}`,
         },
         (payload) => {
+          // Calculate cooling days from creation date
+          const createdDate = new Date(payload.new.created_at);
+          const now = new Date();
+          const daysSince = Math.floor(
+            (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+          );
+          const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
           // Update subscription status
           if (payload.new.status === 'frozen') {
             setSubscriptionStatus({
@@ -234,18 +238,37 @@ export default function DashboardHome() {
             });
           } else if (payload.new.status === 'cancelled') {
             setSubscriptionStatus({ status: 'cancelled' });
-          } else if (payload.new.status === 'deletion_scheduled') {
+          } else {
+            // Active status - only show cooling days if > 0
+            setSubscriptionStatus({ 
+              status: 'active',
+              ...(coolingDaysLeft > 0 && { cooling_days_left: coolingDaysLeft })
+            });
+          }
+
+          // Update deletion countdown
+          if (payload.new.deletion_scheduled_at) {
             const days = differenceInDays(
               new Date(payload.new.deletion_scheduled_at),
               new Date()
             );
-            setSubscriptionStatus({
-              status: 'deletion_scheduled',
-              days_until_deletion: Math.max(0, days),
-              deletion_date: payload.new.deletion_scheduled_at,
-            });
+            if (days > 0) {
+              setDeletionCountdown({
+                days,
+                date: payload.new.deletion_scheduled_at,
+              });
+              setSubscriptionStatus(prev => ({ 
+                ...prev, 
+                status: 'deletion_scheduled',
+                days_until_deletion: days,
+                deletion_date: payload.new.deletion_scheduled_at 
+              }));
+            } else {
+              setDeletionCountdown(null);
+              setSubscriptionStatus(prev => ({ ...prev, status: 'active' }));
+            }
           } else {
-            setSubscriptionStatus({ status: 'active' });
+            setDeletionCountdown(null);
           }
         }
       )
@@ -269,6 +292,14 @@ export default function DashboardHome() {
       const data = await response.json();
       
       if (data.subscription) {
+        // Calculate cooling days from creation date
+        const createdDate = new Date(data.subscription.created);
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
         if (data.subscription.status === 'frozen') {
           setSubscriptionStatus({
             status: 'frozen',
@@ -283,16 +314,21 @@ export default function DashboardHome() {
           });
         } else if (data.subscription.status === 'cancelled') {
           setSubscriptionStatus({ status: 'cancelled' });
-        } else if (data.subscription.deletion_scheduled) {
+        } else if (data.subscription.deletion_scheduled && data.subscription.days_until_deletion && data.subscription.days_until_deletion > 0) {
           setSubscriptionStatus({
             status: 'deletion_scheduled',
             days_until_deletion: data.subscription.days_until_deletion,
             deletion_date: data.subscription.deletion_date,
           });
+          setDeletionCountdown({
+            days: data.subscription.days_until_deletion,
+            date: data.subscription.deletion_date,
+          });
         } else {
+          // Active status - only show cooling days if > 0
           setSubscriptionStatus({ 
             status: 'active',
-            cooling_days_left: data.subscription.cooling_days_left 
+            ...(coolingDaysLeft > 0 && { cooling_days_left: coolingDaysLeft })
           });
         }
       }
@@ -301,110 +337,98 @@ export default function DashboardHome() {
     }
   };
 
-const loadDashboardData = async () => {
-  setLoading(true);
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Load total customers
-    const { count: customerCount } = await supabase
-      .from('customers')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+      // Load total customers
+      const { count: customerCount } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
 
-    // Load recent transactions
-    const { data: transactions, error: transError } = await supabase
-      .from('transactions')
-      .select(`
-        id,
-        created_at,
-        total,
-        payment_method,
-        customer:customer_id (name)
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(5);
+      // Load recent transactions
+      const { data: transactions } = await supabase
+        .from('transactions')
+        .select(`
+          id,
+          created_at,
+          total,
+          payment_method,
+          customer:customer_id (name)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(5);
 
-    if (transError) {
-      console.error("Error loading transactions:", transError);
+      if (transactions) {
+        setRecentTransactions(transactions.map((t: any) => ({
+          id: t.id,
+          created_at: t.created_at,
+          total: t.total || 0,
+          payment_method: t.payment_method || 'cash',
+          customer_name: t.customer?.[0]?.name || null
+        })));
+
+        const todayTransactionsList = transactions.filter((t: any) => 
+          new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
+        );
+        setStats(prev => ({
+          ...prev,
+          todaySales: todayTransactionsList.reduce((sum: number, t: any) => sum + (t.total || 0), 0),
+          todayTransactions: todayTransactionsList.length,
+          totalCustomers: customerCount || 0,
+        }));
+      }
+
+      // Load low stock items
+      const { data: inventory } = await supabase
+        .from('products')
+        .select('id, name, stock_quantity, reorder_level')
+        .eq('user_id', userId)
+        .or('stock_quantity.lte.reorder_level,stock_quantity.lte.5')
+        .order('stock_quantity', { ascending: true })
+        .limit(5);
+
+      if (inventory) {
+        setLowStockItems(inventory);
+        setStats(prev => ({ ...prev, lowStockCount: inventory.length }));
+      }
+
+      // Load upcoming appointments
+      const { data: appointments } = await supabase
+        .from('appointments')
+        .select(`
+          id,
+          appointment_time,
+          service,
+          customer:customer_id (name)
+        `)
+        .eq('user_id', userId)
+        .gte('appointment_time', new Date().toISOString())
+        .order('appointment_time', { ascending: true })
+        .limit(5);
+
+      if (appointments) {
+        setUpcomingAppointments(appointments.map((a: any) => ({
+          id: a.id,
+          customer_name: a.customer?.[0]?.name || 'Unknown',
+          appointment_time: a.appointment_time,
+          service: a.service || 'Appointment'
+        })));
+        setStats(prev => ({ ...prev, todayAppointments: appointments.length }));
+      }
+
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+    } finally {
+      setLoading(false);
     }
-
-    if (transactions) {
-      setRecentTransactions(transactions.map((t: any) => ({
-        id: t.id,
-        created_at: t.created_at,
-        total: t.total || 0,
-        payment_method: t.payment_method || 'cash',
-        customer_name: t.customer?.[0]?.name || null
-      })));
-
-      const todayTransactionsList = transactions.filter((t: any) => 
-        new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
-      );
-      setStats(prev => ({
-        ...prev,
-        todaySales: todayTransactionsList.reduce((sum: number, t: any) => sum + (t.total || 0), 0),
-        todayTransactions: todayTransactionsList.length,
-        totalCustomers: customerCount || 0,
-      }));
-    }
-
-    // Load low stock items
-    const { data: inventory, error: invError } = await supabase
-      .from('products')
-      .select('id, name, stock_quantity, reorder_level')
-      .eq('user_id', userId)
-      .or('stock_quantity.lte.reorder_level,stock_quantity.lte.5')
-      .order('stock_quantity', { ascending: true })
-      .limit(5);
-
-    if (invError) {
-      console.error("Error loading inventory:", invError);
-    }
-
-    if (inventory) {
-      setLowStockItems(inventory);
-      setStats(prev => ({ ...prev, lowStockCount: inventory.length }));
-    }
-
-    // Load upcoming appointments
-    const { data: appointments, error: appError } = await supabase
-      .from('appointments')
-      .select(`
-        id,
-        appointment_time,
-        service,
-        customer:customer_id (name)
-      `)
-      .eq('user_id', userId)
-      .gte('appointment_time', new Date().toISOString())
-      .order('appointment_time', { ascending: true })
-      .limit(5);
-
-    if (appError) {
-      console.error("Error loading appointments:", appError);
-    }
-
-    if (appointments) {
-      setUpcomingAppointments(appointments.map((a: any) => ({
-        id: a.id,
-        customer_name: a.customer?.[0]?.name || 'Unknown',
-        appointment_time: a.appointment_time,
-        service: a.service || 'Appointment'
-      })));
-      setStats(prev => ({ ...prev, todayAppointments: appointments.length }));
-    }
-
-  } catch (error) {
-    console.error("Error loading dashboard data:", error);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleOpenCustomerPortal = async () => {
     try {
@@ -517,7 +541,9 @@ const loadDashboardData = async () => {
           )}
         </div>
 
-        {/* Status Banners */}
+        {/* Status Banners - Only show when conditions are met */}
+        
+        {/* Frozen Account Banner */}
         {subscriptionStatus.status === 'frozen' && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
             <div className="flex items-start gap-3">
@@ -539,6 +565,7 @@ const loadDashboardData = async () => {
           </div>
         )}
 
+        {/* Past Due Banner */}
         {subscriptionStatus.status === 'past_due' && (
           <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
             <div className="flex items-start gap-3">
@@ -562,13 +589,16 @@ const loadDashboardData = async () => {
           </div>
         )}
 
-        {subscriptionStatus.cooling_days_left && subscriptionStatus.cooling_days_left > 0 && (
+        {/* Cooling Period Banner - Only show if cooling days > 0 */}
+        {subscriptionStatus.status === 'active' && 
+         subscriptionStatus.cooling_days_left && 
+         subscriptionStatus.cooling_days_left > 0 && (
           <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
             <div className="flex items-center gap-3">
               <Clock className="w-5 h-5 text-amber-600" />
               <div>
                 <p className="text-sm font-medium text-amber-600">
-                  14-Day Cooling Period: {subscriptionStatus.cooling_days_left} days remaining
+                  14-Day Cooling Period: {subscriptionStatus.cooling_days_left} {subscriptionStatus.cooling_days_left === 1 ? 'day' : 'days'} remaining
                 </p>
                 <p className="text-xs text-amber-600/80">
                   You can cancel for a full refund within this period
@@ -578,14 +608,17 @@ const loadDashboardData = async () => {
           </div>
         )}
 
-        {subscriptionStatus.status === 'deletion_scheduled' && subscriptionStatus.days_until_deletion && subscriptionStatus.days_until_deletion > 0 && (
+        {/* Deletion Countdown Banner - Only show if days > 0 */}
+        {subscriptionStatus.status === 'deletion_scheduled' && 
+         subscriptionStatus.days_until_deletion && 
+         subscriptionStatus.days_until_deletion > 0 && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
             <div className="flex items-start gap-3">
               <Clock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-red-600 mb-1">⚠️ Account Deletion Scheduled</p>
                 <p className="text-xs text-red-600/80 mb-3">
-                  Your account will be permanently deleted in {subscriptionStatus.days_until_deletion} days on{' '}
+                  Your account will be permanently deleted in {subscriptionStatus.days_until_deletion} {subscriptionStatus.days_until_deletion === 1 ? 'day' : 'days'} on{' '}
                   {subscriptionStatus.deletion_date && format(new Date(subscriptionStatus.deletion_date), 'MMMM do, yyyy')}.
                 </p>
                 
@@ -829,5 +862,3 @@ const loadDashboardData = async () => {
     </div>
   );
 }
-
-
