@@ -4,6 +4,19 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
 
+// Helper function to broadcast events
+async function broadcastPaymentEvent(email: string, event: any) {
+  try {
+    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/stripe/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, event }),
+    });
+  } catch (error) {
+    console.error('Failed to broadcast event:', error);
+  }
+}
+
 export async function POST() {
   try {
     const cookieStore = await cookies();
@@ -57,7 +70,7 @@ export async function POST() {
       // Get subscription from Stripe
       const subscription = await stripe.subscriptions.retrieve(
         license.stripe_subscription_id
-      );
+      ) as any; // Cast to any to avoid TypeScript issues
 
       // Check if within 14-day cooling period
       const createdDate = new Date(subscription.created * 1000);
@@ -125,7 +138,7 @@ export async function POST() {
               user_email: staff.email
             }
           }
-        );
+        ) as any; // Cast to any to avoid TypeScript issues
 
         // Set a flag in database that deletion is scheduled
         await supabase
@@ -182,18 +195,5 @@ export async function POST() {
       { error: error.message },
       { status: 500 }
     );
-  }
-}
-
-// Helper function to broadcast events
-async function broadcastPaymentEvent(email: string, event: any) {
-  try {
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/stripe/broadcast`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, event }),
-    });
-  } catch (error) {
-    console.error('Failed to broadcast event:', error);
   }
 }
