@@ -74,6 +74,16 @@ interface PaymentEvent {
   attempt?: number;
 }
 
+
+interface TransactionWithCustomer {
+  id: string;
+  created_at: string;
+  total: number;
+  payment_method: string;
+  customer: { name: string }[] | null;
+}
+
+
 const menuItems = [
   {
     href: "/dashboard/pos",
@@ -319,15 +329,15 @@ export default function DashboardHome() {
         .order('created_at', { ascending: false })
         .limit(5);
 
-      if (transactions) {
-        setRecentTransactions(transactions.map(t => ({
-          id: t.id,
-          created_at: t.created_at,
-          total: t.total || 0,
-          payment_method: t.payment_method || 'cash',
-          customer_name: t.customer?.name
-        })));
-
+if (transactions) {
+  setRecentTransactions((transactions as TransactionWithCustomer[]).map(t => ({
+    id: t.id,
+    created_at: t.created_at,
+    total: t.total || 0,
+    payment_method: t.payment_method || 'cash',
+    customer_name: t.customer?.[0]?.name || null
+  })));
+}
         const todayTransactionsList = transactions.filter(t => 
           new Date(t.created_at) >= today && new Date(t.created_at) < tomorrow
         );
@@ -807,3 +817,4 @@ export default function DashboardHome() {
     </div>
   );
 }
+
