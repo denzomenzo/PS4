@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { ArrowLeft, CreditCard, Check, Loader2, AlertCircle, Zap, X, ChevronDown } from "lucide-react";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import Link from "next/link";
 
 interface Provider {
@@ -110,7 +111,7 @@ const PROVIDERS: Provider[] = [
   }
 ];
 
-export default function CardTerminal() {
+export default function CardTerminalContent() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -832,5 +833,13 @@ export default function CardTerminal() {
 
       </div>
     </div>
+  );
+}
+
+export default function CardTerminalPage() {
+  return (
+    <ProtectedRoute requiredPermission="manage_card_terminal">
+      <CardTerminalContent />
+    </ProtectedRoute>
   );
 }
