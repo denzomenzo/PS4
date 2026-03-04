@@ -42,7 +42,7 @@ interface Staff {
 interface Subscription {
   id: string;
   plan: 'monthly' | 'annual';
-  status: 'active' | 'canceled' | 'past_due' | 'frozen' | 'deletion_scheduled' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
+  status: 'active' | 'canceled' | 'past_due' | 'frozen' | 'trialing' | 'incomplete' | 'incomplete_expired' | 'unpaid';
   current_period_start: string;
   current_period_end: string;
   cancel_at_period_end: boolean;
@@ -58,13 +58,11 @@ interface Subscription {
   next_payment_date?: string | null;
   created: string;
   cooling_days_left?: number;
-  deletion_scheduled?: boolean;
   days_until_deletion?: number;
   deletion_date?: string;
   failed_payment_count?: number;
   payment_failed_at?: string | null;
   scheduled_for_deletion_at?: string | null;
-  cancelled_during_cooling?: boolean;
 }
 
 interface Invoice {
@@ -123,8 +121,6 @@ export default function Settings() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [coolingDaysLeft, setCoolingDaysLeft] = useState<number | null>(null);
@@ -297,17 +293,16 @@ export default function Settings() {
           filter: `email=eq.${currentStaff.email}`,
         },
         (payload) => {
-          // Update deletion countdown
-          if (payload.new.deletion_scheduled_at) {
-            const days = differenceInDays(
-              new Date(payload.new.deletion_scheduled_at),
-              new Date()
-            );
-            setDeletionCountdown({
-              days: Math.max(0, days),
-              date: payload.new.deletion_scheduled_at,
-            });
-          } else if (payload.new.scheduled_for_deletion_at) {
+          // Calculate cooling days from creation date
+          const createdDate = new Date(payload.new.created_at);
+          const now = new Date();
+          const daysSince = Math.floor(
+            (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+          );
+          const coolingDaysLeft = Math.max(0, 14 - daysSince);
+
+          // Update deletion countdown from scheduled_for_deletion_at
+          if (payload.new.scheduled_for_deletion_at) {
             const days = differenceInDays(
               new Date(payload.new.scheduled_for_deletion_at),
               new Date()
@@ -317,6 +312,8 @@ export default function Settings() {
                 days,
                 date: payload.new.scheduled_for_deletion_at,
               });
+            } else {
+              setDeletionCountdown(null);
             }
           } else {
             setDeletionCountdown(null);
@@ -385,7 +382,7 @@ export default function Settings() {
       setPaymentStatus({ status: 'active' });
     }
 
-    // Set deletion countdown from either scheduled_for_deletion_at or deletion_scheduled_at
+    // Set deletion countdown from scheduled_for_deletion_at
     if (subscription?.scheduled_for_deletion_at) {
       const days = differenceInDays(
         new Date(subscription.scheduled_for_deletion_at),
@@ -396,16 +393,9 @@ export default function Settings() {
           days,
           date: subscription.scheduled_for_deletion_at,
         });
+      } else {
+        setDeletionCountdown(null);
       }
-    } else if (subscription?.deletion_scheduled && subscription.deletion_date) {
-      const days = differenceInDays(
-        new Date(subscription.deletion_date),
-        new Date()
-      );
-      setDeletionCountdown({
-        days: Math.max(0, days),
-        date: subscription.deletion_date,
-      });
     } else {
       setDeletionCountdown(null);
     }
@@ -551,42 +541,6 @@ export default function Settings() {
       console.error("Error loading invoices:", error);
     } finally {
       setLoadingInvoices(false);
-    }
-  };
-
-  const handleCancelSubscription = async () => {
-    setCancelling(true);
-    setCancelError(null);
-    setSuccessMessage(null);
-    
-    try {
-      const response = await fetch('/api/subscription/cancel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to cancel subscription');
-      }
-      
-      if (data.refunded) {
-        setSuccessMessage("✅ Subscription cancelled and refunded successfully.");
-      } else if (data.cancel_at_period_end) {
-        setSuccessMessage(`✅ Subscription will be cancelled on ${format(new Date(data.end_date), 'MMMM do, yyyy')}. Your account will be deleted after that.`);
-      }
-      
-      setShowCancelConfirm(false);
-      loadSubscription();
-      
-    } catch (error: any) {
-      console.error("Error cancelling subscription:", error);
-      setCancelError(error.message || "❌ Failed to cancel subscription. Please try again.");
-    } finally {
-      setCancelling(false);
     }
   };
 
@@ -1206,7 +1160,7 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Cooling Period Banner */}
+            {/* Cooling Period Banner - Only show if > 0 days */}
             {coolingDaysLeft && coolingDaysLeft > 0 && (
               <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                 <div className="flex items-center gap-3">
@@ -1223,7 +1177,7 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Deletion Countdown Banner */}
+            {/* Deletion Countdown Banner - Only show if > 0 days */}
             {deletionCountdown && deletionCountdown.days > 0 && (
               <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-4">
                 <div className="flex items-start gap-3">
@@ -1327,7 +1281,7 @@ export default function Settings() {
                 )}
               </div>
 
-              {/* Subscription & Billing */}
+              {/* Subscription & Billing - SIMPLIFIED */}
               <div className="bg-card border border-border rounded-xl p-4">
                 <div 
                   className="flex items-center justify-between cursor-pointer"
@@ -1405,118 +1359,26 @@ export default function Settings() {
                           </div>
                         </div>
 
-                        {/* Payment Method */}
-                        {subscription?.payment_method ? (
-                          <div className="bg-muted/30 border border-border rounded-lg p-3">
-                            <p className="text-xs font-medium text-foreground mb-2">Payment Method</p>
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                                {subscription.payment_method.brand === 'visa' ? 'VISA' : 
-                                 subscription.payment_method.brand === 'mastercard' ? 'MC' : 
-                                 subscription.payment_method.brand === 'amex' ? 'AMEX' : 
-                                 subscription.payment_method.brand === 'discover' ? 'DISC' : 'CARD'}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-sm font-medium text-foreground">
-                                    {subscription.payment_method.brand.charAt(0).toUpperCase() + subscription.payment_method.brand.slice(1)} •••• {subscription.payment_method.last4}
-                                  </p>
-                                  <span className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full">
-                                    Active
-                                  </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  Expires {subscription.payment_method.exp_month.toString().padStart(2, '0')}/{subscription.payment_method.exp_year}
-                                </p>
-                              </div>
-                            </div>
-                            
-                            {/* Next Payment Info */}
-                            {!subscription.cancel_at_period_end && subscription.next_payment_amount && subscription.next_payment_date && (
-                              <div className="mt-3 pt-3 border-t border-border">
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-muted-foreground">Next payment:</span>
-                                  <span className="font-medium text-foreground">
-                                    £{subscription.next_payment_amount} on {formatDate(subscription.next_payment_date)}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-xs font-medium text-amber-600 mb-1">⚠️ No Payment Method</p>
-                                <p className="text-xs text-amber-600/80">Add a payment method to ensure uninterrupted service</p>
-                              </div>
-                              <button
-                                onClick={handleOpenCustomerPortal}
-                                className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                              >
-                                Add Now
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-2">
+                        {/* Stripe Customer Portal Button - SIMPLIFIED */}
+                        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                          <p className="text-xs font-medium text-foreground mb-2">Manage Subscription</p>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Use Stripe's secure portal to update payment methods, view invoices, change plans, or cancel your subscription.
+                          </p>
                           <button
                             onClick={handleOpenCustomerPortal}
-                            className="flex-1 bg-primary/10 text-primary border border-primary/20 py-2 rounded-lg text-xs font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-1"
+                            className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                           >
-                            <CreditCard className="w-3 h-3" />
-                            {subscription.payment_method ? 'Update Payment Method' : 'Add Payment Method'}
-                          </button>
-                          <button
-                            onClick={handleViewInvoices}
-                            className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
-                          >
-                            <Receipt className="w-3 h-3" />
-                            View Invoices
+                            <ExternalLink className="w-3 h-3" />
+                            Open Billing Portal
                           </button>
                         </div>
 
-                        {/* Cancel Subscription */}
-                        {!subscription.cancel_at_period_end ? (
-                          !showCancelConfirm ? (
-                            <button
-                              onClick={() => setShowCancelConfirm(true)}
-                              className="w-full bg-destructive/10 text-destructive border border-destructive/20 py-2 rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-                              disabled={paymentStatus.status === 'frozen'}
-                            >
-                              Cancel Subscription
-                            </button>
-                          ) : (
-                            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-                              <p className="text-xs font-medium text-destructive mb-3">⚠️ Cancel Subscription</p>
-                              <p className="text-xs text-destructive/80 mb-4">
-                                {coolingDaysLeft && coolingDaysLeft > 0 
-                                  ? `You're within the 14-day cooling period. You'll receive a full refund of £${subscription.price}.`
-                                  : 'Your subscription will continue until the end of the current billing period, then your account will be permanently deleted.'}
-                              </p>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => setShowCancelConfirm(false)}
-                                  className="flex-1 bg-muted hover:bg-accent text-foreground py-2 rounded text-xs font-medium"
-                                >
-                                  Keep Subscription
-                                </button>
-                                <button
-                                  onClick={handleCancelSubscription}
-                                  disabled={cancelling}
-                                  className="flex-1 bg-destructive text-destructive-foreground py-2 rounded text-xs font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center"
-                                >
-                                  {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes, Cancel'}
-                                </button>
-                              </div>
-                            </div>
-                          )
-                        ) : (
+                        {/* Cancellation Notice - If cancelled at period end */}
+                        {subscription.cancel_at_period_end && (
                           <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                             <p className="text-xs font-medium text-amber-600 mb-2">⚠️ Subscription Cancelled</p>
-                            <p className="text-xs text-amber-600/80 mb-3">
+                            <p className="text-xs text-amber-600/80">
                               Your subscription will end on {formatDate(subscription.current_period_end)} and your account will be deleted.
                             </p>
                           </div>
@@ -1562,7 +1424,7 @@ export default function Settings() {
                           </div>
                         )}
 
-                        {/* Account Deletion Section (for manual requests) */}
+                        {/* Account Deletion Section (for manual requests) - Only if no deletion scheduled */}
                         {!deletionCountdown && !subscription.cancel_at_period_end && (
                           <div className="mt-6 pt-4 border-t border-destructive/20">
                             <div className="flex items-center gap-3 mb-3">
