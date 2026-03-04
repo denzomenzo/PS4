@@ -10,6 +10,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Store connected clients for SSE
+const clients = new Map<string, ReadableStreamDefaultController[]>();
+
 function generateLicenseKey(): string {
   return Array.from({ length: 4 }, () =>
     Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -30,24 +33,58 @@ function getSubscriptionId(invoice: any): string | null {
   return null;
 }
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+// SSE endpoint for live payment streaming
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get('userId');
+  
+  if (!userId) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
+
+  const stream = new ReadableStream({
+    start(controller) {
+      // Send initial connection message
+      controller.enqueue(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+      // Store controller for this user
+      if (!clients.has(userId)) {
+        clients.set(userId, []);
+      }
+      clients.get(userId)!.push(controller);
+
+      // Clean up on close
+      req.signal.addEventListener('abort', () => {
+        const userClients = clients.get(userId);
+        if (userClients) {
+          const index = userClients.indexOf(controller);
+          if (index > -1) userClients.splice(index, 1);
+        }
+      });
+    }
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
   console.log('🔔 ===== WEBHOOK RECEIVED =====');
-  console.log('🔔 Time:', new Date().toISOString());
   
   try {
     const body = await req.text();
     const signature = req.headers.get('stripe-signature');
 
     if (!signature) {
-      console.error('❌ No stripe-signature header');
       return new NextResponse(JSON.stringify({ error: 'No signature' }), { status: 400 });
     }
 
     if (!process.env.STRIPE_WEBHOOK_SECRET) {
-      console.error('❌ STRIPE_WEBHOOK_SECRET not set');
       return new NextResponse(JSON.stringify({ error: 'Webhook secret not configured' }), { status: 500 });
     }
 
@@ -58,7 +95,7 @@ export async function POST(req: NextRequest) {
         signature,
         process.env.STRIPE_WEBHOOK_SECRET
       );
-      console.log('✅ Webhook verified:', event.type, event.id);
+      console.log('✅ Webhook verified:', event.type);
     } catch (err: any) {
       console.error('❌ Webhook verification failed:', err.message);
       return new NextResponse(JSON.stringify({ error: 'Invalid signature' }), { status: 400 });
@@ -74,14 +111,11 @@ export async function POST(req: NextRequest) {
       const planType = session.metadata?.plan || 'annual';
 
       if (!customerEmail) {
-        console.error('❌ No customer email found');
         return new NextResponse(JSON.stringify({ error: 'No customer email' }), { status: 400 });
       }
 
       try {
         const licenseKey = generateLicenseKey();
-        console.log('🔑 Generated license:', licenseKey);
-
         const expiryDate = new Date();
         if (planType === 'monthly') {
           expiryDate.setMonth(expiryDate.getMonth() + 1);
@@ -92,7 +126,6 @@ export async function POST(req: NextRequest) {
         const customerId = getStripeId(session.customer);
         const subscriptionId = getStripeId(session.subscription);
 
-        // Insert license
         const { data: licenseData, error: licenseError } = await supabase
           .from('licenses')
           .insert({
@@ -113,25 +146,8 @@ export async function POST(req: NextRequest) {
           return new NextResponse(JSON.stringify({ error: 'Database error' }), { status: 500 });
         }
 
-        console.log('✅ License stored:', licenseData);
-
-        // Send welcome email
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/welcome`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: customerEmail,
-              licenseKey: licenseKey,
-              planType: planType,
-            }),
-          });
-          console.log('📧 Welcome email sent');
-        } catch (emailError) {
-          console.error('❌ Failed to send welcome email:', emailError);
-        }
-
-        return new NextResponse(JSON.stringify({ received: true, licenseKey }), { status: 200 });
+        console.log('✅ License stored for:', customerEmail);
+        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
 
       } catch (error: any) {
         console.error('❌ Checkout error:', error);
@@ -139,102 +155,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Handle payment failure
-    if (event.type === 'invoice.payment_failed') {
-      console.log('❌ ===== PAYMENT FAILED =====');
-      
-      const invoice = event.data.object as any;
-      const subscriptionId = getSubscriptionId(invoice);
-      const attemptCount = invoice.attempt_count || 1;
-      
-      console.log('📋 Payment failed:', { subscriptionId, attemptCount });
-
-      if (!subscriptionId) {
-        console.log('No subscription ID found');
-        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
-      }
-
-      // Get license
-      const { data: license, error: fetchError } = await supabase
-        .from('licenses')
-        .select('*')
-        .eq('stripe_subscription_id', subscriptionId)
-        .single();
-
-      if (fetchError || !license) {
-        console.error('❌ License not found:', fetchError);
-        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
-      }
-
-      if (attemptCount >= 3) {
-        // After 3 failed attempts, freeze account
-        console.log('❄️ Freezing account after 3 failed attempts');
-        
-        await supabase
-          .from('licenses')
-          .update({ 
-            status: 'frozen',
-            payment_failed_at: new Date().toISOString(),
-            failed_payment_count: attemptCount
-          })
-          .eq('id', license.id);
-
-        // Send freeze email
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/account-frozen`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: license.email,
-              name: license.email?.split('@')[0] || 'Customer',
-            }),
-          });
-          console.log('📧 Freeze email sent');
-        } catch (emailError) {
-          console.error('❌ Failed to send freeze email:', emailError);
-        }
-      } else {
-        // Update past due status
-        console.log(`⚠️ Payment attempt ${attemptCount}/3 failed`);
-        
-        await supabase
-          .from('licenses')
-          .update({ 
-            status: 'past_due',
-            payment_failed_at: new Date().toISOString(),
-            failed_payment_count: attemptCount
-          })
-          .eq('id', license.id);
-
-        // Send payment failed email
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/payment-failed`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: license.email,
-              name: license.email?.split('@')[0] || 'Customer',
-              attempt: attemptCount,
-              next_attempt: invoice.next_payment_attempt 
-                ? new Date(invoice.next_payment_attempt * 1000).toISOString() 
-                : null
-            }),
-          });
-          console.log('📧 Payment failed email sent');
-        } catch (emailError) {
-          console.error('❌ Failed to send payment failed email:', emailError);
-        }
-      }
-    }
-
-    // Handle payment success (unfreeze account)
+    // Handle payment success
     if (event.type === 'invoice.payment_succeeded') {
       console.log('✅ ===== PAYMENT SUCCEEDED =====');
       
       const invoice = event.data.object as any;
       const subscriptionId = getSubscriptionId(invoice);
-
-      console.log('📋 Payment succeeded:', { subscriptionId });
 
       if (!subscriptionId) {
         return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
@@ -273,21 +199,101 @@ export async function POST(req: NextRequest) {
 
       console.log('✅ Account unfrozen and expiry updated');
 
-      // Send payment received email if was frozen
-      if (license.status === 'frozen' || license.status === 'past_due') {
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/email/account-unfrozen`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: license.email,
-              name: license.email?.split('@')[0] || 'Customer',
-            }),
-          });
-          console.log('📧 Unfrozen email sent');
-        } catch (emailError) {
-          console.error('❌ Failed to send unfrozen email:', emailError);
-        }
+      // Get user_id for SSE broadcast
+      const { data: staff } = await supabase
+        .from('staff')
+        .select('user_id')
+        .eq('email', license.email)
+        .single();
+
+      if (staff?.user_id) {
+        // Broadcast to all connected clients
+        const userClients = clients.get(staff.user_id) || [];
+        const paymentEvent = {
+          type: 'payment_success',
+          amount: invoice.total / 100,
+          date: new Date().toISOString(),
+        };
+        
+        userClients.forEach(controller => {
+          try {
+            controller.enqueue(`data: ${JSON.stringify(paymentEvent)}\n\n`);
+          } catch (e) {
+            console.error('Failed to send SSE event');
+          }
+        });
+      }
+    }
+
+    // Handle payment failure
+    if (event.type === 'invoice.payment_failed') {
+      console.log('❌ ===== PAYMENT FAILED =====');
+      
+      const invoice = event.data.object as any;
+      const subscriptionId = getSubscriptionId(invoice);
+      const attemptCount = invoice.attempt_count || 1;
+
+      if (!subscriptionId) {
+        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
+      }
+
+      // Get license
+      const { data: license, error: fetchError } = await supabase
+        .from('licenses')
+        .select('*')
+        .eq('stripe_subscription_id', subscriptionId)
+        .single();
+
+      if (fetchError || !license) {
+        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
+      }
+
+      if (attemptCount >= 3) {
+        // After 3 failed attempts, freeze account
+        await supabase
+          .from('licenses')
+          .update({ 
+            status: 'frozen',
+            payment_failed_at: new Date().toISOString(),
+            failed_payment_count: attemptCount
+          })
+          .eq('id', license.id);
+      } else {
+        // Update past due status
+        await supabase
+          .from('licenses')
+          .update({ 
+            status: 'past_due',
+            payment_failed_at: new Date().toISOString(),
+            failed_payment_count: attemptCount
+          })
+          .eq('id', license.id);
+      }
+
+      // Get user_id for SSE broadcast
+      const { data: staff } = await supabase
+        .from('staff')
+        .select('user_id')
+        .eq('email', license.email)
+        .single();
+
+      if (staff?.user_id) {
+        // Broadcast to all connected clients
+        const userClients = clients.get(staff.user_id) || [];
+        const paymentEvent = {
+          type: 'payment_failed',
+          amount: invoice.total / 100,
+          date: new Date().toISOString(),
+          attempt: attemptCount,
+        };
+        
+        userClients.forEach(controller => {
+          try {
+            controller.enqueue(`data: ${JSON.stringify(paymentEvent)}\n\n`);
+          } catch (e) {
+            console.error('Failed to send SSE event');
+          }
+        });
       }
     }
 
@@ -296,7 +302,6 @@ export async function POST(req: NextRequest) {
       console.log('🚫 ===== SUBSCRIPTION CANCELLED =====');
       
       const subscription = event.data.object as Stripe.Subscription;
-      console.log('🔑 Subscription ID:', subscription.id);
       
       await supabase
         .from('licenses')
@@ -305,45 +310,12 @@ export async function POST(req: NextRequest) {
           cancelled_at: new Date().toISOString()
         })
         .eq('stripe_subscription_id', subscription.id);
-
-      console.log('✅ License cancelled');
     }
 
-    // Handle subscription update
-    if (event.type === 'customer.subscription.updated') {
-      console.log('📝 ===== SUBSCRIPTION UPDATED =====');
-      
-      const subscription = event.data.object as Stripe.Subscription;
-      console.log('🔑 Subscription ID:', subscription.id);
-      console.log('📋 Status:', subscription.status);
-      console.log('📋 Cancel at period end:', subscription.cancel_at_period_end);
-      
-      // Determine status
-      let status = 'active';
-      if (subscription.status === 'past_due') status = 'past_due';
-      if (subscription.status === 'canceled') status = 'cancelled';
-      if (subscription.status === 'incomplete') status = 'incomplete';
-      
-      await supabase
-        .from('licenses')
-        .update({ 
-          status: status,
-          updated_at: new Date().toISOString()
-        })
-        .eq('stripe_subscription_id', subscription.id);
-
-      console.log('✅ License updated');
-    }
-
-    console.log('✅ Webhook processed successfully');
     return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
 
   } catch (error: any) {
     console.error('❌ Webhook error:', error);
     return new NextResponse(JSON.stringify({ error: error.message }), { status: 500 });
   }
-}
-
-export async function GET() {
-  return new NextResponse('Method not allowed', { status: 405 });
 }
