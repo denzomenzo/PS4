@@ -170,35 +170,8 @@ export default function DashboardHome() {
     date: string;
   } | null>(null);
 
-  // Live payment stream
-  useEffect(() => {
-    if (!userId) return;
+ 
 
-    const eventSource = new EventSource(`/api/webhooks/stripe?userId=${userId}`);
-
-    eventSource.onopen = () => {
-      setPaymentConnected(true);
-    };
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'connected') return;
-      
-      setPaymentEvents(prev => [data, ...prev].slice(0, 10));
-      setShowPaymentToast(data);
-      
-      // Auto-hide toast after 5 seconds
-      setTimeout(() => setShowPaymentToast(null), 5000);
-    };
-
-    eventSource.onerror = () => {
-      setPaymentConnected(false);
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [userId]);
 
   // Real-time subscription updates
   useEffect(() => {
@@ -461,85 +434,9 @@ export default function DashboardHome() {
     <div className="min-h-screen bg-background">
       <div className="p-6 max-w-7xl mx-auto">
         
-        {/* Payment Toast Notification */}
-        {showPaymentToast && (
-          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg border ${
-            showPaymentToast.type === 'payment_success'
-              ? 'bg-green-500/10 border-green-500/30 text-green-600'
-              : 'bg-red-500/10 border-red-500/30 text-red-600'
-          }`}>
-            <div className="flex items-center gap-3">
-              {showPaymentToast.type === 'payment_success' ? (
-                <CheckCircle className="w-5 h-5" />
-              ) : (
-                <XCircle className="w-5 h-5" />
-              )}
-              <div>
-                <p className="text-sm font-medium">
-                  {showPaymentToast.type === 'payment_success' 
-                    ? `Payment of £${showPaymentToast.amount} received!` 
-                    : `Payment of £${showPaymentToast.amount} failed (Attempt ${showPaymentToast.attempt})`}
-                </p>
-                <p className="text-xs opacity-80">
-                  {new Date(showPaymentToast.date).toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {/* Live Payment Stream */}
-        <div className="mb-6 bg-card border border-border rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className={`w-2 h-2 rounded-full ${paymentConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></div>
-            <h3 className="text-sm font-medium text-foreground">Live Payment Status</h3>
-            {paymentEvents.length > 0 && (
-              <span className="text-xs text-muted-foreground ml-auto">
-                Last 10 payments
-              </span>
-            )}
-          </div>
-          
-          {paymentEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No recent payment activity
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {paymentEvents.map((event, i) => (
-                <div
-                  key={i}
-                  className={`flex items-center justify-between p-2 rounded-lg ${
-                    event.type === 'payment_success'
-                      ? 'bg-green-500/10 border border-green-500/30'
-                      : 'bg-red-500/10 border border-red-500/30'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {event.type === 'payment_success' ? (
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <XCircle className="w-4 h-4 text-red-600" />
-                    )}
-                    <div>
-                      <p className="text-xs font-medium text-foreground">
-                        {event.type === 'payment_success' 
-                          ? 'Payment Received' 
-                          : `Payment Failed (Attempt ${event.attempt})`}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {new Date(event.date).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-bold text-foreground">
-                    £{event.amount.toFixed(2)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+
+
 
         {/* Status Banners - Only show when conditions are met */}
         
@@ -862,3 +759,4 @@ export default function DashboardHome() {
     </div>
   );
 }
+
