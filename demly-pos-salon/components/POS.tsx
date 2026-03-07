@@ -15,7 +15,7 @@ import {
   Minus, Layers, X, Printer, Tag, DollarSign, Package, 
   Wallet, RefreshCw, History, ZoomOut,
   Calculator, Edit, Pencil, AlertCircle,
-  User, Store, Receipt, Coffee, ChevronDown
+  User, Store, Receipt, Coffee, ChevronDown, Check
 } from "lucide-react";
 
 // Types
@@ -194,6 +194,12 @@ export default function POS() {
   const [vatEnabled, setVatEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   
+  // Notification State
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [showErrorMessage, setShowErrorMessage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  
   // Hardware State
   const [hardwareSettings, setHardwareSettings] = useState<{
     printer_enabled: boolean;
@@ -304,6 +310,19 @@ export default function POS() {
     serviceTypes.find(s => s.id === selectedServiceId),
     [serviceTypes, selectedServiceId]
   );
+
+  // Helper function for notifications
+  const showNotification = (message: string, isError = false) => {
+    if (isError) {
+      setErrorMessage(message);
+      setShowErrorMessage(true);
+      setTimeout(() => setShowErrorMessage(false), 3000);
+    } else {
+      setSuccessMessage(message);
+      setShowSuccessMessage(true);
+      setTimeout(() => setShowSuccessMessage(false), 3000);
+    }
+  };
 
   // Filter customers based on search query
   useEffect(() => {
@@ -445,7 +464,7 @@ export default function POS() {
         }
       }
       
-      alert('💰 Please open cash drawer manually');
+      showNotification('💰 Please open cash drawer manually', true);
       
     } catch (error) {
       console.error('Cash drawer error:', error);
@@ -750,7 +769,7 @@ export default function POS() {
 
   const addToCart = (product: Product) => {
     if (product.track_inventory && product.stock_quantity <= 0) {
-      alert(`${product.name} is out of stock`);
+      showNotification(`${product.name} is out of stock`, true);
       return;
     }
 
@@ -759,7 +778,7 @@ export default function POS() {
     if (existingItem) {
       const newQuantity = existingItem.quantity + 1;
       if (product.track_inventory && newQuantity > product.stock_quantity) {
-        alert(`Only ${product.stock_quantity} of ${product.name} available`);
+        showNotification(`Only ${product.stock_quantity} of ${product.name} available`, true);
         return;
       }
       setCart(cart.map((item) => 
@@ -805,17 +824,17 @@ export default function POS() {
     const newDiscount = parseFloat(editItemDiscount);
     
     if (isNaN(newPrice) || newPrice <= 0) {
-      alert("Please enter a valid price");
+      showNotification("Please enter a valid price", true);
       return;
     }
     
     if (isNaN(newDiscount) || newDiscount < 0) {
-      alert("Please enter a valid discount");
+      showNotification("Please enter a valid discount", true);
       return;
     }
     
     if (newDiscount > newPrice * editingItem.quantity) {
-      alert("Discount cannot exceed item total");
+      showNotification("Discount cannot exceed item total", true);
       return;
     }
     
@@ -836,13 +855,13 @@ export default function POS() {
 
   const addMiscProduct = () => {
     if (!miscProductName.trim() || !miscProductPrice) {
-      alert("Please enter product name and price");
+      showNotification("Please enter product name and price", true);
       return;
     }
 
     const price = parseFloat(miscProductPrice);
     if (isNaN(price) || price <= 0) {
-      alert("Please enter a valid price");
+      showNotification("Please enter a valid price", true);
       return;
     }
 
@@ -871,12 +890,12 @@ export default function POS() {
 
     const value = parseFloat(discountValue);
     if (isNaN(value) || value <= 0) {
-      alert("Please enter a valid discount");
+      showNotification("Please enter a valid discount", true);
       return;
     }
 
     if (discountType === "percentage" && value > 100) {
-      alert("Percentage discount cannot exceed 100%");
+      showNotification("Percentage discount cannot exceed 100%", true);
       return;
     }
 
@@ -886,7 +905,7 @@ export default function POS() {
       : value;
 
     if (discountAmount > itemTotal) {
-      alert("Discount cannot exceed total amount");
+      showNotification("Discount cannot exceed total amount", true);
       return;
     }
 
@@ -916,7 +935,7 @@ export default function POS() {
     }
     
     if (item.track_inventory && newQuantity > item.stock_quantity) {
-      alert(`Only ${item.stock_quantity} of ${item.name} available`);
+      showNotification(`Only ${item.stock_quantity} of ${item.name} available`, true);
       return;
     }
     
@@ -955,7 +974,7 @@ export default function POS() {
 
   const deleteTransaction = (id: string) => {
     if (transactions.length === 1) {
-      alert("Cannot delete the only transaction");
+      showNotification("Cannot delete the only transaction", true);
       return;
     }
     
@@ -996,14 +1015,17 @@ export default function POS() {
         staffId: currentStaff?.id,
       });
       
-      alert("✅ Cash drawer opened (No Sale)");
+      showNotification("✅ Cash drawer opened (No Sale)", false);
     } catch (error) {
       console.error("No sale error:", error);
     }
   };
 
   const checkout = () => {
-    if (cart.length === 0) return alert("Cart is empty");
+    if (cart.length === 0) {
+      showNotification("Cart is empty", true);
+      return;
+    }
     
     setPaymentMethod("cash");
     setPrintReceiptOption(hardwareSettings?.auto_print_receipt || false);
@@ -1046,14 +1068,18 @@ export default function POS() {
           .single();
 
         if (!cardSettings?.enabled) {
-          alert("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal");
+          showNotification("⚠️ Card terminal not configured. Please set up in Settings > Card Terminal", true);
           setProcessingPayment(false);
           return;
         }
 
-        alert(`💳 Processing £${amountToPay.toFixed(2)} on ${cardSettings.provider} terminal...\n\nPlease follow prompts on card reader.`);
+        showNotification(`💳 Processing £${amountToPay.toFixed(2)} on ${cardSettings.provider} terminal...`, false);
         
         console.log('Initiating card payment...');
+        
+        // Use the processCardPayment function from the library
+        const { processCardPayment } = await import('@/lib/cardPaymentProcessor');
+        
         const paymentResult = await processCardPayment({
           amount: amountToPay,
           currency: 'GBP',
@@ -1072,19 +1098,9 @@ export default function POS() {
 
         console.log('Card payment result:', paymentResult);
 
-        if (!paymentResult.success) {
-          console.warn('Payment had issues but marking as success:', paymentResult.error);
-          alert(`✅ Payment Approved!\n\n${cardSettings.provider} Card ****4242\nApproval Code: ${Math.floor(100000 + Math.random() * 900000)}`);
-          
-          paymentSuccess = true;
-          paymentDetails.cardTerminal = cardSettings.provider;
-          paymentDetails.cardBrand = "Visa";
-          paymentDetails.last4 = "4242";
-          paymentDetails.approvalCode = `${Math.floor(100000 + Math.random() * 900000)}`;
-          paymentDetails.terminalTransactionId = `forced_${Date.now()}`;
-        } else if (paymentResult.status === 'completed') {
+        if (paymentResult.success) {
           const cardInfo = `${paymentResult.cardBrand || 'Card'} ****${paymentResult.last4 || '****'}`;
-          alert(`✅ Payment Approved!\n\n${cardInfo}\nApproval Code: ${paymentResult.approvalCode || 'N/A'}`);
+          showNotification(`✅ Payment Approved! £${amountToPay.toFixed(2)} via ${cardInfo}`, false);
           
           paymentSuccess = true;
           paymentDetails.cardTerminal = cardSettings.provider;
@@ -1093,19 +1109,14 @@ export default function POS() {
           paymentDetails.approvalCode = paymentResult.approvalCode;
           paymentDetails.terminalTransactionId = paymentResult.transactionId;
         } else {
-          alert(`✅ Payment Approved!\n\n(Status: ${paymentResult.status})`);
-          
-          paymentSuccess = true;
-          paymentDetails.cardTerminal = cardSettings.provider;
-          paymentDetails.cardBrand = "Card";
-          paymentDetails.last4 = "****";
-          paymentDetails.approvalCode = `${Math.floor(100000 + Math.random() * 900000)}`;
-          paymentDetails.terminalTransactionId = `fallback_${Date.now()}`;
+          showNotification(`❌ Card Payment Failed: ${paymentResult.error || 'Unknown error'}`, true);
+          setProcessingPayment(false);
+          return;
         }
         
       } else if (paymentMethod === "balance") {
         if (!selectedCustomer) {
-          alert("Please select a customer to use balance");
+          showNotification("Please select a customer to use balance", true);
           setProcessingPayment(false);
           return;
         }
@@ -1113,7 +1124,7 @@ export default function POS() {
         setUseBalanceForPayment(true);
         
         if (selectedCustomer.balance < amountToPay && !allowNegativeBalance) {
-          alert(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`);
+          showNotification(`Insufficient balance. Customer balance: £${selectedCustomer.balance.toFixed(2)}`, true);
           setProcessingPayment(false);
           return;
         }
@@ -1126,7 +1137,7 @@ export default function POS() {
         const totalSplit = splitPayment.cash + splitPayment.card + splitPayment.balance;
         
         if (Math.abs(totalSplit - grandTotal) > 0.01) {
-          alert(`Split payments total £${totalSplit.toFixed(2)} but total is £${grandTotal.toFixed(2)}`);
+          showNotification(`Split payments total £${totalSplit.toFixed(2)} but total is £${grandTotal.toFixed(2)}`, true);
           setProcessingPayment(false);
           return;
         }
@@ -1134,20 +1145,69 @@ export default function POS() {
         paymentSuccess = true;
         balanceDeducted = splitPayment.balance;
         
+        // Process card portion if any
+        if (splitPayment.card > 0) {
+          const { data: cardSettings } = await supabase
+            .from("card_terminal_settings")
+            .select("*")
+            .eq("user_id", userId)
+            .single();
+
+          if (!cardSettings?.enabled) {
+            showNotification("⚠️ Card terminal not configured for split payment", true);
+            setProcessingPayment(false);
+            return;
+          }
+
+          showNotification(`💳 Processing card portion: £${splitPayment.card.toFixed(2)}...`, false);
+          
+          const { processCardPayment } = await import('@/lib/cardPaymentProcessor');
+          
+          const cardResult = await processCardPayment({
+            amount: splitPayment.card,
+            currency: 'GBP',
+            userId: userId!,
+            transactionId: `pos-split-${Date.now()}`,
+            metadata: {
+              staffId: currentStaff?.id,
+              customerId: customerId || null,
+              isSplit: true
+            }
+          });
+
+          if (!cardResult.success) {
+            showNotification(`❌ Card portion failed: ${cardResult.error || 'Unknown error'}`, true);
+            setProcessingPayment(false);
+            return;
+          }
+
+          paymentDetails.split_payment = {
+            cash: splitPayment.cash,
+            card: {
+              amount: splitPayment.card,
+              transactionId: cardResult.transactionId,
+              cardBrand: cardResult.cardBrand,
+              last4: cardResult.last4,
+              approvalCode: cardResult.approvalCode
+            },
+            balance: splitPayment.balance
+          };
+        } else {
+          paymentDetails.split_payment = {
+            cash: splitPayment.cash,
+            card: splitPayment.card,
+            balance: splitPayment.balance
+          };
+        }
+
         if (selectedCustomer) {
           remainingBalance = selectedCustomer.balance - splitPayment.balance;
           if (remainingBalance < 0 && !allowNegativeBalance) {
-            alert("Customer would go into negative balance. Transaction cancelled.");
+            showNotification("Customer would go into negative balance. Transaction cancelled.", true);
             setProcessingPayment(false);
             return;
           }
         }
-        
-        paymentDetails.split_payment = {
-          cash: splitPayment.cash,
-          card: splitPayment.card,
-          balance: splitPayment.balance
-        };
 
         if (hardwareSettings?.cash_drawer_enabled && splitPayment.cash > 0) {
           await openCashDrawer();
@@ -1330,7 +1390,7 @@ export default function POS() {
         }
       }
 
-      alert(`✅ £{grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`);
+      showNotification(`✅ £${grandTotal.toFixed(2)} paid successfully via ${finalPaymentMethod}!`, false);
       
       setShowPaymentModal(false);
       setShowSplitPaymentModal(false);
@@ -1352,7 +1412,7 @@ export default function POS() {
       
     } catch (error: any) {
       console.error("Payment error:", error);
-      alert("❌ Error processing payment: " + (error.message || "Unknown error"));
+      showNotification("❌ Error processing payment: " + (error.message || "Unknown error"), true);
     } finally {
       setProcessingPayment(false);
     }
@@ -1361,7 +1421,7 @@ export default function POS() {
   // Print receipt preview
   const printReceipt = () => {
     if (cart.length === 0) {
-      alert("Cart is empty");
+      showNotification("Cart is empty", true);
       return;
     }
 
@@ -1427,7 +1487,7 @@ export default function POS() {
     const total = splitPayment.cash + splitPayment.card + splitPayment.balance;
     
     if (Math.abs(total - grandTotal) > 0.01) {
-      alert(`Split payments total £${total.toFixed(2)} but total is £${grandTotal.toFixed(2)}`);
+      showNotification(`Split payments total £${total.toFixed(2)} but total is £${grandTotal.toFixed(2)}`, true);
       return;
     }
 
@@ -1479,6 +1539,21 @@ export default function POS() {
 
   return (
     <div className="h-full flex bg-background overflow-hidden">
+      {/* Notification Messages */}
+      {showSuccessMessage && (
+        <div className="fixed top-20 right-4 z-[100] bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg animate-in slide-in-from-top-4 flex items-center gap-2">
+          <Check className="w-5 h-5" />
+          {successMessage}
+        </div>
+      )}
+
+      {showErrorMessage && (
+        <div className="fixed top-20 right-4 z-[100] bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg animate-in slide-in-from-top-4 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
+          {errorMessage}
+        </div>
+      )}
+
       {/* Receipt Print Component */}
       {showReceiptPrint && receiptData && (
         <div className="fixed inset-0 z-[9999] bg-white">
