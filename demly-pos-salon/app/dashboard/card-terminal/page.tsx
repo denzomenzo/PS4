@@ -1,10 +1,10 @@
-// app/dashboard/card-terminal/page.tsx - PRODUCTION CARD TERMINAL
+// app/dashboard/card-terminal/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
-import { ArrowLeft, CreditCard, Check, Loader2, AlertCircle, Zap, X, ChevronDown } from "lucide-react";
+import { ArrowLeft, CreditCard, Check, Loader2, AlertCircle, Zap, X, ChevronDown, Save } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Link from "next/link";
 
@@ -111,7 +111,7 @@ const PROVIDERS: Provider[] = [
   }
 ];
 
-  function CardTerminalContent() {
+function CardTerminalContent() {
   const userId = useUserId();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -152,7 +152,7 @@ const PROVIDERS: Provider[] = [
       .from("card_terminal_settings")
       .select("*")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
     if (data) {
       setEnabled(data.enabled || false);
@@ -192,26 +192,48 @@ const PROVIDERS: Provider[] = [
     setSaving(true);
 
     try {
-      const { error } = await supabase
+      // First check if record exists
+      const { data: existing } = await supabase
         .from("card_terminal_settings")
-        .upsert({
-          user_id: userId,
-          enabled,
-          provider: selectedProvider,
-          api_key: apiKey || null,
-          device_id: deviceId || null,
-          access_token: accessToken || null,
-          location_id: locationId || null,
-          merchant_code: merchantCode || null,
-          merchant_id: merchantId || null,
-          client_id: clientId || null,
-          terminal_id: terminalId || null,
-          terminal_ip: terminalIp || null,
-          port: port || null,
-          api_token: apiToken || null,
-          test_mode: testMode,
-          updated_at: new Date().toISOString()
-        });
+        .select("id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const settings = {
+        user_id: userId,
+        enabled,
+        provider: selectedProvider || null,
+        api_key: apiKey || null,
+        device_id: deviceId || null,
+        access_token: accessToken || null,
+        location_id: locationId || null,
+        merchant_code: merchantCode || null,
+        merchant_id: merchantId || null,
+        client_id: clientId || null,
+        terminal_id: terminalId || null,
+        terminal_ip: terminalIp || null,
+        port: port || null,
+        api_token: apiToken || null,
+        test_mode: testMode,
+        updated_at: new Date().toISOString()
+      };
+
+      let error;
+
+      if (existing) {
+        // Update existing record
+        const { error: updateError } = await supabase
+          .from("card_terminal_settings")
+          .update(settings)
+          .eq("user_id", userId);
+        error = updateError;
+      } else {
+        // Insert new record
+        const { error: insertError } = await supabase
+          .from("card_terminal_settings")
+          .insert([settings]);
+        error = insertError;
+      }
 
       if (error) throw error;
 
@@ -401,436 +423,443 @@ const PROVIDERS: Provider[] = [
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Card Terminal</h1>
-          <p className="text-muted-foreground mt-2">Configure physical card payment devices</p>
-        </div>
-        <Link 
-          href="/dashboard" 
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          Back to Dashboard
-        </Link>
-      </div>
-
-      <div className="space-y-6">
-        
-        {/* Enable/Disable */}
-        <div className="bg-card border border-border rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-foreground">Card Terminal Integration</h2>
-                <p className="text-muted-foreground text-sm">Accept card payments through physical terminals</p>
-              </div>
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="flex-1 overflow-y-auto pb-32">
+        <div className="max-w-5xl mx-auto p-6">
+          
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">Card Terminal</h1>
+              <p className="text-muted-foreground mt-2">Configure physical card payment devices</p>
             </div>
-            <button
-              onClick={() => setEnabled(!enabled)}
-              className={`relative w-16 h-8 rounded-full transition-all ${
-                enabled ? 'bg-primary' : 'bg-muted'
-              }`}
+            <Link 
+              href="/dashboard" 
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
             >
-              <div
-                className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
-                  enabled ? 'translate-x-8' : 'translate-x-0'
-                }`}
-              >
-                {enabled && <Check className="w-4 h-4 text-primary" />}
-              </div>
-            </button>
+              <ArrowLeft className="w-5 h-5" />
+              Back to Dashboard
+            </Link>
           </div>
 
-          {/* Connection Status */}
-          {enabled && selectedProvider && (
-            <div className={`mt-4 p-4 rounded-lg border ${
-              connectionStatus === 'connected' ? 'bg-primary/5 border-primary/20' :
-              connectionStatus === 'error' ? 'bg-destructive/5 border-destructive/20' :
-              connectionStatus === 'testing' ? 'bg-blue-500/5 border-blue-500/20' :
-              'bg-muted/50 border-border'
-            }`}>
+          <div className="space-y-6">
+            
+            {/* Enable/Disable */}
+            <div className="bg-card border border-border rounded-xl p-6">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${
-                    connectionStatus === 'connected' ? 'bg-primary animate-pulse' :
-                    connectionStatus === 'error' ? 'bg-destructive' :
-                    connectionStatus === 'testing' ? 'bg-blue-500 animate-pulse' :
-                    'bg-muted-foreground'
-                  }`} />
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <CreditCard className="w-6 h-6 text-primary" />
+                  </div>
                   <div>
-                    <p className={`text-sm font-medium ${
-                      connectionStatus === 'connected' ? 'text-primary' :
-                      connectionStatus === 'error' ? 'text-destructive' :
-                      'text-foreground'
-                    }`}>
-                      {connectionStatus === 'connected' ? '✅ Connected' :
-                       connectionStatus === 'error' ? '❌ Connection Error' :
-                       connectionStatus === 'testing' ? '⏳ Testing...' :
-                       'Not Connected'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{connectionMessage}</p>
+                    <h2 className="text-xl font-bold text-foreground">Card Terminal Integration</h2>
+                    <p className="text-muted-foreground text-sm">Accept card payments through physical terminals</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={testConnection}
-                    disabled={testing || connecting}
-                    className="px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                <button
+                  onClick={() => setEnabled(!enabled)}
+                  className={`relative w-16 h-8 rounded-full transition-all ${
+                    enabled ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 left-1 w-6 h-6 bg-background rounded-full transition-transform flex items-center justify-center ${
+                      enabled ? 'translate-x-8' : 'translate-x-0'
+                    }`}
                   >
-                    {testing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                        Testing...
-                      </>
-                    ) : (
-                      'Test Connection'
-                    )}
-                  </button>
-                  <button
-                    onClick={connectTerminal}
-                    disabled={testing || connecting}
-                    className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {connecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4" />
-                        Connect Terminal
-                      </>
-                    )}
-                  </button>
-                </div>
+                    {enabled && <Check className="w-4 h-4 text-primary" />}
+                  </div>
+                </button>
               </div>
-            </div>
-          )}
-        </div>
 
-        {enabled && (
-          <>
-            {/* Provider Selection */}
-            <div className="bg-card border border-border rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-foreground">
-                  {selectedProvider && !showProviderList ? "Selected Provider" : "Select Payment Provider"}
-                </h2>
-                {selectedProvider && !showProviderList && (
-                  <button
-                    onClick={changeProvider}
-                    className="text-sm text-primary hover:underline flex items-center gap-1"
-                  >
-                    <X className="w-4 h-4" />
-                    Change Provider
-                  </button>
-                )}
-              </div>
-              
-              {showProviderList ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {PROVIDERS.map((provider) => (
-                    <button
-                      key={provider.id}
-                      onClick={() => {
-                        setSelectedProvider(provider.id);
-                        setShowProviderList(false);
-                      }}
-                      className="p-4 rounded-lg border-2 border-border hover:border-primary/50 transition-all text-left bg-background"
-                    >
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="text-3xl">{provider.logo}</span>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-base font-bold text-foreground truncate">{provider.name}</h3>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>{getConnectionIcon(provider.connectionType)}</span>
-                            <span className="capitalize">{provider.connectionType}</span>
-                            {provider.ukMarketShare && (
-                              <span className="text-primary">• {provider.ukMarketShare}</span>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronDown className="w-5 h-5 text-muted-foreground -rotate-90" />
+              {/* Connection Status */}
+              {enabled && selectedProvider && (
+                <div className={`mt-4 p-4 rounded-lg border ${
+                  connectionStatus === 'connected' ? 'bg-primary/5 border-primary/20' :
+                  connectionStatus === 'error' ? 'bg-destructive/5 border-destructive/20' :
+                  connectionStatus === 'testing' ? 'bg-blue-500/5 border-blue-500/20' :
+                  'bg-muted/50 border-border'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-3 h-3 rounded-full ${
+                        connectionStatus === 'connected' ? 'bg-primary animate-pulse' :
+                        connectionStatus === 'error' ? 'bg-destructive' :
+                        connectionStatus === 'testing' ? 'bg-blue-500 animate-pulse' :
+                        'bg-muted-foreground'
+                      }`} />
+                      <div>
+                        <p className={`text-sm font-medium ${
+                          connectionStatus === 'connected' ? 'text-primary' :
+                          connectionStatus === 'error' ? 'text-destructive' :
+                          'text-foreground'
+                        }`}>
+                          {connectionStatus === 'connected' ? '✅ Connected' :
+                           connectionStatus === 'error' ? '❌ Connection Error' :
+                           connectionStatus === 'testing' ? '⏳ Testing...' :
+                           'Not Connected'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{connectionMessage}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground line-clamp-1">{provider.description}</p>
-                    </button>
-                  ))}
-                </div>
-              ) : currentProvider && (
-                <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-4xl">{currentProvider.logo}</span>
-                    <div>
-                      <h3 className="text-lg font-bold text-foreground">{currentProvider.name}</h3>
-                      <p className="text-sm text-muted-foreground">{currentProvider.description}</p>
-                      <a
-                        href={currentProvider.setupGuide}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline mt-1 inline-block"
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={testConnection}
+                        disabled={testing || connecting}
+                        className="px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                       >
-                        View Setup Guide →
-                      </a>
+                        {testing ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                            Testing...
+                          </>
+                        ) : (
+                          'Test Connection'
+                        )}
+                      </button>
+                      <button
+                        onClick={connectTerminal}
+                        disabled={testing || connecting}
+                        className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {connecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4" />
+                            Connect Terminal
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Provider Configuration */}
-            {currentProvider && !showProviderList && (
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-xl font-bold text-foreground mb-4">Terminal Configuration</h2>
-
-                <div className="space-y-4">
-                  {currentProvider.fields.includes("apiKey") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        API Key / Secret Key *
-                      </label>
-                      <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="sk_live_..."
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
+            {enabled && (
+              <>
+                {/* Provider Selection */}
+                <div className="bg-card border border-border rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-foreground">
+                      {selectedProvider && !showProviderList ? "Selected Provider" : "Select Payment Provider"}
+                    </h2>
+                    {selectedProvider && !showProviderList && (
+                      <button
+                        onClick={changeProvider}
+                        className="text-sm text-primary hover:underline flex items-center gap-1"
+                      >
+                        <X className="w-4 h-4" />
+                        Change Provider
+                      </button>
+                    )}
+                  </div>
+                  
+                  {showProviderList ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {PROVIDERS.map((provider) => (
+                        <button
+                          key={provider.id}
+                          onClick={() => {
+                            setSelectedProvider(provider.id);
+                            setShowProviderList(false);
+                          }}
+                          className="p-4 rounded-lg border-2 border-border hover:border-primary/50 transition-all text-left bg-background"
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-3xl">{provider.logo}</span>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-base font-bold text-foreground truncate">{provider.name}</h3>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{getConnectionIcon(provider.connectionType)}</span>
+                                <span className="capitalize">{provider.connectionType}</span>
+                                {provider.ukMarketShare && (
+                                  <span className="text-primary">• {provider.ukMarketShare}</span>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronDown className="w-5 h-5 text-muted-foreground -rotate-90" />
+                          </div>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{provider.description}</p>
+                        </button>
+                      ))}
                     </div>
-                  )}
-
-                  {currentProvider.fields.includes("deviceId") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Device ID / Reader ID
-                      </label>
-                      <input
-                        type="text"
-                        value={deviceId}
-                        onChange={(e) => setDeviceId(e.target.value)}
-                        placeholder="tmr_xxxxxxxxxxxxx"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("accessToken") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Access Token *
-                      </label>
-                      <input
-                        type="password"
-                        value={accessToken}
-                        onChange={(e) => setAccessToken(e.target.value)}
-                        placeholder="Enter access token..."
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("locationId") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Location ID
-                      </label>
-                      <input
-                        type="text"
-                        value={locationId}
-                        onChange={(e) => setLocationId(e.target.value)}
-                        placeholder="Location ID"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("merchantCode") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Merchant Code
-                      </label>
-                      <input
-                        type="text"
-                        value={merchantCode}
-                        onChange={(e) => setMerchantCode(e.target.value)}
-                        placeholder="Merchant code"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("merchantId") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Merchant ID
-                      </label>
-                      <input
-                        type="text"
-                        value={merchantId}
-                        onChange={(e) => setMerchantId(e.target.value)}
-                        placeholder="Merchant ID"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("clientId") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Client ID
-                      </label>
-                      <input
-                        type="text"
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
-                        placeholder="Client ID"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("terminalId") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        Terminal ID
-                      </label>
-                      <input
-                        type="text"
-                        value={terminalId}
-                        onChange={(e) => setTerminalId(e.target.value)}
-                        placeholder="Terminal serial"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("apiToken") && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">
-                        API Token *
-                      </label>
-                      <input
-                        type="password"
-                        value={apiToken}
-                        onChange={(e) => setApiToken(e.target.value)}
-                        placeholder="API token"
-                        className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      />
-                    </div>
-                  )}
-
-                  {currentProvider.fields.includes("terminalIp") && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-1.5">
-                          Terminal IP
-                        </label>
-                        <input
-                          type="text"
-                          value={terminalIp}
-                          onChange={(e) => setTerminalIp(e.target.value)}
-                          placeholder="192.168.1.100"
-                          className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-foreground mb-1.5">
-                          Port
-                        </label>
-                        <input
-                          type="text"
-                          value={port}
-                          onChange={(e) => setPort(e.target.value)}
-                          placeholder="10009"
-                          className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        />
+                  ) : currentProvider && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-4xl">{currentProvider.logo}</span>
+                        <div>
+                          <h3 className="text-lg font-bold text-foreground">{currentProvider.name}</h3>
+                          <p className="text-sm text-muted-foreground">{currentProvider.description}</p>
+                          <a
+                            href={currentProvider.setupGuide}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline mt-1 inline-block"
+                          >
+                            View Setup Guide →
+                          </a>
+                        </div>
                       </div>
                     </div>
                   )}
+                </div>
 
-                  {/* Test Mode */}
-                  <div className="flex items-center justify-between bg-muted/50 border border-border p-4 rounded-lg">
-                    <div>
-                      <h3 className="text-sm font-medium text-foreground">Test Mode</h3>
-                      <p className="text-xs text-muted-foreground">Use sandbox credentials (no real charges)</p>
+                {/* Provider Configuration */}
+                {currentProvider && !showProviderList && (
+                  <div className="bg-card border border-border rounded-xl p-6">
+                    <h2 className="text-xl font-bold text-foreground mb-4">Terminal Configuration</h2>
+
+                    <div className="space-y-4">
+                      {currentProvider.fields.includes("apiKey") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            API Key / Secret Key *
+                          </label>
+                          <input
+                            type="password"
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="sk_live_..."
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("deviceId") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Device ID / Reader ID
+                          </label>
+                          <input
+                            type="text"
+                            value={deviceId}
+                            onChange={(e) => setDeviceId(e.target.value)}
+                            placeholder="tmr_xxxxxxxxxxxxx"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("accessToken") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Access Token *
+                          </label>
+                          <input
+                            type="password"
+                            value={accessToken}
+                            onChange={(e) => setAccessToken(e.target.value)}
+                            placeholder="Enter access token..."
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("locationId") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Location ID
+                          </label>
+                          <input
+                            type="text"
+                            value={locationId}
+                            onChange={(e) => setLocationId(e.target.value)}
+                            placeholder="Location ID"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("merchantCode") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Merchant Code
+                          </label>
+                          <input
+                            type="text"
+                            value={merchantCode}
+                            onChange={(e) => setMerchantCode(e.target.value)}
+                            placeholder="Merchant code"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("merchantId") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Merchant ID
+                          </label>
+                          <input
+                            type="text"
+                            value={merchantId}
+                            onChange={(e) => setMerchantId(e.target.value)}
+                            placeholder="Merchant ID"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("clientId") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Client ID
+                          </label>
+                          <input
+                            type="text"
+                            value={clientId}
+                            onChange={(e) => setClientId(e.target.value)}
+                            placeholder="Client ID"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("terminalId") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            Terminal ID
+                          </label>
+                          <input
+                            type="text"
+                            value={terminalId}
+                            onChange={(e) => setTerminalId(e.target.value)}
+                            placeholder="Terminal serial"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("apiToken") && (
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1.5">
+                            API Token *
+                          </label>
+                          <input
+                            type="password"
+                            value={apiToken}
+                            onChange={(e) => setApiToken(e.target.value)}
+                            placeholder="API token"
+                            className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          />
+                        </div>
+                      )}
+
+                      {currentProvider.fields.includes("terminalIp") && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-1.5">
+                              Terminal IP
+                            </label>
+                            <input
+                              type="text"
+                              value={terminalIp}
+                              onChange={(e) => setTerminalIp(e.target.value)}
+                              placeholder="192.168.1.100"
+                              className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-1.5">
+                              Port
+                            </label>
+                            <input
+                              type="text"
+                              value={port}
+                              onChange={(e) => setPort(e.target.value)}
+                              placeholder="10009"
+                              className="w-full bg-background border border-border text-foreground p-3 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Test Mode */}
+                      <div className="flex items-center justify-between bg-muted/50 border border-border p-4 rounded-lg">
+                        <div>
+                          <h3 className="text-sm font-medium text-foreground">Test Mode</h3>
+                          <p className="text-xs text-muted-foreground">Use sandbox credentials (no real charges)</p>
+                        </div>
+                        <button
+                          onClick={() => setTestMode(!testMode)}
+                          className={`relative w-14 h-7 rounded-full transition-all ${
+                            testMode ? 'bg-primary' : 'bg-muted'
+                          }`}
+                        >
+                          <div
+                            className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
+                              testMode ? 'translate-x-7' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => setTestMode(!testMode)}
-                      className={`relative w-14 h-7 rounded-full transition-all ${
-                        testMode ? 'bg-primary' : 'bg-muted'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-0.5 left-0.5 w-6 h-6 bg-background rounded-full transition-transform ${
-                          testMode ? 'translate-x-7' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
+                  </div>
+                )}
+
+                {/* Info Box */}
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
+                  <div className="flex gap-4">
+                    <AlertCircle className="w-6 h-6 text-primary flex-shrink-0" />
+                    <div>
+                      <h3 className="text-lg font-bold text-foreground mb-3">Setup Instructions</h3>
+                      <ul className="space-y-2 text-sm text-muted-foreground">
+                        <li className="flex items-start gap-2">
+                          <span className="text-primary">1.</span>
+                          <span>Select your payment provider above</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-primary">2.</span>
+                          <span>Enter your API credentials from the provider's dashboard</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-primary">3.</span>
+                          <span>Click "Connect Terminal" to establish connection</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-primary">4.</span>
+                          <span>Test the connection to verify everything works</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-primary">5.</span>
+                          <span>Save settings and start accepting payments!</span>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </>
             )}
+          </div>
+        </div>
+      </div>
 
-            {/* Info Box */}
-            <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
-              <div className="flex gap-4">
-                <AlertCircle className="w-6 h-6 text-primary flex-shrink-0" />
-                <div>
-                  <h3 className="text-lg font-bold text-foreground mb-3">Setup Instructions</h3>
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary">1.</span>
-                      <span>Select your payment provider above</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary">2.</span>
-                      <span>Enter your API credentials from the provider's dashboard</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary">3.</span>
-                      <span>Click "Connect Terminal" to establish connection</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary">4.</span>
-                      <span>Test the connection to verify everything works</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary">5.</span>
-                      <span>Save settings and start accepting payments!</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Save Button */}
-        <button
-          onClick={saveSettings}
-          disabled={saving}
-          className="w-full bg-primary hover:opacity-90 text-primary-foreground py-4 rounded-xl text-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="w-6 h-6 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Check className="w-6 h-6" />
-              Save Settings
-            </>
-          )}
-        </button>
-
+      {/* Fixed Save Button at Bottom */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background to-transparent pt-8 pb-4 px-4">
+        <div className="max-w-5xl mx-auto">
+          <button
+            onClick={saveSettings}
+            disabled={saving}
+            className="w-fit mx-auto bg-primary hover:opacity-90 text-primary-foreground px-6 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Card Terminal Settings
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -843,4 +872,3 @@ export default function CardTerminalPage() {
     </ProtectedRoute>
   );
 }
-
