@@ -21,10 +21,10 @@ const REAL_IMAGES = {
     snacks: "https://lh4.googleusercontent.com/proxy/fp77H8fmwGpgjy93zxVpTwS96yhMdz4xwtKIzdr03N8x6pK9A-9kujTZ5JtE5PCk7do0eN8ptXSXQ0lLSym8LEQo2ZKr9lYKk_EqV20"
   },
   restaurant: {
-    avocadoToast: "https://images.unsplash.com/photo-1541519227354-08fa5d50c44d?w=400&h=300&fit=crop&crop=center",
-    soup: "https://images.unsplash.com/photo-1547592166-23ac45744acd?w=400&h=300&fit=crop&crop=center",
-    burger: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&h=300&fit=crop&crop=center",
-    salad: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop&crop=center"
+    avocadoToast: "https://www.trustpayments.com/wp-content/uploads/2024/02/Choosing-the-right-POS-for-your-coffee-shop-jpg.webp",
+    soup: "https://www.trustpayments.com/wp-content/uploads/2024/02/Choosing-the-right-POS-for-your-coffee-shop-jpg.webp",
+    burger: "https://www.trustpayments.com/wp-content/uploads/2024/02/Choosing-the-right-POS-for-your-coffee-shop-jpg.webp",
+    salad: "https://www.trustpayments.com/wp-content/uploads/2024/02/Choosing-the-right-POS-for-your-coffee-shop-jpg.webp"
   },
   retail: {
     headphones: "https://img.yfisher.com/m43007/1772699180650-cash-register-black-screen/jpg100-t3-scale100.webp",
@@ -693,6 +693,7 @@ export default function LandingPage() {
     </div>
   );
 }
+
 
 
 
