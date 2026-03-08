@@ -27,16 +27,16 @@ const REAL_IMAGES = {
     salad: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop&crop=center"
   },
   retail: {
-    headphones: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400&h=300&fit=crop&crop=center",
-    cables: "https://images.unsplash.com/photo-1589561454226-796a8e89e2de?w=400&h=300&fit=crop&crop=center",
-    coldDrinks: "https://images.unsplash.com/photo-1603561596112-0a132b757442?w=400&h=300&fit=crop&crop=center",
-    accessories: "https://images.unsplash.com/photo-1581235720705-6d2a6e5d2c9a?w=400&h=300&fit=crop&crop=center"
+    headphones: "https://img.yfisher.com/m43007/1772699180650-cash-register-black-screen/jpg100-t3-scale100.webp",
+    cables: "https://img.yfisher.com/m43007/1772699180650-cash-register-black-screen/jpg100-t3-scale100.webp",
+    coldDrinks: "https://img.yfisher.com/m43007/1772699180650-cash-register-black-screen/jpg100-t3-scale100.webp",
+    accessories: "https://img.yfisher.com/m43007/1772699180650-cash-register-black-screen/jpg100-t3-scale100.webp"
   },
   salon: {
-    quiffHair: "https://cdn.luxuo.com/2022/05/2-Quiff.jpg",
-    salonTools: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTeIZLpfpxNzq4KNw-RGGGqTWW5Dhot-vw76w&s",
-    hairProducts: "https://images.unsplash.com/photo-1634942537034-2531766767d1?w=400&h=300&fit=crop&crop=center",
-    beardStyle: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=400&h=300&fit=crop&crop=center"
+    quiffHair: "https://png.pngtree.com/thumb_back/fh260/background/20250112/pngtree-modern-barbershop-interior-with-empty-black-chairs-wooden-walls-and-mirrors-image_16867937.jpg",
+    salonTools: "https://png.pngtree.com/thumb_back/fh260/background/20250112/pngtree-modern-barbershop-interior-with-empty-black-chairs-wooden-walls-and-mirrors-image_16867937.jpg",
+    hairProducts: "https://png.pngtree.com/thumb_back/fh260/background/20250112/pngtree-modern-barbershop-interior-with-empty-black-chairs-wooden-walls-and-mirrors-image_16867937.jpg",
+    beardStyle: "https://png.pngtree.com/thumb_back/fh260/background/20250112/pngtree-modern-barbershop-interior-with-empty-black-chairs-wooden-walls-and-mirrors-image_16867937.jpg"
   }
 };
 
@@ -693,5 +693,6 @@ export default function LandingPage() {
     </div>
   );
 }
+
 
 
