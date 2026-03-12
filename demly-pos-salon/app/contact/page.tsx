@@ -206,8 +206,8 @@ export default function ContactPage() {
                   <Mail className="w-6 h-6 text-emerald-600" />
                 </div>
                 <h3 className={`font-bold mb-2 ${textPrimary}`}>Email Us</h3>
-                <a href="mailto:support@demly.com" className={`${textSecondary} hover:text-emerald-600 transition-colors text-sm`}>
-                  support@demly.com
+                <a href="mailto:contact@demly.co.uk" className={`${textSecondary} hover:text-emerald-600 transition-colors text-sm`}>
+                  contact@demly.co.uk
                 </a>
                 <p className={`${textMuted} text-xs mt-2`}>24/7 support</p>
               </motion.div>
@@ -222,8 +222,8 @@ export default function ContactPage() {
                   <Phone className="w-6 h-6 text-emerald-600" />
                 </div>
                 <h3 className={`font-bold mb-2 ${textPrimary}`}>Call Us</h3>
-                <a href="tel:+442012345678" className={`${textSecondary} hover:text-emerald-600 transition-colors text-sm`}>
-                  +44 20 1234 5678
+                <a href="tel:+447501481564" className={`${textSecondary} hover:text-emerald-600 transition-colors text-sm`}>
+                  +44 7501481564
                 </a>
                 <p className={`${textMuted} text-xs mt-2`}>Mon-Fri, 9am-6pm GMT</p>
               </motion.div>
@@ -389,3 +389,4 @@ export default function ContactPage() {
     </div>
   );
 }
+
