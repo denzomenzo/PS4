@@ -23,7 +23,7 @@ const HARDWARE_CATEGORIES = [
     icon: Printer,
     gradient: "from-blue-500 to-cyan-600",
     description: "Thermal printers for receipts, kitchen orders, and labels",
-    image: "https://images.unsplash.com/photo-1612815150376-8e0b7f1e1f1e?w=800&h=600&fit=crop&crop=center",
+    image: "https://www.ers-online.co.uk/files/products/options/images/22993_c31ce94751a0.jpg",
     longDescription: "Fast, reliable thermal printers that produce crisp receipts in seconds. Compatible with all Demly POS features.",
     features: [
       "Thermal printing (no ink needed)",
@@ -43,7 +43,7 @@ const HARDWARE_CATEGORIES = [
     icon: Briefcase,
     gradient: "from-emerald-500 to-green-600",
     description: "Secure cash management for your business",
-    image: "https://images.unsplash.com/photo-1586500036707-8ffc6c7f2b6f?w=800&h=600&fit=crop&crop=center",
+    image: "https://premiercash.co.uk/cdn/shop/products/EC-465-2.jpg?v=1613045096",
     longDescription: "Heavy-duty cash drawers that automatically open with each cash transaction. Connects directly to your receipt printer.",
     features: [
       "Automatic opening via printer",
@@ -63,7 +63,7 @@ const HARDWARE_CATEGORIES = [
     icon: Package,
     gradient: "from-purple-500 to-pink-600",
     description: "Fast, accurate scanning for inventory and checkout",
-    image: "https://images.unsplash.com/photo-1588964898-4f9a0c4b8b0a?w=800&h=600&fit=crop&crop=center",
+    image: "https://res.cloudinary.com/rsc/image/upload/b_rgb:FFFFFF,c_pad,dpr_2.625,f_auto,h_214,q_auto,w_380/c_pad,h_214,w_380/F1765640-01?pgw=1",
     longDescription: "Scan products instantly at checkout or during inventory counts. Works with 1D and 2D barcodes.",
     features: [
       "1D and 2D barcode support",
@@ -83,7 +83,7 @@ const HARDWARE_CATEGORIES = [
     icon: CreditCard,
     gradient: "from-orange-500 to-amber-600",
     description: "Accept card payments anywhere",
-    image: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&h=600&fit=crop&crop=center",
+    image: "https://b.stripecdn.com/docs-statics-srv/assets/wisepos-floating-tall.e8478124cda0e088b2e19f503f574f53.png",
     longDescription: "Process card payments securely with contactless, chip, and magnetic stripe support. Works with all major providers.",
     features: [
       "Contactless (Apple Pay, Google Pay)",
@@ -103,7 +103,7 @@ const HARDWARE_CATEGORIES = [
     icon: Monitor,
     gradient: "from-red-500 to-pink-600",
     description: "Show customers their order total",
-    image: "https://images.unsplash.com/photo-1586210579191-33b45e38fa2c?w=800&h=600&fit=crop&crop=center",
+    image: "https://s.alicdn.com/@sc04/kf/H3f0fc7961be142ba9d41924ab9749045C.jpg_300x300.jpg",
     longDescription: "Dual-screen setup lets customers see their items, prices, and total as you ring them up.",
     features: [
       "Second screen for customers",
@@ -123,7 +123,7 @@ const HARDWARE_CATEGORIES = [
     icon: Tablet,
     gradient: "from-indigo-500 to-blue-600",
     description: "Secure your iPad or Android tablet",
-    image: "https://images.unsplash.com/photo-1587033411391-5a9e51e4e6c0?w=800&h=600&fit=crop&crop=center",
+    image: "https://www.maclocks.co.uk/media/catalog/product/cache/45f9a976a441f240766d1376269c6698/m/a/magnetix-ipad-10-11-rise-new-20-edge-case-black-3_vhbmm01_bndip109_tcdp01_.jpgCAc",
     longDescription: "Professional stands that transform your tablet into a fixed POS station. Adjustable angles and secure locking.",
     features: [
       "Adjustable viewing angles",
@@ -628,54 +628,7 @@ export default function HardwarePage() {
             </AnimatePresence>
           </motion.section>
 
-          {/* Hardware Rental Program */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className={`${cardBg} rounded-3xl p-8 mb-16 border-2 border-purple-500/30`}
-          >
-            <div className="flex flex-col md:flex-row items-center gap-8">
-              <div className="md:w-1/3 flex justify-center">
-                <div className="w-32 h-32 bg-gradient-to-br from-purple-500 to-pink-600 rounded-3xl flex items-center justify-center shadow-xl">
-                  <Shield className="w-16 h-16 text-white" />
-                </div>
-              </div>
-              
-              <div className="md:w-2/3 text-center md:text-left">
-                <h2 className={`text-2xl md:text-3xl font-bold mb-3 ${textPrimary}`}>
-                  Hardware Rental Program
-                </h2>
-                <p className={`${textSecondary} mb-4`}>
-                  Don't want to buy hardware upfront? Rent everything for a low monthly fee. 
-                  Includes free replacement if anything breaks.
-                </p>
-                
-                <div className="grid sm:grid-cols-3 gap-4 mb-6">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-emerald-500">£15</div>
-                    <div className={`text-xs ${textMuted}`}>per month</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-emerald-500">24/7</div>
-                    <div className={`text-xs ${textMuted}`}>support</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-emerald-500">Free</div>
-                    <div className={`text-xs ${textMuted}`}>replacements</div>
-                  </div>
-                </div>
-                
-                <Link
-                  href="/pay?rental=true"
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-full font-bold transition-colors"
-                >
-                  Learn About Rental
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-          </motion.section>
+       
 
           {/* FAQ Section */}
           <motion.section
@@ -852,4 +805,5 @@ export default function HardwarePage() {
       </footer>
     </div>
   );
+
 }
