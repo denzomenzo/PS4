@@ -142,6 +142,7 @@ export default function LandingPage() {
             <div className="hidden md:flex items-center gap-1 lg:gap-2">
               {['Features', 'Demo', 'Industries', 'Pricing', 'Hardware'].map((item, i) => {
                 const href = item === 'Industries' ? '/industries' : `#${item.toLowerCase()}`;
+                const href = item === 'Hardware' ? '/hardware' : `#${item.toLowerCase()}`;
                 return (
                   <a
                     key={i}
@@ -693,6 +694,7 @@ export default function LandingPage() {
     </div>
   );
 }
+
 
 
 
