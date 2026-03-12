@@ -139,62 +139,6 @@ const HARDWARE_CATEGORIES = [
   }
 ];
 
-// Starter bundles by business type
-const STARTER_BUNDLES = [
-  {
-    id: "cafe",
-    title: "Café & Coffee Shop",
-    icon: Coffee,
-    gradient: "from-amber-500 to-orange-600",
-    hardware: [
-      "Epson TM-T20II Printer (£180)",
-      "APG Cash Drawer (£80)",
-      "Honeywell Scanner (£100)",
-      "Total: £360"
-    ],
-    description: "Everything a small café needs to start accepting payments and managing orders."
-  },
-  {
-    id: "retail",
-    title: "Retail Store",
-    icon: Store,
-    gradient: "from-blue-500 to-cyan-600",
-    hardware: [
-      "Star TSP143IIIU Printer (£160)",
-      "MMF Cash Drawer (£90)",
-      "Zebra DS2208 Scanner (£120)",
-      "Total: £370"
-    ],
-    description: "Complete setup for boutiques, gift shops, and general retail."
-  },
-  {
-    id: "restaurant",
-    title: "Restaurant",
-    icon: UtensilsCrossed,
-    gradient: "from-red-500 to-orange-600",
-    hardware: [
-      "Epson TM-T88VI Printer (£300)",
-      "APG Cash Drawer (£80)",
-      "Kitchen Printer Epson TM-U220 (£200)",
-      "Total: £580"
-    ],
-    description: "Includes kitchen printer for sending orders directly to the kitchen."
-  },
-  {
-    id: "food-truck",
-    title: "Food Truck",
-    icon: Truck,
-    gradient: "from-purple-500 to-pink-600",
-    hardware: [
-      "2incel Bluetooth Printer (£70)",
-      "Manual Cash Box (£25)",
-      "SumUp Card Reader (£40)",
-      "Total: £135"
-    ],
-    description: "Mobile setup perfect for food trucks and market stalls."
-  }
-];
-
 // FAQ items
 const FAQ_ITEMS = [
   {
@@ -219,7 +163,7 @@ const FAQ_ITEMS = [
   },
   {
     question: "Can you ship to me?",
-    answer: "Yes! We partner with UK distributors who can ship directly to you. Most orders arrive next business day. International shipping also available."
+    answer: "Since we are software-only provider that provides seamless integration with almost all hardware, all hardware is purchased and owned by the license owner."
   }
 ];
 
@@ -530,103 +474,7 @@ export default function HardwarePage() {
             })}
           </div>
 
-          {/* Starter Bundles Section */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="mb-16"
-          >
-            <div className="text-center mb-8">
-              <h2 className={`text-3xl md:text-4xl font-black mb-4 ${textPrimary}`}>
-                <span className="bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">Starter Bundles</span> by Business Type
-              </h2>
-              <p className={`text-lg ${textSecondary} max-w-2xl mx-auto`}>
-                Ready-to-go hardware packages tailored to your industry
-              </p>
-            </div>
-
-            {/* Bundle Selector */}
-            <div className="flex flex-wrap justify-center gap-2 mb-8">
-              {STARTER_BUNDLES.map((bundle) => {
-                const Icon = bundle.icon;
-                const isActive = activeBundle === bundle.id;
-                
-                return (
-                  <button
-                    key={bundle.id}
-                    onClick={() => setActiveBundle(bundle.id)}
-                    className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
-                      isActive
-                        ? `bg-gradient-to-r ${bundle.gradient} text-white shadow-lg`
-                        : theme === 'dark'
-                        ? 'bg-white/5 text-slate-300 hover:bg-white/10'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {bundle.title}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Active Bundle Display */}
-            <AnimatePresence mode="wait">
-              {STARTER_BUNDLES.map((bundle) => {
-                if (bundle.id !== activeBundle) return null;
-                const Icon = bundle.icon;
-                
-                return (
-                  <motion.div
-                    key={bundle.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className={`${cardBg} rounded-3xl p-8 border-2 border-emerald-500/30`}
-                  >
-                    <div className="flex flex-col md:flex-row gap-8">
-                      <div className="md:w-1/3">
-                        <div className={`w-16 h-16 rounded-2xl bg-gradient-to-r ${bundle.gradient} flex items-center justify-center mb-4`}>
-                          <Icon className="w-8 h-8 text-white" />
-                        </div>
-                        <h3 className={`text-2xl font-bold mb-2 ${textPrimary}`}>{bundle.title} Bundle</h3>
-                        <p className={`${textSecondary} mb-4`}>{bundle.description}</p>
-                        <div className="flex items-center gap-2 text-emerald-500 font-bold">
-                          <Truck className="w-4 h-4" />
-                          <span>Free UK shipping</span>
-                        </div>
-                      </div>
-                      
-                      <div className="md:w-2/3">
-                        <div className="bg-emerald-500/5 rounded-2xl p-6 border border-emerald-500/10 mb-4">
-                          <h4 className={`font-bold mb-3 ${textPrimary}`}>Includes:</h4>
-                          <div className="space-y-3">
-                            {bundle.hardware.map((item, i) => (
-                              <div key={i} className="flex items-center gap-3">
-                                <div className="w-6 h-6 bg-emerald-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                                  <Check className="w-3 h-3 text-emerald-500" />
-                                </div>
-                                <span className={`${textSecondary}`}>{item}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        <Link
-                          href="/pay"
-                          className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors"
-                        >
-                          Get This Bundle
-                          <ArrowRight className="w-4 h-4" />
-                        </Link>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </motion.section>
+    
 
        
 
@@ -807,3 +655,4 @@ export default function HardwarePage() {
   );
 
 }
+
