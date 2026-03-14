@@ -123,7 +123,7 @@ const HARDWARE_CATEGORIES = [
     icon: Tablet,
     gradient: "from-indigo-500 to-blue-600",
     description: "Secure your iPad or Android tablet",
-    image: "https://www.maclocks.co.uk/media/catalog/product/cache/45f9a976a441f240766d1376269c6698/m/a/magnetix-ipad-10-11-rise-new-20-edge-case-black-3_vhbmm01_bndip109_tcdp01_.jpgCAc",
+    image: "https://www.maclocks.co.uk/media/catalog/product/cache/45f9a976a441f240766d1376269c6698/a/p/apex-ipad-10-11-tablet-printer-kiosk-new-black-3_209apxb_pk01_.jpg",
     longDescription: "Professional stands that transform your tablet into a fixed POS station. Adjustable angles and secure locking.",
     features: [
       "Adjustable viewing angles",
