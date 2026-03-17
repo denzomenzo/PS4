@@ -2,25 +2,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Check, Loader2, ArrowLeft, Sparkles, Sun, Moon, Menu, X, Zap, Shield, Clock, Package, Truck, CreditCard, Printer, Smartphone } from "lucide-react";
+import { Check, Loader2, ArrowLeft, Sparkles, Sun, Moon, Menu, X, Zap, Shield, Clock, Package, Truck, CreditCard, Printer, Smartphone, Mail, Phone, MapPin, User } from "lucide-react";
 import Link from "next/link";
 import Logo from "@/components/Logo";
 import { motion } from "framer-motion";
 
-type BundleType = "software" | "starter" | "complete";
+type BundleType = "software" | "complete";
 
 interface BundleData {
   name: string;
   price: number;
   description: string;
   popular?: boolean;
-  hardware: string[];
-  savings?: number;
+  features: string[];
+  hardware?: string[];
 }
 
 export default function PaymentPage() {
-  const [selectedBundle, setSelectedBundle] = useState<BundleType>("software");
+  const [selectedBundle, setSelectedBundle] = useState<BundleType>("complete");
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -66,49 +68,42 @@ export default function PaymentPage() {
   const bundles: Record<BundleType, BundleData> = {
     software: {
       name: "Software Only",
-      price: 1500,
+      price: 650,
       description: "Full POS software license - yours forever",
-      hardware: [
-        "✓ Complete POS System",
-        "✓ Lifetime updates",
-        "✓ 1 year support",
-        "✓ Remote setup assistance",
-        "✓ All features included"
-      ],
-      savings: 0
-    },
-    starter: {
-      name: "Starter Bundle",
-      price: 1800,
-      description: "Software + essential hardware to get started",
-      popular: true,
-      hardware: [
-        "✓ ✓ Software license",
-        "✓ ✓ 2incel Bluetooth Printer (£80 value)",
-        "✓ ✓ Basic cash drawer (£50 value)",
-        "✓ ✓ 1D barcode scanner (£30 value)",
-        "✓ ✓ All cables included",
-        "✓ ✓ UK shipping included"
-      ],
-      savings: 130
+      features: [
+        "Complete POS System",
+        "Lifetime updates",
+        "1 year support",
+        "Remote setup assistance",
+        "All features included",
+        "Unlimited transactions",
+        "Unlimited customers",
+        "Unlimited staff"
+      ]
     },
     complete: {
-      name: "Complete Bundle",
-      price: 2200,
-      description: "Everything you need for a professional setup",
-      hardware: [
-        "✓ ✓ Software license",
-        "✓ ✓ Epson TM-T20II Printer (£180 value)",
-        "✓ ✓ Heavy-duty cash drawer (£100 value)",
-        "✓ ✓ 2D barcode scanner (£120 value)",
-        "✓ ✓ Card reader (£50 value)",
-        "✓ ✓ Customer display (£150 value)",
-        "✓ ✓ All cables & setup",
-        "✓ ✓ 2-hour training call",
-        "✓ ✓ UK shipping included"
+      name: "Complete System",
+      price: 1500,
+      description: "Software + all hardware included, ready to run",
+      popular: true,
+      features: [
+        "Complete POS Software",
+        "Lifetime updates",
+        "1 year priority support",
+        "Remote setup assistance",
+        "All features included"
       ],
-      savings: 380
-    },
+      hardware: [
+        "Epson TM-T20II Thermal Printer (£180 value)",
+        "Heavy-duty cash drawer with automatic opening (£100 value)",
+        "2D barcode scanner - scans from screen too (£120 value)",
+        "Stripe BBPOS WisePad 3 card reader (£60 value)",
+        "10.1" customer display with stand (£150 value)",
+        "All cables and connectors",
+        "Pre-configured and tested",
+        "Free UK shipping (2-3 business days)"
+      ]
+    }
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -119,10 +114,19 @@ export default function PaymentPage() {
       return;
     }
 
-    // Validate address for hardware bundles
-    if (selectedBundle !== "software") {
+    if (!fullName) {
+      setError("Please enter your full name");
+      return;
+    }
+
+    // Validate address for complete bundle
+    if (selectedBundle === "complete") {
       if (!address.line1 || !address.city || !address.postcode) {
         setError("Please complete your shipping address");
+        return;
+      }
+      if (!phone) {
+        setError("Please enter your phone number for delivery");
         return;
       }
     }
@@ -136,8 +140,10 @@ export default function PaymentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           email,
+          fullName,
+          phone: selectedBundle === "complete" ? phone : undefined,
           bundle: selectedBundle,
-          ...(selectedBundle !== "software" && { shippingAddress: address })
+          ...(selectedBundle === "complete" && { shippingAddress: address })
         }),
       });
 
@@ -182,6 +188,10 @@ export default function PaymentPage() {
   const inputBg = theme === 'dark'
     ? 'bg-slate-800/50 border-slate-700/50'
     : 'bg-white border-slate-200';
+
+  // Calculate hardware value for complete bundle
+  const hardwareValue = selectedBundle === "complete" ? 510 : 0; // £180+100+120+60+150 = £610, but we'll round to £600
+  const softwareValue = selectedBundle === "complete" ? 890 : 650; // Software portion
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${bgGradient}`}>
@@ -282,7 +292,7 @@ export default function PaymentPage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-6">
               <Sparkles className="w-4 h-4 text-emerald-400" />
               <span className={`text-emerald-400 text-xs md:text-sm font-semibold ${theme === 'light' ? 'text-emerald-600' : ''}`}>
-                One Payment. Lifetime Access.
+                Simple, Transparent Pricing
               </span>
             </div>
             
@@ -291,7 +301,7 @@ export default function PaymentPage() {
             </h1>
             
             <p className={`text-lg ${textSecondary} max-w-2xl mx-auto`}>
-              No monthly fees. No subscriptions. Just a powerful POS system that's yours to keep.
+              No monthly fees. No hidden costs. Just powerful POS software that's yours to keep.
             </p>
           </motion.div>
 
@@ -306,9 +316,9 @@ export default function PaymentPage() {
               
               {/* Bundle Selection */}
               <div className={`${cardBg} rounded-3xl p-6 sm:p-8 border`}>
-                <h2 className={`text-2xl font-bold mb-6 ${textPrimary}`}>Choose Your Bundle</h2>
+                <h2 className={`text-2xl font-bold mb-6 ${textPrimary}`}>Choose Your Option</h2>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-4 mb-6">
                   <button
                     onClick={() => setSelectedBundle("software")}
                     className={`p-6 rounded-2xl border-2 transition-all ${
@@ -319,32 +329,14 @@ export default function PaymentPage() {
                           : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    <div className={`text-sm ${textMuted} mb-1`}>Software</div>
-                    <div className={`text-2xl font-black mb-1 ${textPrimary}`}>£1,500</div>
+                    <div className={`text-sm ${textMuted} mb-1`}>Software Only</div>
+                    <div className={`text-2xl font-black mb-1 ${textPrimary}`}>£650</div>
                     <div className={`text-xs ${textMuted}`}>lifetime license</div>
                   </button>
 
                   <button
-                    onClick={() => setSelectedBundle("starter")}
-                    className={`p-6 rounded-2xl border-2 transition-all relative ${
-                      selectedBundle === "starter"
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : theme === 'dark' 
-                          ? 'border-slate-700 hover:border-slate-600' 
-                          : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-full whitespace-nowrap">
-                      POPULAR
-                    </div>
-                    <div className={`text-sm ${textMuted} mb-1`}>Starter</div>
-                    <div className={`text-2xl font-black mb-1 ${textPrimary}`}>£1,800</div>
-                    <div className={`text-xs ${textMuted}`}>+ hardware</div>
-                  </button>
-
-                  <button
                     onClick={() => setSelectedBundle("complete")}
-                    className={`p-6 rounded-2xl border-2 transition-all ${
+                    className={`p-6 rounded-2xl border-2 transition-all relative ${
                       selectedBundle === "complete"
                         ? "border-emerald-500 bg-emerald-500/10"
                         : theme === 'dark' 
@@ -352,23 +344,26 @@ export default function PaymentPage() {
                           : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    <div className={`text-sm ${textMuted} mb-1`}>Complete</div>
-                    <div className={`text-2xl font-black mb-1 ${textPrimary}`}>£2,200</div>
-                    <div className={`text-xs ${textMuted}`}>+ pro hardware</div>
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-full whitespace-nowrap">
+                      BEST VALUE
+                    </div>
+                    <div className={`text-sm ${textMuted} mb-1`}>Complete System</div>
+                    <div className={`text-2xl font-black mb-1 ${textPrimary}`}>£1,500</div>
+                    <div className={`text-xs ${textMuted}`}>software + hardware</div>
                   </button>
                 </div>
 
-                {selectedBundleData.savings && selectedBundleData.savings > 0 && (
+                {selectedBundle === "complete" && (
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center"
                   >
                     <p className="text-emerald-600 font-bold">
-                      Save £{selectedBundleData.savings} on hardware!
+                      Save £{hardwareValue} on hardware!
                     </p>
                     <p className={`text-sm ${textMuted} mt-1`}>
-                      Bundle includes £{selectedBundleData.savings + selectedBundleData.price - 1500} worth of hardware
+                      Hardware valued at £{hardwareValue} • You pay £{selectedBundleData.price - softwareValue}
                     </p>
                   </motion.div>
                 )}
@@ -376,25 +371,54 @@ export default function PaymentPage() {
 
               {/* Features List */}
               <div className={`${cardBg} rounded-3xl p-6 sm:p-8 border`}>
-                <h3 className={`text-xl font-bold mb-6 ${textPrimary}`}>What's Included</h3>
+                <h3 className={`text-xl font-bold mb-6 ${textPrimary}`}>
+                  {selectedBundle === "complete" ? "What's Included" : "Software Features"}
+                </h3>
+                
                 <div className="space-y-3">
-                  {selectedBundleData.hardware.map((feature, i) => (
-                    <motion.div 
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.02 }}
-                      className="flex items-start gap-2 text-sm"
-                    >
-                      <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                      <span className={`${textSecondary}`}>{feature}</span>
-                    </motion.div>
-                  ))}
+                  {/* Software features always shown */}
+                  <div className="mb-4">
+                    <p className={`text-sm font-semibold text-emerald-600 mb-2`}>✓ SOFTWARE:</p>
+                    {bundles.software.features.map((feature, i) => (
+                      <motion.div 
+                        key={i}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.02 }}
+                        className="flex items-start gap-2 text-sm mb-2"
+                      >
+                        <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span className={`${textSecondary}`}>{feature}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Hardware features for complete bundle */}
+                  {selectedBundle === "complete" && bundles.complete.hardware && (
+                    <div className="pt-4 border-t border-slate-700/30">
+                      <p className={`text-sm font-semibold text-emerald-600 mb-2 flex items-center gap-2`}>
+                        <Package className="w-4 h-4" />
+                        ✓ HARDWARE PACKAGE:
+                      </p>
+                      {bundles.complete.hardware.map((item, i) => (
+                        <motion.div 
+                          key={i}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.02 }}
+                          className="flex items-start gap-2 text-sm mb-2"
+                        >
+                          <Check className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                          <span className={`${textSecondary}`}>{item}</span>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className={`mt-6 pt-6 border-t ${theme === 'dark' ? 'border-slate-700' : 'border-slate-200'}`}>
                   <p className={`text-sm ${textSecondary}`}>
-                    <span className="font-bold text-emerald-600">All bundles include:</span> Unlimited transactions, customers, staff, inventory tracking, reports, customer display, VAT management, and all future software updates.
+                    <span className="font-bold text-emerald-600">All purchases include:</span> Unlimited transactions, customers, staff, inventory tracking, reports, customer display, VAT management, and all future software updates.
                   </p>
                 </div>
               </div>
@@ -404,13 +428,16 @@ export default function PaymentPage() {
                 {[
                   { icon: Shield, text: "Lifetime License" },
                   { icon: Zap, text: "Instant Access" },
-                  { icon: Package, text: "UK Shipping" }
+                  { icon: Truck, text: "Free UK Shipping*" }
                 ].map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <div key={i} className={`${cardBg} rounded-xl p-3 text-center border`}>
                       <Icon className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
                       <p className={`text-xs ${textMuted}`}>{item.text}</p>
+                      {i === 2 && selectedBundle !== "complete" && (
+                        <p className="text-[10px] text-emerald-600">*hardware only</p>
+                      )}
                     </div>
                   );
                 })}
@@ -436,38 +463,73 @@ export default function PaymentPage() {
                 )}
 
                 <form onSubmit={handleCheckout} className="space-y-6">
-                  <div>
-                    <label className={`block ${textPrimary} mb-2 text-sm font-medium`}>
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="your@email.com"
-                      required
-                      className={`w-full ${inputBg} border rounded-xl px-4 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
-                    />
-                    <p className={`${textMuted} text-sm mt-2`}>
-                      License and tracking details will be sent here
-                    </p>
+                  {/* Contact Information */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className={`block ${textPrimary} mb-2 text-sm font-medium flex items-center gap-2`}>
+                        <Mail className="w-4 h-4 text-emerald-600" />
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="your@email.com"
+                        required
+                        className={`w-full ${inputBg} border rounded-xl px-4 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
+                      />
+                      <p className={`${textMuted} text-sm mt-2`}>
+                        License and delivery updates will be sent here
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`block ${textPrimary} mb-2 text-sm font-medium flex items-center gap-2`}>
+                        <User className="w-4 h-4 text-emerald-600" />
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="John Smith"
+                        required
+                        className={`w-full ${inputBg} border rounded-xl px-4 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${textPrimary} placeholder:text-slate-500`}
+                      />
+                    </div>
                   </div>
 
-                  {/* Shipping Address - Only for hardware bundles */}
-                  {selectedBundle !== "software" && (
+                  {/* Shipping Address - Only for complete bundle */}
+                  {selectedBundle === "complete" && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
-                      className="space-y-4"
+                      className="space-y-4 pt-2"
                     >
-                      <h3 className={`font-bold ${textPrimary}`}>Shipping Address</h3>
+                      <h3 className={`font-bold ${textPrimary} flex items-center gap-2`}>
+                        <MapPin className="w-5 h-5 text-emerald-600" />
+                        Shipping Address
+                      </h3>
                       
                       <div>
-                        <label className={`block ${textMuted} mb-1 text-xs`}>Address Line 1 *</label>
+                        <label className={`block ${textMuted} mb-1 text-xs`}>Phone Number (for delivery)</label>
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder="07123 456789"
+                          className={`w-full ${inputBg} border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50`}
+                          required
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className={`block ${textMuted} mb-1 text-xs`}>Address Line 1</label>
                         <input
                           type="text"
                           value={address.line1}
                           onChange={(e) => setAddress({...address, line1: e.target.value})}
+                          placeholder="123 High Street"
                           className={`w-full ${inputBg} border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50`}
                           required
                         />
@@ -479,81 +541,85 @@ export default function PaymentPage() {
                           type="text"
                           value={address.line2}
                           onChange={(e) => setAddress({...address, line2: e.target.value})}
+                          placeholder="Flat 2, Building Name"
                           className={`w-full ${inputBg} border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50`}
                         />
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className={`block ${textMuted} mb-1 text-xs`}>City *</label>
+                          <label className={`block ${textMuted} mb-1 text-xs`}>City</label>
                           <input
                             type="text"
                             value={address.city}
                             onChange={(e) => setAddress({...address, city: e.target.value})}
+                            placeholder="London"
                             className={`w-full ${inputBg} border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50`}
                             required
                           />
                         </div>
                         <div>
-                          <label className={`block ${textMuted} mb-1 text-xs`}>Postcode *</label>
+                          <label className={`block ${textMuted} mb-1 text-xs`}>Postcode</label>
                           <input
                             type="text"
                             value={address.postcode}
                             onChange={(e) => setAddress({...address, postcode: e.target.value})}
+                            placeholder="SW1A 1AA"
                             className={`w-full ${inputBg} border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50`}
                             required
                           />
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 text-emerald-600 text-sm">
+                      <div className="flex items-center gap-2 text-emerald-600 text-sm bg-emerald-500/5 p-3 rounded-lg">
                         <Truck className="w-4 h-4" />
-                        <span>Free UK shipping • 2-3 business days</span>
+                        <span>Free UK shipping • 2-3 business days • Tracking provided</span>
                       </div>
                     </motion.div>
                   )}
 
-{/* Order Summary */}
-<div className={`${theme === 'dark' ? 'bg-slate-800/30' : 'bg-slate-50'} rounded-xl p-6 space-y-4 border ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
-  <h3 className={`font-bold text-lg ${textPrimary}`}>Order Summary</h3>
-  
-  <div className="space-y-3">
-    <div className="flex justify-between">
-      <span className={`${textSecondary}`}>
-        {selectedBundleData.name}
-      </span>
-      <span className={`font-bold ${textPrimary}`}>£{selectedBundleData.price.toLocaleString()}</span>
-    </div>
-    
-    {/* Fix: Add proper null check for savings */}
-    {selectedBundleData.savings && selectedBundleData.savings > 0 && (
-      <div className="flex justify-between text-emerald-600 text-sm">
-        <span>Hardware value</span>
-        <span className="font-bold">
-          £{(selectedBundleData.savings + selectedBundleData.price - 1500).toLocaleString()}
-        </span>
-      </div>
-    )}
-    
-    {selectedBundle !== "software" && (
-      <div className="flex justify-between text-emerald-600 text-sm">
-        <span>Shipping</span>
-        <span className="font-bold">FREE</span>
-      </div>
-    )}
-    
-    <div className={`border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'} pt-3 flex justify-between text-lg`}>
-      <span className={`font-bold ${textPrimary}`}>Total</span>
-      <span className="font-black text-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
-        £{selectedBundleData.price.toLocaleString()}
-      </span>
-    </div>
-    
-    <p className={`text-xs ${textMuted} text-center pt-2`}>
-      One-time payment • Lifetime license • No recurring fees
-    </p>
-  </div>
-</div>
+                  {/* Order Summary */}
+                  <div className={`${theme === 'dark' ? 'bg-slate-800/30' : 'bg-slate-50'} rounded-xl p-6 space-y-4 border ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
+                    <h3 className={`font-bold text-lg ${textPrimary}`}>Order Summary</h3>
+                    
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className={`${textSecondary}`}>
+                          {selectedBundleData.name}
+                        </span>
+                        <span className={`font-bold ${textPrimary}`}>£{selectedBundleData.price.toLocaleString()}</span>
+                      </div>
+                      
+                      {selectedBundle === "complete" && (
+                        <>
+                          <div className="flex justify-between text-emerald-600 text-sm">
+                            <span>Software</span>
+                            <span className="font-bold">£{softwareValue}</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-600 text-sm">
+                            <span>Hardware package</span>
+                            <span className="font-bold">£{hardwareValue}</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-600 text-sm">
+                            <span>Shipping</span>
+                            <span className="font-bold">FREE</span>
+                          </div>
+                        </>
+                      )}
+                      
+                      <div className={`border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'} pt-3 flex justify-between text-lg`}>
+                        <span className={`font-bold ${textPrimary}`}>Total</span>
+                        <span className="font-black text-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
+                          £{selectedBundleData.price.toLocaleString()}
+                        </span>
+                      </div>
+                      
+                      <p className={`text-xs ${textMuted} text-center pt-2`}>
+                        One-time payment • Lifetime license • No recurring fees
+                      </p>
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={loading}
@@ -596,9 +662,13 @@ export default function PaymentPage() {
             className="mt-12 text-center"
           >
             <p className={`${textMuted} text-sm`}>
-              Questions about hardware bundles? Email us at{' '}
+              Questions? Email us at{' '}
               <a href="mailto:contact@demly.co.uk" className="text-emerald-600 hover:text-emerald-700 transition-colors font-medium">
                 contact@demly.co.uk
+              </a>
+              {' '}or call{' '}
+              <a href="tel:+440000000000" className="text-emerald-600 hover:text-emerald-700 transition-colors font-medium">
+                0800 123 4567
               </a>
             </p>
           </motion.div>
