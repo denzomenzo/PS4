@@ -513,45 +513,47 @@ export default function PaymentPage() {
                     </motion.div>
                   )}
 
-                  {/* Order Summary */}
-                  <div className={`${theme === 'dark' ? 'bg-slate-800/30' : 'bg-slate-50'} rounded-xl p-6 space-y-4 border ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
-                    <h3 className={`font-bold text-lg ${textPrimary}`}>Order Summary</h3>
-                    
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className={`${textSecondary}`}>
-                          {selectedBundleData.name}
-                        </span>
-                        <span className={`font-bold ${textPrimary}`}>£{selectedBundleData.price.toLocaleString()}</span>
-                      </div>
-                      
-                      {selectedBundleData.savings > 0 && (
-                        <div className="flex justify-between text-emerald-600 text-sm">
-                          <span>Hardware value</span>
-                          <span className="font-bold">£{(selectedBundleData.savings + selectedBundleData.price - 1500).toLocaleString()}</span>
-                        </div>
-                      )}
-                      
-                      {selectedBundle !== "software" && (
-                        <div className="flex justify-between text-emerald-600 text-sm">
-                          <span>Shipping</span>
-                          <span className="font-bold">FREE</span>
-                        </div>
-                      )}
-                      
-                      <div className={`border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'} pt-3 flex justify-between text-lg`}>
-                        <span className={`font-bold ${textPrimary}`}>Total</span>
-                        <span className="font-black text-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
-                          £{selectedBundleData.price.toLocaleString()}
-                        </span>
-                      </div>
-                      
-                      <p className={`text-xs ${textMuted} text-center pt-2`}>
-                        One-time payment • Lifetime license • No recurring fees
-                      </p>
-                    </div>
-                  </div>
-
+{/* Order Summary */}
+<div className={`${theme === 'dark' ? 'bg-slate-800/30' : 'bg-slate-50'} rounded-xl p-6 space-y-4 border ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'}`}>
+  <h3 className={`font-bold text-lg ${textPrimary}`}>Order Summary</h3>
+  
+  <div className="space-y-3">
+    <div className="flex justify-between">
+      <span className={`${textSecondary}`}>
+        {selectedBundleData.name}
+      </span>
+      <span className={`font-bold ${textPrimary}`}>£{selectedBundleData.price.toLocaleString()}</span>
+    </div>
+    
+    {/* Fix: Add proper null check for savings */}
+    {selectedBundleData.savings && selectedBundleData.savings > 0 && (
+      <div className="flex justify-between text-emerald-600 text-sm">
+        <span>Hardware value</span>
+        <span className="font-bold">
+          £{(selectedBundleData.savings + selectedBundleData.price - 1500).toLocaleString()}
+        </span>
+      </div>
+    )}
+    
+    {selectedBundle !== "software" && (
+      <div className="flex justify-between text-emerald-600 text-sm">
+        <span>Shipping</span>
+        <span className="font-bold">FREE</span>
+      </div>
+    )}
+    
+    <div className={`border-t ${theme === 'dark' ? 'border-slate-700/50' : 'border-slate-200'} pt-3 flex justify-between text-lg`}>
+      <span className={`font-bold ${textPrimary}`}>Total</span>
+      <span className="font-black text-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 bg-clip-text text-transparent">
+        £{selectedBundleData.price.toLocaleString()}
+      </span>
+    </div>
+    
+    <p className={`text-xs ${textMuted} text-center pt-2`}>
+      One-time payment • Lifetime license • No recurring fees
+    </p>
+  </div>
+</div>
                   <button
                     type="submit"
                     disabled={loading}
