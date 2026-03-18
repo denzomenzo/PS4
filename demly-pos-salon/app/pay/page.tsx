@@ -98,7 +98,7 @@ export default function PaymentPage() {
         "Heavy-duty cash drawer with automatic opening (£100 value)",
         "2D barcode scanner - scans from screen too (£120 value)",
         
-        "10.1" display with stand (£150 value)",
+        "10.1 display with stand (£150 value)",
         "Cash Drawer (£60 value)
         "All cables and connectors",
         "Pre-configured and tested",
