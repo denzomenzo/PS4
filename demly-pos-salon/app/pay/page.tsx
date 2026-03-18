@@ -73,7 +73,7 @@ export default function PaymentPage() {
       features: [
         "Complete POS System",
         "Lifetime updates",
-        "1 year support",
+        "Endless support",
         "Remote setup assistance",
         "All features included",
         "Unlimited transactions",
@@ -97,8 +97,9 @@ export default function PaymentPage() {
         "Epson TM-T20II Thermal Printer (£180 value)",
         "Heavy-duty cash drawer with automatic opening (£100 value)",
         "2D barcode scanner - scans from screen too (£120 value)",
-        "Stripe BBPOS WisePad 3 card reader (£60 value)",
-        "10.1" customer display with stand (£150 value)",
+        
+        "10.1" display with stand (£150 value)",
+        "Cash Drawer (£60 value)
         "All cables and connectors",
         "Pre-configured and tested",
         "Free UK shipping (2-3 business days)"
