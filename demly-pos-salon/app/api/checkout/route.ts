@@ -1,3 +1,4 @@
+// app/api/checkout/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -5,13 +6,20 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 export async function POST(request: Request) {
   try {
-    const { email, plan = "annual" } = await request.json();
+    const { email, fullName, phone, bundle, shippingAddress } = await request.json();
 
-    console.log('🛒 Checkout initiated:', { email, plan });
+    console.log('🛒 Checkout initiated:', { email, fullName, bundle });
 
     if (!email) {
       return NextResponse.json(
         { error: "Email is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!fullName) {
+      return NextResponse.json(
+        { error: "Full name is required" },
         { status: 400 }
       );
     }
@@ -22,56 +30,60 @@ export async function POST(request: Request) {
 
     console.log('🌐 App URL:', appUrl);
 
-    const pricing = {
-      monthly: {
-        amount: 2900,
-        interval: "month" as const,
-        description: "Monthly subscription to Demly POS",
-      },
-      annual: {
-        amount: 29900,
-        interval: "year" as const,
-        description: "Annual subscription to Demly POS (Save £49/year)",
-      },
+    // Map bundle to price ID from environment variables
+    const priceMap = {
+      software: process.env.STRIPE_PRICE_SOFTWARE,
+      complete: process.env.STRIPE_PRICE_COMPLETE,
     };
 
-    const selectedPlan = pricing[plan as keyof typeof pricing];
+    const priceId = priceMap[bundle as keyof typeof priceMap];
 
-    if (!selectedPlan) {
+    if (!priceId) {
+      console.error('❌ Invalid bundle or missing price ID:', { bundle, priceMap });
       return NextResponse.json(
-        { error: "Invalid plan selected" },
+        { error: "Invalid bundle selected or price not configured" },
         { status: 400 }
       );
     }
 
-    console.log('💰 Selected plan:', selectedPlan);
+    console.log('💰 Selected price ID:', priceId);
 
-    const session = await stripe.checkout.sessions.create({
+    // Create checkout session
+    const sessionData: any = {
       customer_email: email,
       payment_method_types: ["card"],
       line_items: [
         {
-          price_data: {
-            currency: "gbp",
-            product_data: {
-              name: "Demly POS License",
-              description: selectedPlan.description,
-            },
-            unit_amount: selectedPlan.amount,
-            recurring: {
-              interval: selectedPlan.interval,
-            },
-          },
+          price: priceId,
           quantity: 1,
         },
       ],
-      mode: "subscription",
+      mode: "payment", // One-time payment, not subscription
       success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/pay`,
       metadata: {
-        plan: plan,
+        bundle,
+        fullName,
+        phone: phone || "",
+        hasHardware: bundle === "complete" ? "true" : "false",
       },
-    });
+    };
+
+    // Add shipping address collection for hardware bundle
+    if (bundle === "complete") {
+      sessionData.shipping_address_collection = {
+        allowed_countries: ["GB"],
+      };
+      
+      if (shippingAddress) {
+        sessionData.metadata.address_line1 = shippingAddress.line1;
+        sessionData.metadata.address_line2 = shippingAddress.line2 || "";
+        sessionData.metadata.city = shippingAddress.city;
+        sessionData.metadata.postcode = shippingAddress.postcode;
+      }
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionData);
 
     console.log('✅ Checkout session created:', session.id);
 
@@ -84,6 +96,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
-
-
