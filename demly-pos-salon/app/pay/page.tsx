@@ -668,8 +668,8 @@ export default function PaymentPage() {
                 contact@demly.co.uk
               </a>
               {' '}or call{' '}
-              <a href="tel:+440000000000" className="text-emerald-600 hover:text-emerald-700 transition-colors font-medium">
-                0800 123 4567
+              <a href="tel:+447501481564" className="text-emerald-600 hover:text-emerald-700 transition-colors font-medium">
+                +44 7501481564
               </a>
             </p>
           </motion.div>
