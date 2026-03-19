@@ -557,8 +557,8 @@ export default function LandingPage() {
               <div className="mb-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Monthly</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-emerald-600">£29</span>
-                  <span className={`${textMuted}`}>/month</span>
+                  <span className="text-4xl font-black text-emerald-600">£650</span>
+                  <span className={`${textMuted}`}>Lifetime software license</span>
                 </div>
               </div>
               <ul className="space-y-3 mb-6">
@@ -595,8 +595,8 @@ export default function LandingPage() {
               <div className="mb-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Annual</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-emerald-600">£299</span>
-                  <span className={`${textMuted}`}>/year</span>
+                  <span className="text-4xl font-black text-emerald-600">£1,500</span>
+                  <span className={`${textMuted}`}>Software (Hardware included)</span>
                 </div>
                 <p className={`text-sm ${textMuted} mt-1`}>Save £49 compared to monthly</p>
               </div>
@@ -648,7 +648,7 @@ export default function LandingPage() {
                   href="/pay"
                   className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20"
                 >
-                  Start Free Trial
+                  Own It Now
                 </Link>
                 <Link
                   href="/industries"
