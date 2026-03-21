@@ -557,8 +557,8 @@ export default function LandingPage() {
               <div className="mb-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Monthly</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-emerald-600">£650</span>
-                  <span className={`${textMuted}`}>Lifetime software license</span>
+                  <span className="text-4xl font-black text-emerald-600">£29</span>
+                  <span className={`${textMuted}`}>/monthly</span>
                 </div>
               </div>
               <ul className="space-y-3 mb-6">
@@ -595,18 +595,18 @@ export default function LandingPage() {
               <div className="mb-6">
                 <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>Annual</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-emerald-600">£1,500</span>
-                  <span className={`${textMuted}`}>Software (Hardware included)</span>
+                  <span className="text-4xl font-black text-emerald-600">£299</span>
+                  <span className={`${textMuted}`}>/annually</span>
                 </div>
                 <p className={`text-sm ${textMuted} mt-1`}>Save £49 compared to monthly</p>
               </div>
               <ul className="space-y-3 mb-6">
                 {[
                   "Everything in Monthly",
-                  "Advanced analytics",
+                  "Save £49",
                   "Priority support 24/7",
-                  "Custom reporting",
-                  "API access"
+                  "Early access to updates"
+                  
                 ].map((feature, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <Check className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
