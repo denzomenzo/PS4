@@ -24,6 +24,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-blue-500 to-cyan-600",
     description: "Thermal printers for receipts, kitchen orders, and labels",
     image: "https://www.ers-online.co.uk/files/products/options/images/22993_c31ce94751a0.jpg",
+    imageBg: "from-blue-950 to-slate-900",
     longDescription: "Fast, reliable thermal printers that produce crisp receipts in seconds. Compatible with all Demly POS features.",
     features: [
       "Thermal printing (no ink needed)",
@@ -44,6 +45,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-emerald-500 to-green-600",
     description: "Secure cash management for your business",
     image: "https://premiercash.co.uk/cdn/shop/products/EC-465-2.jpg?v=1613045096",
+    imageBg: "from-emerald-950 to-slate-900",
     longDescription: "Heavy-duty cash drawers that automatically open with each cash transaction. Connects directly to your receipt printer.",
     features: [
       "Automatic opening via printer",
@@ -64,6 +66,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-purple-500 to-pink-600",
     description: "Fast, accurate scanning for inventory and checkout",
     image: "https://res.cloudinary.com/rsc/image/upload/b_rgb:FFFFFF,c_pad,dpr_2.625,f_auto,h_214,q_auto,w_380/c_pad,h_214,w_380/F1765640-01?pgw=1",
+    imageBg: "from-purple-950 to-slate-900",
     longDescription: "Scan products instantly at checkout or during inventory counts. Works with 1D and 2D barcodes.",
     features: [
       "1D and 2D barcode support",
@@ -84,6 +87,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-orange-500 to-amber-600",
     description: "Accept card payments anywhere",
     image: "https://b.stripecdn.com/docs-statics-srv/assets/wisepos-floating-tall.e8478124cda0e088b2e19f503f574f53.png",
+    imageBg: "from-orange-950 to-slate-900",
     longDescription: "Process card payments securely with contactless, chip, and magnetic stripe support. Works with all major providers.",
     features: [
       "Contactless (Apple Pay, Google Pay)",
@@ -104,6 +108,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-red-500 to-pink-600",
     description: "Show customers their order total",
     image: "https://s.alicdn.com/@sc04/kf/H3f0fc7961be142ba9d41924ab9749045C.jpg_300x300.jpg",
+    imageBg: "from-red-950 to-slate-900",
     longDescription: "Dual-screen setup lets customers see their items, prices, and total as you ring them up.",
     features: [
       "Second screen for customers",
@@ -124,6 +129,7 @@ const HARDWARE_CATEGORIES = [
     gradient: "from-indigo-500 to-blue-600",
     description: "Secure your iPad or Android tablet",
     image: "https://www.maclocks.co.uk/media/catalog/product/cache/45f9a976a441f240766d1376269c6698/a/p/apex-ipad-10-11-tablet-printer-kiosk-new-black-3_209apxb_pk01_.jpg",
+    imageBg: "from-indigo-950 to-slate-900",
     longDescription: "Professional stands that transform your tablet into a fixed POS station. Adjustable angles and secure locking.",
     features: [
       "Adjustable viewing angles",
@@ -397,21 +403,30 @@ export default function HardwarePage() {
                   className={`${cardBg} rounded-3xl overflow-hidden border hover:border-emerald-500/30 transition-all cursor-pointer group`}
                   onClick={() => setSelectedCategory(isExpanded ? null : category.id)}
                 >
-                  {/* Image */}
-                  <div className="h-40 overflow-hidden relative">
-                    <div 
-                      className="absolute inset-0 bg-cover bg-center group-hover:scale-110 transition-transform duration-700"
-                      style={{ backgroundImage: `url(${category.image})` }}
+                  {/* Image — fixed: object-contain so product is never cropped */}
+                  <div className={`h-44 relative overflow-hidden bg-gradient-to-br ${category.imageBg}`}>
+                    {/* Subtle radial glow behind product */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className={`w-32 h-32 rounded-full bg-gradient-to-r ${category.gradient} opacity-10 blur-2xl`} />
+                    </div>
+
+                    <img
+                      src={category.image}
+                      alt={category.title}
+                      className="absolute inset-0 w-full h-full object-contain p-5 group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    
-                    {/* Icon */}
-                    <div className={`absolute bottom-4 left-4 w-12 h-12 rounded-2xl bg-gradient-to-r ${category.gradient} flex items-center justify-center shadow-xl`}>
-                      <Icon className="w-6 h-6 text-white" />
+
+                    {/* Bottom fade so card content bleeds in cleanly */}
+                    <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-slate-900/60 to-transparent" />
+
+                    {/* Category icon */}
+                    <div className={`absolute bottom-3 left-4 w-10 h-10 rounded-xl bg-gradient-to-r ${category.gradient} flex items-center justify-center shadow-lg`}>
+                      <Icon className="w-5 h-5 text-white" />
                     </div>
                     
                     {/* Price tag */}
-                    <div className="absolute top-4 right-4 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-full text-xs text-white border border-white/10">
+                    <div className="absolute top-3 right-3 px-3 py-1 bg-black/50 backdrop-blur-sm rounded-full text-xs text-white border border-white/10 font-medium">
                       {category.price}
                     </div>
                   </div>
@@ -421,7 +436,7 @@ export default function HardwarePage() {
                     <h3 className={`text-xl font-bold mb-2 ${textPrimary}`}>{category.title}</h3>
                     <p className={`${textSecondary} text-sm mb-4`}>{category.description}</p>
                     
-                    {/* Features - Always visible */}
+                    {/* Features */}
                     <div className="space-y-2 mb-4">
                       {category.features.slice(0, isExpanded ? 6 : 3).map((feature, i) => (
                         <div key={i} className="flex items-start gap-2">
@@ -473,10 +488,6 @@ export default function HardwarePage() {
               );
             })}
           </div>
-
-    
-
-       
 
           {/* FAQ Section */}
           <motion.section
@@ -653,6 +664,4 @@ export default function HardwarePage() {
       </footer>
     </div>
   );
-
 }
-
