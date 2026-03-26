@@ -374,7 +374,7 @@ export default function FAQPage() {
                 Contact Support
               </Link>
               <a
-                href="mailto:support@demly.com"
+                href="mailto:contact@demly.co.uk"
                 className={`px-6 py-3 rounded-full font-semibold transition-colors ${
                   theme === 'dark' 
                     ? 'bg-white/5 hover:bg-white/10 text-white' 
@@ -417,7 +417,7 @@ export default function FAQPage() {
                 <Logo size="large" />
               </div>
               <p className={`${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm`}>
-                © 2025 Demly. All rights reserved.
+                © 2026 Demly. All rights reserved.
               </p>
             </div>
             <div className={`flex flex-wrap gap-4 sm:gap-6 md:gap-8 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'} text-sm justify-center`}>
