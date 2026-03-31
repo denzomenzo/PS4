@@ -301,6 +301,7 @@ export default function LandingPage() {
           >
             Streamline your operations with our all-in-one POS system. 
             Perfect for retail, restaurants, salons, and warehouses.
+            No Hardware Required. Our software integrates seamlessly with all your needs.
           </motion.p>
           
           <motion.div 
