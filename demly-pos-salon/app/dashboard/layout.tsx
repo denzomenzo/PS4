@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useUserId } from "@/hooks/useUserId";
 import { useStaffAuth, Staff } from "@/hooks/useStaffAuth"; // Import Staff type from useStaffAuth
 import { useResponsive } from "@/hooks/useResponsive";
+import CancellationBanner from "@/components/CancellationBanner";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
   Home, Users, Calendar, Settings, LogOut, TrendingUp,
