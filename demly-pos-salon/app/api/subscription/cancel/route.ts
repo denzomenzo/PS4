@@ -4,38 +4,19 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe, COOLING_PERIOD_DAYS } from '@/lib/stripe';
 
-// Helper function to broadcast events
-async function broadcastPaymentEvent(email: string, event: any) {
-  try {
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/stripe/broadcast`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, event }),
-    });
-  } catch (error) {
-    console.error('Failed to broadcast event:', error);
-  }
-}
-
 export async function POST() {
   try {
     const cookieStore = await cookies();
-    
     const staffCookie = cookieStore.get('current_staff')?.value;
-    
-    if (!staffCookie) {
-      return NextResponse.json(
-        { error: 'Unauthorized - No staff session' }, 
-        { status: 401 }
-      );
-    }
+    if (!staffCookie) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let staff;
-    try {
-      staff = JSON.parse(decodeURIComponent(staffCookie));
-    } catch (e) {
+    let staff: any;
+    try { staff = JSON.parse(decodeURIComponent(staffCookie)); }
+    catch { return NextResponse.json({ error: 'Invalid session' }, { status: 401 }); }
+
+    if (!staff.email) {
       return NextResponse.json(
-        { error: 'Unauthorized - Invalid staff session' }, 
+        { error: 'Session missing email — please log out and log back in' },
         { status: 401 }
       );
     }
@@ -43,157 +24,149 @@ export async function POST() {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        cookies: {
-          get() { return null; },
-          set() {},
-          remove() {},
-        },
-      }
+      { cookies: { get() { return null; }, set() {}, remove() {} } }
     );
 
-    // Get license
-    const { data: license, error } = await supabase
+    const { data: license } = await supabase
       .from('licenses')
       .select('*')
       .eq('email', staff.email)
-      .single();
+      .maybeSingle();
 
-    if (error || !license?.stripe_subscription_id) {
-      return NextResponse.json(
-        { error: 'No active subscription found' },
-        { status: 404 }
-      );
+    if (!license) {
+      return NextResponse.json({ error: 'No license found' }, { status: 404 });
     }
 
+    const now = new Date();
+
+    // No Stripe subscription — mark cancelled, access ends now
+    if (!license.stripe_subscription_id) {
+      await supabase.from('licenses').update({
+        status: 'cancelled',
+        cancelled_at: now.toISOString(),
+        cancel_at_period_end: true,
+        scheduled_for_deletion_at: now.toISOString(), // no period to wait for
+      }).eq('id', license.id);
+
+      return NextResponse.json({
+        success: true,
+        cancel_at_period_end: false,
+        access_until: now.toISOString(),
+        message: 'Subscription cancelled',
+      });
+    }
+
+    // Fetch real Stripe state
+    let sub: any;
     try {
-      // Get subscription from Stripe
-      const subscription = await stripe.subscriptions.retrieve(
-        license.stripe_subscription_id
-      ) as any; // Cast to any to avoid TypeScript issues
-
-      // Check if within 14-day cooling period
-      const createdDate = new Date(subscription.created * 1000);
-      const now = new Date();
-      const daysSinceCreation = Math.floor(
-        (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      if (daysSinceCreation <= COOLING_PERIOD_DAYS) {
-        // WITHIN COOLING PERIOD - Cancel immediately and refund
-        await stripe.subscriptions.cancel(license.stripe_subscription_id);
-
-        // Get the latest invoice and refund it
-        const invoices = await stripe.invoices.list({
-          subscription: license.stripe_subscription_id,
-          limit: 1,
-        });
-
-        if (invoices.data.length > 0) {
-          const latestInvoice = invoices.data[0] as any;
-          
-          if (latestInvoice.payment_intent) {
-            const paymentIntentId = typeof latestInvoice.payment_intent === 'string'
-              ? latestInvoice.payment_intent
-              : latestInvoice.payment_intent.id;
-
-            await stripe.refunds.create({
-              payment_intent: paymentIntentId,
-              reason: 'requested_by_customer',
-            });
-          }
-        }
-
-        // Update license to cancelled immediately
-        await supabase
-          .from('licenses')
-          .update({ 
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString(),
-            cancelled_during_cooling: true
-          })
-          .eq('id', license.id);
-
-        // Broadcast cancellation event for live updates
-        await broadcastPaymentEvent(staff.email, {
-          type: 'subscription_cancelled',
-          message: 'Subscription cancelled and refunded',
-          date: new Date().toISOString(),
-        });
-
-        return NextResponse.json({
-          success: true,
-          message: 'Subscription cancelled and refunded',
-          refunded: true,
-        });
-
-      } else {
-        // OUTSIDE COOLING PERIOD - Cancel at period end
-        const updatedSubscription = await stripe.subscriptions.update(
-          license.stripe_subscription_id,
-          { 
-            cancel_at_period_end: true,
-            metadata: {
-              scheduled_for_deletion: 'true',
-              user_email: staff.email
-            }
-          }
-        ) as any; // Cast to any to avoid TypeScript issues
-
-        // Set a flag in database that deletion is scheduled
-        await supabase
-          .from('licenses')
-          .update({ 
-            cancel_at_period_end: true,
-            scheduled_for_deletion_at: new Date(updatedSubscription.current_period_end * 1000).toISOString(),
-            deletion_reason: 'subscription_cancelled'
-          })
-          .eq('id', license.id);
-
-        // Broadcast cancellation event
-        await broadcastPaymentEvent(staff.email, {
-          type: 'subscription_cancelled_scheduled',
-          message: 'Subscription will end at billing period',
-          date: new Date().toISOString(),
-          end_date: new Date(updatedSubscription.current_period_end * 1000).toISOString(),
-        });
-
-        return NextResponse.json({
-          success: true,
-          message: 'Subscription will be cancelled at period end',
+      sub = await stripe.subscriptions.retrieve(license.stripe_subscription_id);
+    } catch (e: any) {
+      if (e.code === 'resource_missing') {
+        // Gone from Stripe — sync DB, no period to wait for
+        await supabase.from('licenses').update({
+          status: 'cancelled',
+          stripe_subscription_id: null,
+          cancelled_at: now.toISOString(),
           cancel_at_period_end: true,
-          end_date: new Date(updatedSubscription.current_period_end * 1000).toISOString(),
-        });
-      }
-
-    } catch (stripeError: any) {
-      console.error('Stripe error:', stripeError);
-      
-      // If subscription doesn't exist in Stripe, just update database
-      if (stripeError.code === 'resource_missing') {
-        await supabase
-          .from('licenses')
-          .update({ 
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString()
-          })
-          .eq('id', license.id);
-
+          scheduled_for_deletion_at: now.toISOString(),
+        }).eq('id', license.id);
         return NextResponse.json({
           success: true,
+          cancel_at_period_end: false,
+          access_until: now.toISOString(),
           message: 'Subscription cancelled',
-          warning: 'Subscription not found in Stripe'
         });
       }
+      throw e;
+    }
 
-      throw stripeError;
+    // Already fully cancelled in Stripe
+    if (sub.status === 'canceled') {
+      await supabase.from('licenses').update({
+        status: 'cancelled',
+        stripe_subscription_id: null,
+        cancelled_at: now.toISOString(),
+        cancel_at_period_end: true,
+        scheduled_for_deletion_at: now.toISOString(),
+      }).eq('id', license.id);
+      return NextResponse.json({
+        success: true,
+        cancel_at_period_end: false,
+        access_until: now.toISOString(),
+        message: 'Subscription already cancelled',
+      });
+    }
+
+    // Already pending cancel — just return current state
+    if (sub.cancel_at_period_end) {
+      const periodEnd = new Date(sub.current_period_end * 1000);
+      return NextResponse.json({
+        success: true,
+        cancel_at_period_end: true,
+        access_until: periodEnd.toISOString(),
+        message: 'Subscription already scheduled to cancel at end of billing period',
+      });
+    }
+
+    // --- Cooling period: cancel immediately in Stripe, but keep access until period end ---
+    const daysSince = Math.floor(
+      (now.getTime() - new Date(license.created_at).getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const periodEnd = new Date(sub.current_period_end * 1000);
+
+    if (daysSince <= COOLING_PERIOD_DAYS) {
+      // Cancel immediately in Stripe (no more charges)
+      await stripe.subscriptions.cancel(license.stripe_subscription_id);
+
+      // DB: mark cancellation pending, access continues until period end
+      await supabase.from('licenses').update({
+        // Keep status as 'active' so dashboard still allows access
+        // cancelled_during_cooling flags it for the banner
+        cancelled_at: now.toISOString(),
+        cancelled_during_cooling: true,
+        cancel_at_period_end: true,
+        stripe_subscription_id: null, // subscription is gone from Stripe
+        scheduled_for_deletion_at: periodEnd.toISOString(),
+        // Store period end so dashboard knows when to cut off access
+        expires_at: periodEnd.toISOString(),
+      }).eq('id', license.id);
+
+      return NextResponse.json({
+        success: true,
+        cancel_at_period_end: true,
+        cooling_cancel: true,
+        access_until: periodEnd.toISOString(),
+        message: `Subscription cancelled. You have access until ${periodEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
+      });
+
+    } else {
+      // --- Outside cooling: cancel at period end in Stripe ---
+      const updated = await stripe.subscriptions.update(
+        license.stripe_subscription_id,
+        { cancel_at_period_end: true }
+      ) as any;
+
+      const updatedPeriodEnd = new Date(updated.current_period_end * 1000);
+
+      await supabase.from('licenses').update({
+        cancel_at_period_end: true,
+        cancelled_at: now.toISOString(),
+        scheduled_for_deletion_at: updatedPeriodEnd.toISOString(),
+        expires_at: updatedPeriodEnd.toISOString(),
+        deletion_reason: 'subscription_cancelled',
+      }).eq('id', license.id);
+
+      return NextResponse.json({
+        success: true,
+        cancel_at_period_end: true,
+        cooling_cancel: false,
+        access_until: updatedPeriodEnd.toISOString(),
+        message: `Subscription will cancel on ${updatedPeriodEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. You keep access until then.`,
+      });
     }
 
   } catch (error: any) {
     console.error('Cancel error:', error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message || 'Failed to cancel subscription' }, { status: 500 });
   }
 }
