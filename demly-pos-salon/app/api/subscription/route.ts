@@ -1,165 +1,150 @@
 // app/api/subscription/route.ts
+// Key additions vs the current version:
+//   - Returns cancelled_during_cooling from DB
+//   - Returns cancels_at (the period end / access cutoff date)
+//   - Syncs DB if Stripe says cancelled but DB doesn't
+//
+//
+
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 
 export async function GET() {
-  console.log('🔵 ===== SUBSCRIPTION API CALLED =====');
-  
   try {
     const cookieStore = await cookies();
-    
-    // Get the staff cookie first
     const staffCookie = cookieStore.get('current_staff')?.value;
-    
-    if (!staffCookie) {
-      return NextResponse.json(
-        { error: 'Unauthorized - No staff session' }, 
-        { status: 401 }
-      );
+    if (!staffCookie) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    let staff: any;
+    try { staff = JSON.parse(decodeURIComponent(staffCookie)); }
+    catch { return NextResponse.json({ error: 'Invalid session' }, { status: 401 }); }
+
+    if (!staff.email) {
+      return NextResponse.json({ error: 'Session missing email — please log out and log back in' }, { status: 401 });
     }
 
-    // Parse staff data from cookie
-    let staff;
-    try {
-      staff = JSON.parse(decodeURIComponent(staffCookie));
-      console.log('✅ Staff from cookie:', { 
-        id: staff.id, 
-        name: staff.name, 
-        email: staff.email 
-      });
-    } catch (e) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Invalid staff session' }, 
-        { status: 401 }
-      );
-    }
-
-    // Use service role client for database access
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        cookies: {
-          get() { return null; },
-          set() {},
-          remove() {},
-        },
-      }
+      { cookies: { get() { return null; }, set() {}, remove() {} } }
     );
 
-    // Get user's license by staff email
     const { data: license, error } = await supabase
       .from('licenses')
       .select('*')
       .eq('email', staff.email)
       .maybeSingle();
 
-    if (error) {
-      console.error('❌ Database error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!license) return NextResponse.json({ subscription: null });
 
-    if (!license) {
-      return NextResponse.json({ subscription: null });
-    }
-
-    // Calculate cooling days
-    const createdDate = new Date(license.created_at);
+    // Cooling period days left
     const now = new Date();
     const daysSince = Math.floor(
-      (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+      (now.getTime() - new Date(license.created_at).getTime()) / (1000 * 60 * 60 * 24)
     );
     const coolingDaysLeft = Math.max(0, 14 - daysSince);
 
-    // Calculate deletion days if scheduled
+    // Deletion countdown
     let daysUntilDeletion = null;
     if (license.deletion_scheduled_at) {
-      const deletionDate = new Date(license.deletion_scheduled_at);
-      const diffTime = deletionDate.getTime() - now.getTime();
-      daysUntilDeletion = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+      daysUntilDeletion = Math.max(
+        0,
+        Math.ceil((new Date(license.deletion_scheduled_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      );
     }
 
-    // Try to get from Stripe
-    try {
-      if (!license.stripe_subscription_id) {
-        throw new Error('No subscription ID');
-      }
+    // Base response shape — used as fallback if Stripe fails
+    const baseSubscription = {
+      id: 'license-' + license.id,
+      plan: license.plan_type,
+      status: license.status,
+      current_period_start: license.created_at,
+      current_period_end: license.expires_at,
+      cancel_at_period_end: license.cancel_at_period_end || false,
+      // KEY FIELDS FOR BANNER:
+      cancelled_during_cooling: license.cancelled_during_cooling || false,
+      cancels_at: license.expires_at || null, // access cutoff date
+      price: license.plan_type === 'annual' ? 299 : 29,
+      currency: 'gbp',
+      payment_method: null,
+      next_payment_amount: null,
+      next_payment_date: null,
+      created: license.created_at,
+      cooling_days_left: coolingDaysLeft,
+      deletion_scheduled: !!license.deletion_scheduled_at,
+      days_until_deletion: daysUntilDeletion,
+      deletion_date: license.deletion_scheduled_at,
+      failed_payment_count: license.failed_payment_count || 0,
+      payment_failed_at: license.payment_failed_at,
+    };
 
-      console.log('🔍 Fetching from Stripe:', license.stripe_subscription_id);
-      
-      // Get subscription with payment method expanded
-      const subscription = await stripe.subscriptions.retrieve(
+    // If cancelled during cooling, Stripe sub is already gone — return DB data
+    if (license.cancelled_during_cooling || !license.stripe_subscription_id) {
+      return NextResponse.json({ subscription: baseSubscription });
+    }
+
+    // Fetch live from Stripe
+    try {
+      const sub = await stripe.subscriptions.retrieve(
         license.stripe_subscription_id,
-        {
-          expand: [
-            'default_payment_method',
-            'customer.invoice_settings.default_payment_method',
-            'latest_invoice'
-          ],
-        }
+        { expand: ['default_payment_method', 'customer.invoice_settings.default_payment_method', 'latest_invoice'] }
       ) as any;
 
-      // Get payment method details
-      let paymentMethod = null;
-      
-      // Try subscription default payment method first
-      if (subscription.default_payment_method) {
-        const pm = subscription.default_payment_method;
-        if (pm?.card) {
-          paymentMethod = {
-            brand: pm.card.brand,
-            last4: pm.card.last4,
-            exp_month: pm.card.exp_month,
-            exp_year: pm.card.exp_year,
-          };
-        }
-      } 
-      // Try customer default payment method
-      else if (subscription.customer && typeof subscription.customer !== 'string') {
-        const customer = subscription.customer;
-        if (customer.invoice_settings?.default_payment_method?.card) {
-          const pm = customer.invoice_settings.default_payment_method;
-          paymentMethod = {
-            brand: pm.card.brand,
-            last4: pm.card.last4,
-            exp_month: pm.card.exp_month,
-            exp_year: pm.card.exp_year,
-          };
-        }
+      // Sync if Stripe says cancelled but DB doesn't
+      if (sub.status === 'canceled' && license.status !== 'cancelled') {
+        await supabase.from('licenses').update({
+          status: 'cancelled',
+          stripe_subscription_id: null,
+        }).eq('id', license.id);
       }
 
-      // Get upcoming invoice for next payment - FIXED: use type assertion
+      // Payment method
+      let paymentMethod = null;
+      const pm = sub.default_payment_method 
+        || sub.customer?.invoice_settings?.default_payment_method;
+      if (pm?.card) {
+        paymentMethod = {
+          brand: pm.card.brand,
+          last4: pm.card.last4,
+          exp_month: pm.card.exp_month,
+          exp_year: pm.card.exp_year,
+        };
+      }
+
+      // Upcoming invoice
       let upcomingInvoice = null;
       try {
-        // Use 'as any' to bypass TypeScript
-        const invoicesApi = stripe.invoices as any;
-        upcomingInvoice = await invoicesApi.upcoming({
+        upcomingInvoice = await (stripe.invoices as any).upcoming({
           subscription: license.stripe_subscription_id,
         });
-      } catch (invoiceError) {
-        console.log('No upcoming invoice');
-      }
+      } catch {}
 
-      const price = subscription.items?.data[0]?.price;
+      const price = sub.items?.data[0]?.price;
 
       return NextResponse.json({
         subscription: {
-          id: subscription.id,
+          id: sub.id,
           plan: license.plan_type || (price?.recurring?.interval === 'month' ? 'monthly' : 'annual'),
-          status: subscription.status,
-          current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          cancel_at_period_end: subscription.cancel_at_period_end,
+          status: sub.status,
+          current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          cancel_at_period_end: sub.cancel_at_period_end,
+          // KEY FIELDS FOR BANNER:
+          cancelled_during_cooling: license.cancelled_during_cooling || false,
+          cancels_at: sub.cancel_at_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : null,
           price: price?.unit_amount ? price.unit_amount / 100 : (license.plan_type === 'annual' ? 299 : 29),
           currency: price?.currency || 'gbp',
           payment_method: paymentMethod,
           next_payment_amount: upcomingInvoice?.total ? upcomingInvoice.total / 100 : null,
-          next_payment_date: upcomingInvoice?.next_payment_attempt 
-            ? new Date(upcomingInvoice.next_payment_attempt * 1000).toISOString() 
+          next_payment_date: upcomingInvoice?.next_payment_attempt
+            ? new Date(upcomingInvoice.next_payment_attempt * 1000).toISOString()
             : null,
-          created: new Date(subscription.created * 1000).toISOString(),
+          created: new Date(sub.created * 1000).toISOString(),
           cooling_days_left: coolingDaysLeft,
           deletion_scheduled: !!license.deletion_scheduled_at,
           days_until_deletion: daysUntilDeletion,
@@ -169,38 +154,17 @@ export async function GET() {
         }
       });
 
-    } catch (stripeError: any) {
-      console.error('❌ Stripe fetch failed:', stripeError.message);
-      
-      // Return license data as fallback
-      return NextResponse.json({
-        subscription: {
-          id: 'license-' + license.id,
-          plan: license.plan_type,
-          status: license.status,
-          current_period_start: license.created_at,
-          current_period_end: license.expires_at,
-          cancel_at_period_end: false,
-          price: license.plan_type === 'annual' ? 299 : 29,
-          currency: 'gbp',
-          payment_method: null,
-          next_payment_amount: null,
-          next_payment_date: null,
-          created: license.created_at,
-          cooling_days_left: coolingDaysLeft,
-          deletion_scheduled: !!license.deletion_scheduled_at,
-          days_until_deletion: daysUntilDeletion,
-          deletion_date: license.deletion_scheduled_at,
-          failed_payment_count: license.failed_payment_count || 0,
-          payment_failed_at: license.payment_failed_at,
-        }
-      });
+    } catch (stripeErr: any) {
+      if (stripeErr.code === 'resource_missing') {
+        await supabase.from('licenses').update({
+          status: 'cancelled', stripe_subscription_id: null,
+        }).eq('id', license.id);
+      }
+      // Return DB fallback
+      return NextResponse.json({ subscription: baseSubscription });
     }
+
   } catch (error: any) {
-    console.error('❌ Error:', error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
