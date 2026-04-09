@@ -107,10 +107,11 @@ const startScanning = async () => {
   
   try {
     const { BrowserMultiFormatReader } = await import('@zxing/browser');
-    const reader = new BrowserMultiFormatReader();
     
-    // Get available video devices
-    const videoInputDevices = await reader.listVideoInputDevices();
+    // Get available video devices - this is a static method
+    const videoInputDevices = await BrowserMultiFormatReader.listVideoInputDevices();
+    
+    const reader = new BrowserMultiFormatReader();
     
     // Try to find back camera first
     let selectedDeviceId: string | undefined;
