@@ -99,44 +99,63 @@ function ScanContent() {
       })
       .catch(console.error);
   };
-
-  const startScanning = async () => {
-    if (!videoRef.current) return;
+const startScanning = async () => {
+  if (!videoRef.current) return;
+  
+  setError(null);
+  setCameraError(false);
+  
+  try {
+    const { BrowserMultiFormatReader } = await import('@zxing/browser');
+    const reader = new BrowserMultiFormatReader();
     
-    setError(null);
-    setCameraError(false);
+    // Get available video devices
+    const videoInputDevices = await reader.listVideoInputDevices();
     
-    try {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      const reader = new BrowserMultiFormatReader();
-      
-      // Try to get back camera first
-      const controls = await reader.decodeFromVideoDevice(
-        { facingMode: 'environment' },
-        videoRef.current,
-        (result, error) => {
-          if (result) {
-            const barcode = result.getText();
-            if (lastBarcodeRef.current !== barcode) {
-              lastBarcodeRef.current = barcode;
-              handleBarcodeScanned(barcode);
-            }
-          }
-          if (error && error.name !== 'NotFoundException') {
-            console.error('Scan error:', error);
+    // Try to find back camera first
+    let selectedDeviceId: string | undefined;
+    
+    // Look for back camera (environment facing)
+    const backCamera = videoInputDevices.find(
+      device => device.label.toLowerCase().includes('back') || 
+                device.label.toLowerCase().includes('environment')
+    );
+    
+    if (backCamera) {
+      selectedDeviceId = backCamera.deviceId;
+    } else if (videoInputDevices.length > 0) {
+      // Fallback to first available camera
+      selectedDeviceId = videoInputDevices[0].deviceId;
+    }
+    
+    console.log('Selected camera:', selectedDeviceId);
+    
+    const controls = await reader.decodeFromVideoDevice(
+      selectedDeviceId,
+      videoRef.current,
+      (result, error) => {
+        if (result) {
+          const barcode = result.getText();
+          if (lastBarcodeRef.current !== barcode) {
+            lastBarcodeRef.current = barcode;
+            handleBarcodeScanned(barcode);
           }
         }
-      );
-      
-      (window as any).__scannerControls = controls;
-      setScanning(true);
-    } catch (err) {
-      console.error('Failed to start camera:', err);
-      setCameraError(true);
-      setError('Failed to access camera. Please ensure camera permissions are granted.');
-      setScanning(false);
-    }
-  };
+        if (error && error.name !== 'NotFoundException') {
+          console.error('Scan error:', error);
+        }
+      }
+    );
+    
+    (window as any).__scannerControls = controls;
+    setScanning(true);
+  } catch (err) {
+    console.error('Failed to start camera:', err);
+    setCameraError(true);
+    setError('Failed to access camera. Please ensure camera permissions are granted.');
+    setScanning(false);
+  }
+};
 
   const stopScanning = () => {
     const controls = (window as any).__scannerControls;
