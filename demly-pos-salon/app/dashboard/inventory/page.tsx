@@ -816,27 +816,45 @@ function InventoryContent() {
   };
 
   // Generate QR code for mobile scanning
-  const generateMobileSession = async () => {
-    setQrLoading(true);
-    try {
-      const res = await fetch('/api/inventory/mobile-session', {
-        method: 'POST'
-      });
+const generateMobileSession = async () => {
+  setQrLoading(true);
+  try {
+    console.log('Generating QR session...');
+    
+    const res = await fetch('/api/inventory/mobile-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    console.log('Response status:', res.status);
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      console.error('Failed to generate QR code:', errorData);
       
-      if (res.ok) {
-        const data = await res.json();
-        setQrSessionId(data.sessionId);
-        setShowQRModal(true);
+      if (res.status === 401) {
+        alert('Please sign in to use this feature');
       } else {
-        alert('Failed to generate QR code');
+        alert(errorData.error || 'Failed to generate QR code. Please try again.');
       }
-    } catch (error) {
-      console.error('Error generating session:', error);
-      alert('Failed to generate QR code');
-    } finally {
-      setQrLoading(false);
+      return;
     }
-  };
+    
+    const data = await res.json();
+    console.log('Session created:', data);
+    
+    setQrSessionId(data.sessionId);
+    setShowQRModal(true);
+  } catch (error) {
+    console.error('Error generating session:', error);
+    alert('Failed to generate QR code. Please check your connection and try again.');
+  } finally {
+    setQrLoading(false);
+  }
+};
+
 
   const filteredProducts = products.filter(product => {
     // Search filter
@@ -1442,64 +1460,68 @@ function InventoryContent() {
       )}
 
       {/* QR Code Modal - NEW */}
-      {showQRModal && qrSessionId && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Scan to Add Products</h3>
-              <button 
-                onClick={() => {
-                  setShowQRModal(false);
-                  setQrSessionId(null);
-                }} 
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="text-center space-y-4">
-              <p className="text-muted-foreground">
-                Scan this QR code with your phone camera to start adding products quickly
-              </p>
-              
-              {/* QR Code */}
-              <div className="bg-white p-4 rounded-xl inline-block">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                    `${window.location.origin}/inventory/scan?session=${qrSessionId}`
-                  )}`}
-                  alt="QR Code"
-                  width={250}
-                  height={250}
-                  className="rounded-lg"
-                />
-              </div>
-              
-              <div className="p-3 bg-muted/30 rounded-lg border border-border">
-                <p className="text-sm text-muted-foreground mb-1">Session Code</p>
-                <p className="text-2xl font-mono font-bold text-foreground tracking-wider">
-                  {qrSessionId}
-                </p>
-              </div>
-              
-              <p className="text-xs text-muted-foreground">
-                This session will expire in 1 hour
-              </p>
-              
-              <button
-                onClick={() => {
-                  setShowQRModal(false);
-                  setQrSessionId(null);
-                }}
-                className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
-              >
-                Done
-              </button>
-            </div>
-          </div>
+{/* QR Code Modal */}
+{showQRModal && qrSessionId && (
+  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold text-foreground">Scan to Add Products</h3>
+        <button 
+          onClick={() => {
+            setShowQRModal(false);
+            setQrSessionId(null);
+          }} 
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      
+      <div className="text-center space-y-4">
+        <p className="text-muted-foreground">
+          Scan this QR code with your phone camera to start adding products quickly
+        </p>
+        
+        {/* QR Code */}
+        <div className="bg-white p-4 rounded-xl inline-block">
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+              `https://demly.co.uk/inventory/scan?session=${qrSessionId}`
+            )}`}
+            alt="QR Code"
+            width={250}
+            height={250}
+            className="rounded-lg"
+          />
         </div>
-      )}
+        
+        <div className="p-3 bg-muted/30 rounded-lg border border-border">
+          <p className="text-sm text-muted-foreground mb-1">Session Code</p>
+          <p className="text-2xl font-mono font-bold text-foreground tracking-wider">
+            {qrSessionId}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Or visit: https://demly.co.uk/inventory/scan?session={qrSessionId}
+          </p>
+        </div>
+        
+        <p className="text-xs text-muted-foreground">
+          This session will expire in 1 hour
+        </p>
+        
+        <button
+          onClick={() => {
+            setShowQRModal(false);
+            setQrSessionId(null);
+          }}
+          className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && itemToDelete && (
