@@ -190,43 +190,33 @@ function ScanContent() {
     }
   };
 
-  const submitAll = async () => {
-    if (!sessionId || products.length === 0) return;
+const submitAll = async () => {
+  if (!sessionId || products.length === 0) return;
+  
+  setSubmitting(true);
+  
+  try {
+    const res = await fetch('/api/inventory/bulk-add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, products })
+    });
     
-    setSubmitting(true);
-    
-    try {
-      const res = await fetch('/api/inventory/bulk-add', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          // No auth needed since session is already validated
-        },
-        body: JSON.stringify({
-          sessionId,
-          products
-        })
+    if (res.ok) {
+      await fetch(`/api/inventory/mobile-session?sessionId=${sessionId}`, {
+        method: 'DELETE'
       });
-      
-      if (res.ok) {
-        // Clear session
-        await fetch(`/api/inventory/mobile-session?sessionId=${sessionId}`, {
-          method: 'DELETE'
-        });
-        
-        // Redirect to inventory page
-        window.location.href = '/dashboard/inventory?added=true';
-      } else {
-        const error = await res.json();
-        setError(error.error || 'Failed to add products');
-      }
-    } catch (err) {
-      setError('Failed to submit products');
-    } finally {
-      setSubmitting(false);
+      window.location.href = '/dashboard/inventory?added=true';
+    } else {
+      const error = await res.json();
+      setError(error.error || 'Failed to add products');
     }
-  };
-
+  } catch (err) {
+    setError('Failed to submit products');
+  } finally {
+    setSubmitting(false);
+  }
+};
   if (checkingSession) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -248,7 +238,9 @@ function ScanContent() {
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Inventory
-          </Link>
+        <Link href="/dashboard/inventory" className="text-muted-foreground hover:text-foreground">
+  <ArrowLeft className="w-5 h-5" />
+</Link>
         </div>
       </div>
     );
