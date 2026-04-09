@@ -44,7 +44,8 @@ import {
   ToggleRight,
   Power,
   PowerOff,
-  Smile
+  Smile,
+  QrCode
 } from "lucide-react";
 import EmojiPicker from 'emoji-picker-react';
 
@@ -99,6 +100,11 @@ function InventoryContent() {
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingService, setEditingService] = useState<ServiceType | null>(null);
+  
+  // QR Code Quick Scan
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrSessionId, setQrSessionId] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
   
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -195,6 +201,15 @@ function InventoryContent() {
   useEffect(() => {
     calculateStats();
   }, [products]);
+
+  // Check for success message from QR scan
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('added') === 'true') {
+      alert('Products added successfully!');
+      window.history.replaceState({}, '', '/dashboard/inventory');
+    }
+  }, []);
 
   const loadData = async () => {
     if (!userId) return;
@@ -800,6 +815,29 @@ function InventoryContent() {
     }
   };
 
+  // Generate QR code for mobile scanning
+  const generateMobileSession = async () => {
+    setQrLoading(true);
+    try {
+      const res = await fetch('/api/inventory/mobile-session', {
+        method: 'POST'
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setQrSessionId(data.sessionId);
+        setShowQRModal(true);
+      } else {
+        alert('Failed to generate QR code');
+      }
+    } catch (error) {
+      console.error('Error generating session:', error);
+      alert('Failed to generate QR code');
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
   const filteredProducts = products.filter(product => {
     // Search filter
     const searchMatch = 
@@ -909,6 +947,20 @@ function InventoryContent() {
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
+          
+          {/* Quick Scan Button - NEW */}
+          <button
+            onClick={generateMobileSession}
+            disabled={qrLoading}
+            className="bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            {qrLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <QrCode className="w-4 h-4" />
+            )}
+            Quick Scan
+          </button>
           
           {/* New Item Dropdown - Fixed hover issue */}
           <div className="relative" ref={newItemDropdownRef}>
@@ -1386,6 +1438,66 @@ function InventoryContent() {
               Add Your First Product
             </button>
           )}
+        </div>
+      )}
+
+      {/* QR Code Modal - NEW */}
+      {showQRModal && qrSessionId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Scan to Add Products</h3>
+              <button 
+                onClick={() => {
+                  setShowQRModal(false);
+                  setQrSessionId(null);
+                }} 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="text-center space-y-4">
+              <p className="text-muted-foreground">
+                Scan this QR code with your phone camera to start adding products quickly
+              </p>
+              
+              {/* QR Code */}
+              <div className="bg-white p-4 rounded-xl inline-block">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                    `${window.location.origin}/inventory/scan?session=${qrSessionId}`
+                  )}`}
+                  alt="QR Code"
+                  width={250}
+                  height={250}
+                  className="rounded-lg"
+                />
+              </div>
+              
+              <div className="p-3 bg-muted/30 rounded-lg border border-border">
+                <p className="text-sm text-muted-foreground mb-1">Session Code</p>
+                <p className="text-2xl font-mono font-bold text-foreground tracking-wider">
+                  {qrSessionId}
+                </p>
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                This session will expire in 1 hour
+              </p>
+              
+              <button
+                onClick={() => {
+                  setShowQRModal(false);
+                  setQrSessionId(null);
+                }}
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
