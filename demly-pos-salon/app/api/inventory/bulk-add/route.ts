@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Get token from Authorization header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json({ error: 'Unauthorized - No token provided' }, { status: 401 });
+    }
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      console.error('Auth error:', authError);
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { sessionId, products } = body;
+    const { products } = body;
 
-    if (!sessionId || !products || !Array.isArray(products)) {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return NextResponse.json({ error: 'No products provided' }, { status: 400 });
     }
 
     // Insert all products
@@ -23,9 +35,9 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       name: p.name,
       barcode: p.barcode,
-      stock_quantity: p.infiniteStock ? -1 : p.quantity,
+      stock_quantity: p.infiniteStock ? -1 : (p.quantity || 1),
       track_inventory: !p.infiniteStock,
-      has_infinite_stock: p.infiniteStock,
+      has_infinite_stock: p.infiniteStock || false,
       price: 0, // Default price, user can edit later
       cost: 0,
       low_stock_threshold: p.infiniteStock ? 0 : 10,
@@ -36,7 +48,10 @@ export async function POST(request: NextRequest) {
       .from('products')
       .insert(productsToInsert);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error:', error);
+      throw error;
+    }
 
     return NextResponse.json({ 
       success: true, 
