@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { 
   Camera, 
   X, 
@@ -28,6 +29,7 @@ interface ScannedProduct {
 
 function ScanContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const sessionId = searchParams.get('session');
   
   const [scanning, setScanning] = useState(false);
@@ -47,6 +49,7 @@ function ScanContent() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastBarcodeRef = useRef<string>('');
   const formRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -78,7 +81,9 @@ function ScanContent() {
   // Auto-scroll to form when it appears
   useEffect(() => {
     if (showAddForm && formRef.current) {
-      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     }
   }, [showAddForm]);
 
@@ -172,6 +177,10 @@ function ScanContent() {
         setShowAddForm(false);
         setLastScanned(null);
         lastBarcodeRef.current = '';
+        
+        // Scroll back to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
         setTimeout(() => startScanning(), 300);
       } else {
         const error = await res.json();
@@ -230,9 +239,19 @@ function ScanContent() {
     }
   };
 
+  const handleBack = () => {
+    if (showAddForm) {
+      // If showing form, cancel it and go back to camera
+      cancelAdd();
+    } else {
+      // If on main screen, go back to inventory
+      router.push('/dashboard/inventory');
+    }
+  };
+
   if (checkingSession) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="fixed inset-0 bg-background flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Validating session...</p>
@@ -243,7 +262,7 @@ function ScanContent() {
 
   if (error && !sessionValid) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-background flex items-center justify-center p-4">
         <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full text-center">
           <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
           <h1 className="text-xl font-bold text-foreground mb-2">Invalid Session</h1>
@@ -261,27 +280,29 @@ function ScanContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div ref={containerRef} className="fixed inset-0 bg-background flex flex-col">
       {/* Fixed Header */}
-      <div className="fixed top-0 left-0 right-0 bg-card border-b border-border p-4 z-20">
+      <div className="flex-shrink-0 bg-card border-b border-border p-4">
         <div className="flex items-center justify-between">
-          <Link 
-            href="/dashboard/inventory" 
+          <button 
+            onClick={handleBack}
             className="text-muted-foreground hover:text-foreground p-2 -ml-2"
           >
             <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-semibold text-foreground">Scan Products</h1>
+          </button>
+          <h1 className="text-lg font-semibold text-foreground">
+            {showAddForm ? 'Add Product' : 'Scan Products'}
+          </h1>
           <div className="w-9" />
         </div>
       </div>
 
-      {/* Main Content - Scrollable */}
-      <div className="pt-16 pb-24 px-4">
-        {/* Camera View */}
-        <div className="relative bg-black rounded-xl overflow-hidden mb-4" style={{ aspectRatio: '1/1' }}>
-          {!showAddForm ? (
-            <>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="p-4 pb-24">
+          {/* Camera View - Only show when not in add form */}
+          {!showAddForm && (
+            <div className="relative bg-black rounded-xl overflow-hidden mb-4" style={{ aspectRatio: '1/1' }}>
               <video
                 ref={videoRef}
                 className="absolute inset-0 w-full h-full object-cover"
@@ -340,167 +361,169 @@ function ScanContent() {
                   </div>
                 </>
               )}
-            </>
-          ) : null}
-        </div>
-
-        {/* Add Product Form */}
-        {showAddForm && (
-          <div ref={formRef} className="bg-card border border-border rounded-xl p-4 mb-4 animate-in slide-in-from-bottom duration-300">
-            <h2 className="text-lg font-semibold text-foreground mb-3">Add Product</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Barcode
-                </label>
-                <div className="bg-muted/50 border border-border rounded-lg px-3 py-3 text-foreground font-mono text-base">
-                  {lastScanned}
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  Product Name *
-                </label>
-                <input
-                  type="text"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-3 text-foreground text-base focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Enter product name"
-                  autoFocus
-                />
-              </div>
-              
-              {!productInfiniteStock && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">
-                    Quantity
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setProductQuantity(Math.max(1, productQuantity - 1))}
-                      className="p-3 bg-muted rounded-lg hover:bg-accent"
-                    >
-                      <Minus className="w-5 h-5" />
-                    </button>
-                    <input
-                      type="number"
-                      value={productQuantity}
-                      onChange={(e) => setProductQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      min="1"
-                      className="flex-1 bg-background border border-border rounded-lg px-3 py-3 text-foreground text-base text-center focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    <button
-                      onClick={() => setProductQuantity(productQuantity + 1)}
-                      className="p-3 bg-muted rounded-lg hover:bg-accent"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              <label className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/30">
-                <input
-                  type="checkbox"
-                  checked={productInfiniteStock}
-                  onChange={(e) => setProductInfiniteStock(e.target.checked)}
-                  className="w-5 h-5 accent-purple-500"
-                />
-                <span className="text-base text-foreground font-medium flex items-center gap-2">
-                  <Infinity className="w-5 h-5 text-purple-500" />
-                  Infinite Stock
-                </span>
-              </label>
-            </div>
-            
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={cancelAdd}
-                className="flex-1 px-4 py-3 bg-muted text-foreground rounded-lg font-medium text-base"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={addProduct}
-                disabled={!productName.trim()}
-                className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-lg font-medium text-base disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <Check className="w-5 h-5" />
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Error Display */}
-        {error && sessionValid && (
-          <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-2 text-destructive">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <p className="text-sm flex-1">{error}</p>
-            <button onClick={() => setError(null)} className="flex-shrink-0">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Scanned Products List */}
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-border sticky top-16 bg-card z-10">
-            <h2 className="font-semibold text-foreground flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Scanned Products ({products.length})
-            </h2>
-          </div>
-          
-          {products.length === 0 ? (
-            <div className="p-8 text-center">
-              <Box className="w-16 h-16 text-muted-foreground mx-auto mb-3 opacity-50" />
-              <p className="text-muted-foreground">No products scanned yet</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Scan a barcode to start
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {products.map((product, index) => (
-                <div key={index} className="p-4 flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground truncate">{product.name}</p>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground mt-1">
-                      <span className="font-mono text-xs">{product.barcode}</span>
-                      {product.infiniteStock ? (
-                        <span className="flex items-center gap-1 text-purple-500">
-                          <Infinity className="w-3 h-3" />
-                          Infinite
-                        </span>
-                      ) : (
-                        <span>Qty: {product.quantity}</span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => removeProduct(index)}
-                    className="p-2 text-muted-foreground hover:text-destructive flex-shrink-0"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              ))}
             </div>
           )}
+
+          {/* Add Product Form */}
+          {showAddForm && (
+            <div ref={formRef} className="bg-card border border-border rounded-xl p-4 mb-4">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Barcode
+                  </label>
+                  <div className="bg-muted/50 border border-border rounded-lg px-3 py-3 text-foreground font-mono text-base break-all">
+                    {lastScanned}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Product Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-3 text-foreground text-base focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Enter product name"
+                    autoFocus
+                  />
+                </div>
+                
+                {!productInfiniteStock && (
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      Quantity
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setProductQuantity(Math.max(1, productQuantity - 1))}
+                        className="p-3 bg-muted rounded-lg hover:bg-accent active:bg-accent/70 touch-manipulation"
+                      >
+                        <Minus className="w-5 h-5" />
+                      </button>
+                      <input
+                        type="number"
+                        value={productQuantity}
+                        onChange={(e) => setProductQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                        min="1"
+                        className="flex-1 bg-background border border-border rounded-lg px-3 py-3 text-foreground text-base text-center focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setProductQuantity(productQuantity + 1)}
+                        className="p-3 bg-muted rounded-lg hover:bg-accent active:bg-accent/70 touch-manipulation"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <label className="flex items-center gap-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/30 active:bg-purple-500/20 touch-manipulation">
+                  <input
+                    type="checkbox"
+                    checked={productInfiniteStock}
+                    onChange={(e) => setProductInfiniteStock(e.target.checked)}
+                    className="w-5 h-5 accent-purple-500"
+                  />
+                  <span className="text-base text-foreground font-medium flex items-center gap-2">
+                    <Infinity className="w-5 h-5 text-purple-500" />
+                    Infinite Stock
+                  </span>
+                </label>
+              </div>
+              
+              <div className="flex gap-3 mt-5">
+                <button
+                  type="button"
+                  onClick={cancelAdd}
+                  className="flex-1 px-4 py-3 bg-muted text-foreground rounded-lg font-medium text-base hover:bg-accent active:bg-accent/70 touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={addProduct}
+                  disabled={!productName.trim()}
+                  className="flex-1 px-4 py-3 bg-primary text-primary-foreground rounded-lg font-medium text-base disabled:opacity-50 flex items-center justify-center gap-2 active:opacity-80 touch-manipulation"
+                >
+                  <Check className="w-5 h-5" />
+                  Add
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && sessionValid && (
+            <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-2 text-destructive">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <p className="text-sm flex-1">{error}</p>
+              <button onClick={() => setError(null)} className="flex-shrink-0 touch-manipulation">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Scanned Products List */}
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-border bg-card">
+              <h2 className="font-semibold text-foreground flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Scanned Products ({products.length})
+              </h2>
+            </div>
+            
+            {products.length === 0 ? (
+              <div className="p-8 text-center">
+                <Box className="w-16 h-16 text-muted-foreground mx-auto mb-3 opacity-50" />
+                <p className="text-muted-foreground">No products scanned yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Scan a barcode to start
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {products.map((product, index) => (
+                  <div key={index} className="p-4 flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground break-words">{product.name}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground mt-1">
+                        <span className="font-mono text-xs break-all">{product.barcode}</span>
+                        {product.infiniteStock ? (
+                          <span className="flex items-center gap-1 text-purple-500">
+                            <Infinity className="w-3 h-3" />
+                            Infinite
+                          </span>
+                        ) : (
+                          <span>Qty: {product.quantity}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeProduct(index)}
+                      className="p-2 text-muted-foreground hover:text-destructive flex-shrink-0 touch-manipulation"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Fixed Bottom Button */}
-      {products.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border z-20">
+      {products.length > 0 && !showAddForm && (
+        <div className="flex-shrink-0 p-4 bg-background border-t border-border">
           <button
             onClick={submitAll}
             disabled={submitting}
-            className="w-full bg-primary text-primary-foreground py-4 rounded-lg font-semibold text-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full bg-primary text-primary-foreground py-4 rounded-lg font-semibold text-lg hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation"
           >
             {submitting ? (
               <>
@@ -523,7 +546,7 @@ function ScanContent() {
 export default function ScanPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="fixed inset-0 bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     }>
