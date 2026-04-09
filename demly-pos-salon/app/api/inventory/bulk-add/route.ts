@@ -4,35 +4,42 @@ import { createClient } from '@supabase/supabase-js';
 // Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 export async function POST(request: NextRequest) {
   try {
-    // Get token from Authorization header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized - No token provided' }, { status: 401 });
-    }
-    
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error('Auth error:', authError);
-      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
-    }
-
     const body = await request.json();
-    const { products } = body;
+    const { sessionId, products } = body;
 
-    if (!products || !Array.isArray(products) || products.length === 0) {
+    if (!sessionId || !products || !Array.isArray(products) || products.length === 0) {
       return NextResponse.json({ error: 'No products provided' }, { status: 400 });
+    }
+
+    // Get session to verify it's valid and get user_id
+    const { data: session, error: sessionError } = await supabase
+      .from('mobile_scan_sessions')
+      .select('user_id, expires_at')
+      .eq('session_id', sessionId)
+      .single();
+    
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Invalid or expired session' }, { status: 404 });
+    }
+
+    // Check if session is expired
+    if (new Date(session.expires_at) < new Date()) {
+      await supabase
+        .from('mobile_scan_sessions')
+        .delete()
+        .eq('session_id', sessionId);
+      
+      return NextResponse.json({ error: 'Session expired' }, { status: 404 });
     }
 
     // Insert all products
     const productsToInsert = products.map(p => ({
-      user_id: user.id,
+      user_id: session.user_id,
       name: p.name,
       barcode: p.barcode,
       stock_quantity: p.infiniteStock ? -1 : (p.quantity || 1),
@@ -52,6 +59,12 @@ export async function POST(request: NextRequest) {
       console.error('Supabase error:', error);
       throw error;
     }
+
+    // Delete the session after successful product addition
+    await supabase
+      .from('mobile_scan_sessions')
+      .delete()
+      .eq('session_id', sessionId);
 
     return NextResponse.json({ 
       success: true, 
