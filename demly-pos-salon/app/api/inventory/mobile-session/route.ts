@@ -3,7 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { randomBytes } from 'crypto';
 
-// Store active sessions in memory (in production, use Redis or Supabase)
+// Store active sessions in memory
 const activeSessions = new Map<string, {
   userId: string;
   createdAt: number;
@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      console.error('Auth error:', authError);
+      return NextResponse.json({ error: 'Unauthorized - Please sign in' }, { status: 401 });
     }
 
     const sessionId = generateSessionCode();
@@ -48,13 +49,20 @@ export async function POST(request: NextRequest) {
       products: []
     });
 
+    // Use the production URL
+    const baseUrl = 'https://demly.co.uk';
+    
+    console.log('Created session:', sessionId, 'for user:', user.id);
+    
     return NextResponse.json({ 
       sessionId,
-      qrCode: `${process.env.NEXT_PUBLIC_APP_URL}/inventory/scan?session=${sessionId}`
+      qrCode: `${baseUrl}/inventory/scan?session=${sessionId}`
     });
   } catch (error) {
     console.error('Error creating mobile session:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Internal server error' 
+    }, { status: 500 });
   }
 }
 
@@ -147,6 +155,8 @@ export async function DELETE(request: NextRequest) {
       activeSessions.delete(sessionId);
       return NextResponse.json({ success: true });
     }
+
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   } catch (error) {
     console.error('Error deleting session:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
