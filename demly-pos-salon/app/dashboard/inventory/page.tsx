@@ -1489,16 +1489,16 @@ const generateMobileSession = async () => {
           Scan this QR code with your phone camera to start adding products quickly
         </p>
         
-        {/* Test Link - Click to open on same device */}
+        {/* Test Link */}
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
           <p className="text-xs text-blue-600 mb-1 font-medium">Test on this device:</p>
           <a 
-            href={`/scan?session=${qrSessionId}`}
+            href={`/dashboard/scan?session=${qrSessionId}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-blue-500 hover:underline break-all font-mono"
           >
-            https://demly.co.uk/scan?session={qrSessionId}
+            https://demly.co.uk/dashboard/scan?session={qrSessionId}
           </a>
         </div>
         
@@ -1506,16 +1506,12 @@ const generateMobileSession = async () => {
         <div className="bg-white p-4 rounded-xl inline-block">
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-              `https://demly.co.uk/scan?session=${qrSessionId}`
+              `https://demly.co.uk/dashboard/scan?session=${qrSessionId}`
             )}`}
             alt="QR Code"
             width={250}
             height={250}
             className="rounded-lg"
-            onError={(e) => {
-              // Fallback if QR server is down
-              (e.target as HTMLImageElement).src = `https://chart.googleapis.com/chart?chs=250x250&cht=qr&chl=${encodeURIComponent(`https://demly.co.uk/scan?session=${qrSessionId}`)}`;
-            }}
           />
         </div>
         
@@ -1524,14 +1520,6 @@ const generateMobileSession = async () => {
           <p className="text-2xl font-mono font-bold text-foreground tracking-wider">
             {qrSessionId}
           </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Or manually enter: demly.co.uk/scan
-          </p>
-        </div>
-        
-        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span>Session active - expires in 1 hour</span>
         </div>
         
         <button
