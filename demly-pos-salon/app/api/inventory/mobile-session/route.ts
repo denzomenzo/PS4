@@ -1,42 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase client
+// Initialize Supabase client with service role for server operations
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
-
-// Use global to persist sessions across API calls
-declare global {
-  var activeSessions: Map<string, {
-    userId: string;
-    createdAt: number;
-    products: Array<{
-      name: string;
-      barcode: string;
-      quantity: number;
-      infiniteStock: boolean;
-      timestamp: number;
-    }>;
-  }>;
-}
-
-// Initialize global sessions map if it doesn't exist
-if (!global.activeSessions) {
-  global.activeSessions = new Map();
-}
-
-// Clean up old sessions (older than 1 hour)
-setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, session] of global.activeSessions.entries()) {
-    if (now - session.createdAt > 3600000) {
-      global.activeSessions.delete(sessionId);
-      console.log('Cleaned up expired session:', sessionId);
-    }
-  }
-}, 300000); // Clean every 5 minutes
 
 // Generate a short session code (6 characters)
 function generateSessionCode(): string {
@@ -62,16 +31,34 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionId = generateSessionCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
     
-    // Store session
-    global.activeSessions.set(sessionId, {
-      userId: user.id,
-      createdAt: Date.now(),
-      products: []
-    });
+    // Store session in Supabase
+    const { error: insertError } = await supabase
+      .from('mobile_scan_sessions')
+      .insert({
+        session_id: sessionId,
+        user_id: user.id,
+        created_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        products: []
+      });
+    
+    if (insertError) {
+      console.error('Error creating session:', insertError);
+      
+      // If table doesn't exist, create it
+      if (insertError.code === '42P01') {
+        return NextResponse.json({ 
+          error: 'Database table not found. Please create mobile_scan_sessions table.' 
+        }, { status: 500 });
+      }
+      
+      throw insertError;
+    }
 
     console.log('Session created:', sessionId, 'for user:', user.id);
-    console.log('Active sessions count:', global.activeSessions.size);
     
     return NextResponse.json({ 
       sessionId,
@@ -98,11 +85,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
-    const session = global.activeSessions.get(sessionId);
+    // Get session from Supabase
+    const { data: session, error } = await supabase
+      .from('mobile_scan_sessions')
+      .select('*')
+      .eq('session_id', sessionId)
+      .single();
     
-    if (!session) {
-      console.log('Session not found:', sessionId);
-      console.log('Available sessions:', Array.from(global.activeSessions.keys()));
+    if (error || !session) {
+      console.log('Session not found:', sessionId, error);
       return NextResponse.json({ 
         valid: false, 
         error: 'Invalid or expired session' 
@@ -110,8 +101,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if session is expired
-    if (Date.now() - session.createdAt > 3600000) {
-      global.activeSessions.delete(sessionId);
+    if (new Date(session.expires_at) < new Date()) {
+      // Delete expired session
+      await supabase
+        .from('mobile_scan_sessions')
+        .delete()
+        .eq('session_id', sessionId);
+      
       return NextResponse.json({ 
         valid: false, 
         error: 'Session expired' 
@@ -121,7 +117,7 @@ export async function GET(request: NextRequest) {
     if (action === 'products') {
       return NextResponse.json({ 
         valid: true,
-        products: session.products 
+        products: session.products || [] 
       });
     }
 
@@ -144,22 +140,22 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
-    const session = global.activeSessions.get(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: 'Invalid or expired session' }, { status: 404 });
-    }
-
-    // Check if session is expired
-    if (Date.now() - session.createdAt > 3600000) {
-      global.activeSessions.delete(sessionId);
-      return NextResponse.json({ error: 'Session expired' }, { status: 404 });
-    }
-
     const body = await request.json();
     const { name, barcode, quantity, infiniteStock } = body;
 
     if (!name || !barcode) {
       return NextResponse.json({ error: 'Name and barcode are required' }, { status: 400 });
+    }
+
+    // Get current session
+    const { data: session, error: getError } = await supabase
+      .from('mobile_scan_sessions')
+      .select('products')
+      .eq('session_id', sessionId)
+      .single();
+    
+    if (getError || !session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
     const product = {
@@ -170,15 +166,25 @@ export async function PUT(request: NextRequest) {
       timestamp: Date.now()
     };
 
-    session.products.push(product);
-    global.activeSessions.set(sessionId, session);
+    const updatedProducts = [...(session.products || []), product];
+
+    // Update session with new product
+    const { error: updateError } = await supabase
+      .from('mobile_scan_sessions')
+      .update({ products: updatedProducts })
+      .eq('session_id', sessionId);
+
+    if (updateError) {
+      console.error('Error updating session:', updateError);
+      throw updateError;
+    }
 
     console.log('Product added to session:', sessionId, product);
 
     return NextResponse.json({ 
       success: true, 
       product,
-      productCount: session.products.length
+      productCount: updatedProducts.length
     });
   } catch (error) {
     console.error('PUT error:', error);
@@ -199,29 +205,45 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
-    const session = global.activeSessions.get(sessionId);
-    if (!session) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
     if (productIndex !== null) {
       // Remove specific product
+      const { data: session, error: getError } = await supabase
+        .from('mobile_scan_sessions')
+        .select('products')
+        .eq('session_id', sessionId)
+        .single();
+      
+      if (getError || !session) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+
+      const products = session.products || [];
       const index = parseInt(productIndex);
-      if (index >= 0 && index < session.products.length) {
-        session.products.splice(index, 1);
-        global.activeSessions.set(sessionId, session);
-        console.log('Product removed from session:', sessionId, 'index:', index);
+      
+      if (index >= 0 && index < products.length) {
+        products.splice(index, 1);
+        
+        const { error: updateError } = await supabase
+          .from('mobile_scan_sessions')
+          .update({ products })
+          .eq('session_id', sessionId);
+        
+        if (updateError) throw updateError;
+        
         return NextResponse.json({ 
           success: true, 
-          productCount: session.products.length 
+          productCount: products.length 
         });
-      } else {
-        return NextResponse.json({ error: 'Invalid product index' }, { status: 400 });
       }
     } else {
       // Delete entire session
-      global.activeSessions.delete(sessionId);
-      console.log('Session deleted:', sessionId);
+      const { error: deleteError } = await supabase
+        .from('mobile_scan_sessions')
+        .delete()
+        .eq('session_id', sessionId);
+      
+      if (deleteError) throw deleteError;
+      
       return NextResponse.json({ success: true });
     }
   } catch (error) {
@@ -230,15 +252,4 @@ export async function DELETE(request: NextRequest) {
       error: error instanceof Error ? error.message : 'Internal server error' 
     }, { status: 500 });
   }
-}
-
-// OPTIONS - Handle CORS preflight requests
-export async function OPTIONS(request: NextRequest) {
-  return NextResponse.json({}, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
 }
