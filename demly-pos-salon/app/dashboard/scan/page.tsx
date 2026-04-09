@@ -238,8 +238,7 @@ const submitAll = async () => {
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Inventory
-        <Link href="/dashboard/inventory" className="text-muted-foreground hover:text-foreground">
-  <ArrowLeft className="w-5 h-5" />
+
 </Link>
         </div>
       </div>
