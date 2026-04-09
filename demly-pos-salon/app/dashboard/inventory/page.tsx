@@ -820,8 +820,6 @@ function InventoryContent() {
 const generateMobileSession = async () => {
   setQrLoading(true);
   try {
-    console.log('Generating QR session...');
-    
     // Get the current session
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -838,8 +836,6 @@ const generateMobileSession = async () => {
         'Authorization': `Bearer ${session.access_token}`,
       },
     });
-    
-    console.log('Response status:', res.status);
     
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
@@ -1470,7 +1466,7 @@ const generateMobileSession = async () => {
         </div>
       )}
 
-      {/* QR Code Modal - NEW */}
+
 {/* QR Code Modal */}
 {showQRModal && qrSessionId && (
   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1489,20 +1485,37 @@ const generateMobileSession = async () => {
       </div>
       
       <div className="text-center space-y-4">
-        <p className="text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Scan this QR code with your phone camera to start adding products quickly
         </p>
+        
+        {/* Test Link - Click to open on same device */}
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+          <p className="text-xs text-blue-600 mb-1 font-medium">Test on this device:</p>
+          <a 
+            href={`/scan?session=${qrSessionId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-500 hover:underline break-all font-mono"
+          >
+            https://demly.co.uk/scan?session={qrSessionId}
+          </a>
+        </div>
         
         {/* QR Code */}
         <div className="bg-white p-4 rounded-xl inline-block">
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-              `https://demly.co.uk/inventory/scan?session=${qrSessionId}`
+              `https://demly.co.uk/scan?session=${qrSessionId}`
             )}`}
             alt="QR Code"
             width={250}
             height={250}
             className="rounded-lg"
+            onError={(e) => {
+              // Fallback if QR server is down
+              (e.target as HTMLImageElement).src = `https://chart.googleapis.com/chart?chs=250x250&cht=qr&chl=${encodeURIComponent(`https://demly.co.uk/scan?session=${qrSessionId}`)}`;
+            }}
           />
         </div>
         
@@ -1512,20 +1525,21 @@ const generateMobileSession = async () => {
             {qrSessionId}
           </p>
           <p className="text-xs text-muted-foreground mt-2">
-            Or visit: https://demly.co.uk/inventory/scan?session={qrSessionId}
+            Or manually enter: demly.co.uk/scan
           </p>
         </div>
         
-        <p className="text-xs text-muted-foreground">
-          This session will expire in 1 hour
-        </p>
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          <span>Session active - expires in 1 hour</span>
+        </div>
         
         <button
           onClick={() => {
             setShowQRModal(false);
             setQrSessionId(null);
           }}
-          className="w-full bg-primary text-primary-foreground py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
+          className="w-full bg-primary text-primary-foreground py-2.5 rounded-lg font-medium hover:opacity-90 transition-opacity"
         >
           Done
         </button>
@@ -1533,7 +1547,6 @@ const generateMobileSession = async () => {
     </div>
   </div>
 )}
-
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && itemToDelete && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
