@@ -816,15 +816,26 @@ function InventoryContent() {
   };
 
   // Generate QR code for mobile scanning
+
 const generateMobileSession = async () => {
   setQrLoading(true);
   try {
     console.log('Generating QR session...');
     
+    // Get the current session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      alert('Please sign in to use this feature');
+      setQrLoading(false);
+      return;
+    }
+    
     const res = await fetch('/api/inventory/mobile-session', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
       },
     });
     
