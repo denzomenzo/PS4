@@ -12,7 +12,7 @@ function generateSessionCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// POST - Create a new mobile scanning session
+// POST - Create a new mobile scanning session (requires auth)
 export async function POST(request: NextRequest) {
   try {
     // Get token from Authorization header
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET - Get session data or products
+// GET - Get session data or products (no auth required - session ID is the token)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PUT - Add product to session
+// PUT - Add product to session (no auth required - session ID is the token)
 export async function PUT(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -150,12 +150,22 @@ export async function PUT(request: NextRequest) {
     // Get current session
     const { data: session, error: getError } = await supabase
       .from('mobile_scan_sessions')
-      .select('products')
+      .select('products, expires_at')
       .eq('session_id', sessionId)
       .single();
     
     if (getError || !session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Check if session is expired
+    if (new Date(session.expires_at) < new Date()) {
+      await supabase
+        .from('mobile_scan_sessions')
+        .delete()
+        .eq('session_id', sessionId);
+      
+      return NextResponse.json({ error: 'Session expired' }, { status: 404 });
     }
 
     const product = {
@@ -194,7 +204,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE - Clear session or remove product
+// DELETE - Clear session or remove product (no auth required)
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -252,4 +262,15 @@ export async function DELETE(request: NextRequest) {
       error: error instanceof Error ? error.message : 'Internal server error' 
     }, { status: 500 });
   }
+}
+
+// OPTIONS - Handle CORS preflight requests
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
 }
