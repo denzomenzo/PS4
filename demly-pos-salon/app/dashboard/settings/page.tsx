@@ -241,7 +241,8 @@ function SettingsContent() {
   useEffect(() => {
     if (!userId) return;
 
-    const eventSource = new EventSource(`/api/webhooks/stripe/stream?userId=${userId}`);
+    const eventSource = new EventSource(`/api/webhooks/stripe?userId=${userId}`);
+
 
     eventSource.onopen = () => {
       setPaymentConnected(true);
