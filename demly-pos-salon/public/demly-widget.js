@@ -1,707 +1,207 @@
 // public/demly-widget.js
-// Demly POS Website Orders Widget - Drop-in, zero config
-// Version: 1.0.0
+// Embeddable cart widget for customer websites
+// Usage: <script src="https://yourdomain.com/demly-widget.js" data-api-key="dmly_..." data-theme="light" data-position="bottom-right"></script>
 
-(function() {
+(function () {
   'use strict';
 
-  // Configuration from script tag attributes
-  const script = document.currentScript;
+  const script = document.currentScript || document.querySelector('script[data-api-key]');
+  if (!script) return;
+
   const API_KEY = script.getAttribute('data-api-key');
-  const API_URL = script.getAttribute('data-api-url') || 'https://your-domain.com/api/orders/website';
   const THEME = script.getAttribute('data-theme') || 'light';
   const POSITION = script.getAttribute('data-position') || 'bottom-right';
+  const API_URL = script.src.replace('/demly-widget.js', '') + '/api/orders/website';
 
-  if (!API_KEY) {
-    console.error('Demly Widget: data-api-key is required');
-    return;
-  }
+  if (!API_KEY) { console.error('Demly Widget: data-api-key is required'); return; }
 
-  // Widget state
-  let isOpen = false;
+  // Persist cart in sessionStorage
   let cart = [];
+  try { cart = JSON.parse(sessionStorage.getItem('demly_cart') || '[]'); } catch {}
 
-  // Create widget container
-  const widgetContainer = document.createElement('div');
-  widgetContainer.id = 'demly-widget';
-  widgetContainer.innerHTML = `
-    <style>
-      #demly-widget * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      }
+  const saveCart = () => { try { sessionStorage.setItem('demly_cart', JSON.stringify(cart)); } catch {} };
 
-      #demly-cart-button {
-        position: fixed;
-        ${POSITION.includes('right') ? 'right: 20px;' : 'left: 20px;'}
-        ${POSITION.includes('top') ? 'top: 20px;' : 'bottom: 20px;'}
-        width: 60px;
-        height: 60px;
-        border-radius: 50%;
-        background: #6366f1;
-        color: white;
-        border: none;
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-        cursor: pointer;
-        z-index: 9998;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        transition: all 0.3s ease;
-      }
+  const isDark = THEME === 'dark';
+  const bg = isDark ? '#1e293b' : '#ffffff';
+  const text = isDark ? '#f1f5f9' : '#1e293b';
+  const muted = isDark ? '#94a3b8' : '#64748b';
+  const border = isDark ? '#334155' : '#e2e8f0';
+  const primary = '#10b981';
 
-      #demly-cart-button:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
-      }
+  const posY = POSITION.includes('bottom') ? 'bottom: 20px;' : 'top: 20px;';
+  const posX = POSITION.includes('right') ? 'right: 20px;' : 'left: 20px;';
 
-      #demly-cart-count {
-        position: absolute;
-        top: -5px;
-        right: -5px;
-        background: #ef4444;
-        color: white;
-        border-radius: 50%;
-        width: 24px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-        font-weight: bold;
-      }
+  // Inject styles
+  const style = document.createElement('style');
+  style.textContent = `
+    #demly-widget-btn { position: fixed; ${posY} ${posX} z-index: 9999; background: ${primary}; color: white; border: none; border-radius: 50px; padding: 12px 20px; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 20px rgba(16,185,129,0.4); display: flex; align-items: center; gap: 8px; font-family: -apple-system, sans-serif; transition: transform 0.2s; }
+    #demly-widget-btn:hover { transform: scale(1.05); }
+    #demly-widget-badge { background: #ef4444; color: white; border-radius: 50%; width: 20px; height: 20px; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    #demly-widget-panel { position: fixed; ${posY.replace('20px', '80px')} ${posX} z-index: 9998; width: 340px; background: ${bg}; border: 1px solid ${border}; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); font-family: -apple-system, sans-serif; color: ${text}; display: none; flex-direction: column; max-height: 560px; overflow: hidden; }
+    #demly-widget-panel.open { display: flex; }
+    .demly-header { padding: 16px; border-bottom: 1px solid ${border}; display: flex; justify-content: space-between; align-items: center; }
+    .demly-header h3 { margin: 0; font-size: 16px; font-weight: 700; }
+    .demly-close { background: none; border: none; font-size: 20px; cursor: pointer; color: ${muted}; line-height: 1; }
+    .demly-items { flex: 1; overflow-y: auto; padding: 12px; }
+    .demly-empty { text-align: center; color: ${muted}; padding: 32px 16px; font-size: 14px; }
+    .demly-item { display: flex; align-items: center; justify-content: space-between; padding: 10px; background: ${isDark ? '#0f172a' : '#f8fafc'}; border-radius: 10px; margin-bottom: 8px; }
+    .demly-item-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .demly-item-price { font-size: 12px; color: ${muted}; }
+    .demly-qty { display: flex; align-items: center; gap: 8px; }
+    .demly-qty button { background: ${border}; border: none; border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 16px; font-weight: 700; color: ${text}; line-height: 1; display: flex; align-items: center; justify-content: center; }
+    .demly-qty span { font-size: 13px; font-weight: 600; min-width: 16px; text-align: center; }
+    .demly-total { padding: 12px 16px; border-top: 1px solid ${border}; display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; }
+    .demly-form { padding: 12px 16px; border-top: 1px solid ${border}; }
+    .demly-form input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid ${border}; border-radius: 8px; margin-bottom: 8px; font-size: 13px; background: ${isDark ? '#0f172a' : '#fff'}; color: ${text}; }
+    .demly-form input:focus { outline: 2px solid ${primary}; border-color: transparent; }
+    .demly-checkout-btn { width: 100%; padding: 12px; background: ${primary}; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 4px; }
+    .demly-checkout-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .demly-success { padding: 24px 16px; text-align: center; }
+    .demly-success h4 { color: ${primary}; margin: 0 0 8px; font-size: 18px; }
+    .demly-success p { color: ${muted}; font-size: 13px; margin: 0; }
+  `;
+  document.head.appendChild(style);
 
-      #demly-cart-panel {
-        position: fixed;
-        ${POSITION.includes('right') ? 'right: 0;' : 'left: 0;'}
-        top: 0;
-        bottom: 0;
-        width: 400px;
-        max-width: 100%;
-        background: ${THEME === 'dark' ? '#1f2937' : 'white'};
-        color: ${THEME === 'dark' ? 'white' : '#1f2937'};
-        box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
-        transform: translateX(${POSITION.includes('right') ? '100%' : '-100%'});
-        transition: transform 0.3s ease;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-      }
+  // Create button
+  const btn = document.createElement('button');
+  btn.id = 'demly-widget-btn';
+  btn.innerHTML = `🛒 Cart <span id="demly-widget-badge" style="display:none">0</span>`;
+  document.body.appendChild(btn);
 
-      #demly-cart-panel.open {
-        transform: translateX(0);
-      }
-
-      #demly-cart-header {
-        padding: 20px;
-        border-bottom: 1px solid ${THEME === 'dark' ? '#374151' : '#e5e7eb'};
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-
-      #demly-cart-header h2 {
-        font-size: 20px;
-        font-weight: bold;
-      }
-
-      #demly-close-btn {
-        background: none;
-        border: none;
-        color: ${THEME === 'dark' ? 'white' : '#1f2937'};
-        font-size: 24px;
-        cursor: pointer;
-        padding: 0;
-        width: 32px;
-        height: 32px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 4px;
-      }
-
-      #demly-close-btn:hover {
-        background: ${THEME === 'dark' ? '#374151' : '#f3f4f6'};
-      }
-
-      #demly-cart-items {
-        flex: 1;
-        overflow-y: auto;
-        padding: 20px;
-      }
-
-      .demly-cart-item {
-        display: flex;
-        gap: 12px;
-        padding: 12px;
-        background: ${THEME === 'dark' ? '#374151' : '#f9fafb'};
-        border-radius: 8px;
-        margin-bottom: 12px;
-      }
-
-      .demly-cart-item img {
-        width: 60px;
-        height: 60px;
-        object-fit: cover;
-        border-radius: 6px;
-      }
-
-      .demly-item-details {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .demly-item-name {
-        font-weight: 600;
-        font-size: 14px;
-        margin-bottom: 4px;
-      }
-
-      .demly-item-price {
-        font-size: 13px;
-        color: ${THEME === 'dark' ? '#9ca3af' : '#6b7280'};
-      }
-
-      .demly-item-controls {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 8px;
-      }
-
-      .demly-qty-btn {
-        width: 28px;
-        height: 28px;
-        border: 1px solid ${THEME === 'dark' ? '#4b5563' : '#d1d5db'};
-        background: ${THEME === 'dark' ? '#4b5563' : 'white'};
-        color: ${THEME === 'dark' ? 'white' : '#1f2937'};
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .demly-qty-btn:hover {
-        background: ${THEME === 'dark' ? '#6b7280' : '#f3f4f6'};
-      }
-
-      .demly-qty {
-        font-weight: 600;
-        min-width: 30px;
-        text-align: center;
-      }
-
-      .demly-remove-btn {
-        margin-left: auto;
-        background: none;
-        border: none;
-        color: #ef4444;
-        cursor: pointer;
-        font-size: 18px;
-        padding: 4px;
-      }
-
-      #demly-cart-footer {
-        padding: 20px;
-        border-top: 1px solid ${THEME === 'dark' ? '#374151' : '#e5e7eb'};
-      }
-
-      #demly-cart-total {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-        font-size: 18px;
-        font-weight: bold;
-      }
-
-      #demly-checkout-btn {
-        width: 100%;
-        padding: 14px;
-        background: #6366f1;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      #demly-checkout-btn:hover {
-        background: #4f46e5;
-        transform: translateY(-1px);
-      }
-
-      #demly-checkout-btn:disabled {
-        background: #9ca3af;
-        cursor: not-allowed;
-        transform: none;
-      }
-
-      #demly-empty-cart {
-        text-align: center;
-        padding: 60px 20px;
-        color: ${THEME === 'dark' ? '#9ca3af' : '#6b7280'};
-      }
-
-      #demly-empty-cart-icon {
-        font-size: 48px;
-        margin-bottom: 12px;
-        opacity: 0.5;
-      }
-
-      /* Checkout Form */
-      #demly-checkout-form {
-        display: none;
-        padding: 20px;
-      }
-
-      #demly-checkout-form.active {
-        display: block;
-      }
-
-      .demly-form-group {
-        margin-bottom: 16px;
-      }
-
-      .demly-form-group label {
-        display: block;
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
-
-      .demly-form-group input,
-      .demly-form-group textarea {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid ${THEME === 'dark' ? '#4b5563' : '#d1d5db'};
-        background: ${THEME === 'dark' ? '#374151' : 'white'};
-        color: ${THEME === 'dark' ? 'white' : '#1f2937'};
-        border-radius: 6px;
-        font-size: 14px;
-      }
-
-      .demly-form-group textarea {
-        resize: vertical;
-        min-height: 80px;
-      }
-
-      #demly-back-btn {
-        margin-bottom: 16px;
-        background: none;
-        border: none;
-        color: #6366f1;
-        cursor: pointer;
-        font-size: 14px;
-        padding: 8px 0;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-
-      #demly-submit-btn {
-        width: 100%;
-        padding: 14px;
-        background: #10b981;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      #demly-submit-btn:hover {
-        background: #059669;
-      }
-
-      #demly-submit-btn:disabled {
-        background: #9ca3af;
-        cursor: not-allowed;
-      }
-
-      .demly-success-message {
-        text-align: center;
-        padding: 40px 20px;
-      }
-
-      .demly-success-icon {
-        font-size: 64px;
-        color: #10b981;
-        margin-bottom: 16px;
-      }
-
-      .demly-success-message h3 {
-        font-size: 20px;
-        margin-bottom: 8px;
-      }
-
-      .demly-success-message p {
-        color: ${THEME === 'dark' ? '#9ca3af' : '#6b7280'};
-        margin-bottom: 20px;
-      }
-    </style>
-
-    <!-- Cart Button -->
-    <button id="demly-cart-button" aria-label="Shopping Cart">
-      🛒
-      <span id="demly-cart-count" style="display: none;">0</span>
-    </button>
-
-    <!-- Cart Panel -->
-    <div id="demly-cart-panel">
-      <!-- Header -->
-      <div id="demly-cart-header">
-        <h2>Your Cart</h2>
-        <button id="demly-close-btn" aria-label="Close">×</button>
-      </div>
-
-      <!-- Cart Items -->
-      <div id="demly-cart-items">
-        <div id="demly-empty-cart">
-          <div id="demly-empty-cart-icon">🛒</div>
-          <p>Your cart is empty</p>
-        </div>
-      </div>
-
-      <!-- Footer -->
-      <div id="demly-cart-footer" style="display: none;">
-        <div id="demly-cart-total">
-          <span>Total:</span>
-          <span id="demly-total-amount">£0.00</span>
-        </div>
-        <button id="demly-checkout-btn">Checkout</button>
-      </div>
-
-      <!-- Checkout Form -->
-      <div id="demly-checkout-form">
-        <button id="demly-back-btn">← Back to Cart</button>
-        <div class="demly-form-group">
-          <label>Full Name *</label>
-          <input type="text" id="demly-name" required>
-        </div>
-        <div class="demly-form-group">
-          <label>Email</label>
-          <input type="email" id="demly-email">
-        </div>
-        <div class="demly-form-group">
-          <label>Phone *</label>
-          <input type="tel" id="demly-phone" required>
-        </div>
-        <div class="demly-form-group">
-          <label>Delivery Address</label>
-          <textarea id="demly-address"></textarea>
-        </div>
-        <div class="demly-form-group">
-          <label>Order Notes</label>
-          <textarea id="demly-notes" placeholder="Special instructions..."></textarea>
-        </div>
-        <button id="demly-submit-btn">Place Order</button>
-      </div>
+  // Create panel
+  const panel = document.createElement('div');
+  panel.id = 'demly-widget-panel';
+  panel.innerHTML = `
+    <div class="demly-header">
+      <h3>Your Order</h3>
+      <button class="demly-close" id="demly-close">×</button>
+    </div>
+    <div class="demly-items" id="demly-items"></div>
+    <div class="demly-total" id="demly-total" style="display:none">
+      <span>Total</span><span id="demly-total-amount">£0.00</span>
+    </div>
+    <div class="demly-form" id="demly-form" style="display:none">
+      <input type="text" id="demly-name" placeholder="Your name *" required />
+      <input type="email" id="demly-email" placeholder="Email address" />
+      <input type="tel" id="demly-phone" placeholder="Phone number" />
+      <input type="text" id="demly-notes" placeholder="Special instructions (optional)" />
+      <button class="demly-checkout-btn" id="demly-checkout-btn">Place Order</button>
+    </div>
+    <div class="demly-success" id="demly-success" style="display:none">
+      <h4>✓ Order Placed!</h4>
+      <p>Your order has been received. We'll be in touch shortly.</p>
     </div>
   `;
+  document.body.appendChild(panel);
 
-  document.body.appendChild(widgetContainer);
-
-  // Get elements
-  const cartButton = document.getElementById('demly-cart-button');
-  const cartPanel = document.getElementById('demly-cart-panel');
-  const closeBtn = document.getElementById('demly-close-btn');
-  const cartCount = document.getElementById('demly-cart-count');
-  const cartItems = document.getElementById('demly-cart-items');
-  const cartFooter = document.getElementById('demly-cart-footer');
-  const checkoutBtn = document.getElementById('demly-checkout-btn');
-  const checkoutForm = document.getElementById('demly-checkout-form');
-  const backBtn = document.getElementById('demly-back-btn');
-  const submitBtn = document.getElementById('demly-submit-btn');
+  const badge = document.getElementById('demly-widget-badge');
+  const itemsContainer = document.getElementById('demly-items');
+  const totalDiv = document.getElementById('demly-total');
   const totalAmount = document.getElementById('demly-total-amount');
+  const formDiv = document.getElementById('demly-form');
+  const successDiv = document.getElementById('demly-success');
 
-  // Functions
-  function openCart() {
-    isOpen = true;
-    cartPanel.classList.add('open');
-  }
+  const render = () => {
+    const count = cart.reduce((s, i) => s + i.quantity, 0);
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
 
-  function closeCart() {
-    isOpen = false;
-    cartPanel.classList.remove('open');
-    checkoutForm.classList.remove('active');
-    cartItems.style.display = 'block';
-    cartFooter.style.display = cart.length > 0 ? 'block' : 'none';
-  }
-
-  function updateCart() {
-    // Update count badge
-    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-    if (totalItems > 0) {
-      cartCount.textContent = totalItems;
-      cartCount.style.display = 'flex';
-    } else {
-      cartCount.style.display = 'none';
-    }
-
-    // Update cart display
     if (cart.length === 0) {
-      cartItems.innerHTML = `
-        <div id="demly-empty-cart">
-          <div id="demly-empty-cart-icon">🛒</div>
-          <p>Your cart is empty</p>
-        </div>
-      `;
-      cartFooter.style.display = 'none';
+      itemsContainer.innerHTML = '<p class="demly-empty">Your cart is empty.<br>Click "Add to Cart" on any product.</p>';
+      totalDiv.style.display = 'none';
+      formDiv.style.display = 'none';
     } else {
-      cartItems.innerHTML = cart.map((item, index) => `
-        <div class="demly-cart-item">
-          ${item.image ? `<img src="${item.image}" alt="${item.name}">` : ''}
-          <div class="demly-item-details">
+      itemsContainer.innerHTML = cart.map((item, i) => `
+        <div class="demly-item">
+          <div>
             <div class="demly-item-name">${item.name}</div>
-            <div class="demly-item-price">£${item.price.toFixed(2)}</div>
-            <div class="demly-item-controls">
-              <button class="demly-qty-btn" onclick="window.DemlyWidget.decreaseQty(${index})">−</button>
-              <span class="demly-qty">${item.quantity}</span>
-              <button class="demly-qty-btn" onclick="window.DemlyWidget.increaseQty(${index})">+</button>
-              <button class="demly-remove-btn" onclick="window.DemlyWidget.removeItem(${index})">🗑️</button>
-            </div>
+            <div class="demly-item-price">£${(item.price * item.quantity).toFixed(2)}</div>
+          </div>
+          <div class="demly-qty">
+            <button onclick="demlyQty(${i}, -1)">−</button>
+            <span>${item.quantity}</span>
+            <button onclick="demlyQty(${i}, 1)">+</button>
           </div>
         </div>
       `).join('');
-      cartFooter.style.display = 'block';
+      const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+      totalAmount.textContent = `£${total.toFixed(2)}`;
+      totalDiv.style.display = 'flex';
+      formDiv.style.display = 'block';
+      successDiv.style.display = 'none';
     }
-
-    // Update total
-    const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    totalAmount.textContent = `£${total.toFixed(2)}`;
-
-    // Save to localStorage
-    localStorage.setItem('demly_cart', JSON.stringify(cart));
-  }
-
-  function addToCart(product) {
-    const existingIndex = cart.findIndex(item => item.id === product.id);
-    
-    if (existingIndex >= 0) {
-      cart[existingIndex].quantity += 1;
-    } else {
-      cart.push({
-        id: product.id || Date.now(),
-        name: product.name,
-        price: parseFloat(product.price),
-        quantity: 1,
-        image: product.image || null
-      });
-    }
-
-    updateCart();
-    openCart();
-  }
-
-  function increaseQty(index) {
-    cart[index].quantity += 1;
-    updateCart();
-  }
-
-  function decreaseQty(index) {
-    if (cart[index].quantity > 1) {
-      cart[index].quantity -= 1;
-    } else {
-      cart.splice(index, 1);
-    }
-    updateCart();
-  }
-
-  function removeItem(index) {
-    cart.splice(index, 1);
-    updateCart();
-  }
-
-  async function submitOrder() {
-    // Get form values
-    const name = document.getElementById('demly-name').value;
-    const email = document.getElementById('demly-email').value;
-    const phone = document.getElementById('demly-phone').value;
-    const address = document.getElementById('demly-address').value;
-    const notes = document.getElementById('demly-notes').value;
-
-    if (!name || !phone) {
-      alert('Please fill in required fields');
-      return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Placing Order...';
-
-    try {
-      const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const vat = subtotal * 0.2;
-      const total = subtotal + vat;
-
-      const orderData = {
-        orderId: `WEB-${Date.now()}`,
-        customer: {
-          name,
-          email: email || null,
-          phone,
-          address: address || null
-        },
-        items: cart.map(item => ({
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity
-        })),
-        subtotal,
-        vat,
-        total,
-        notes: notes || null,
-        websiteUrl: window.location.origin,
-        metadata: {
-          source: 'demly-widget',
-          userAgent: navigator.userAgent
-        }
-      };
-
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY
-        },
-        body: JSON.stringify(orderData)
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Show success
-        cartItems.style.display = 'none';
-        cartFooter.style.display = 'none';
-        checkoutForm.innerHTML = `
-          <div class="demly-success-message">
-            <div class="demly-success-icon">✅</div>
-            <h3>Order Placed!</h3>
-            <p>Order #${result.externalOrderId}<br>We'll contact you shortly.</p>
-            <button onclick="window.DemlyWidget.closeAndReset()" style="padding: 12px 24px; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Close</button>
-          </div>
-        `;
-
-        // Clear cart
-        cart = [];
-        localStorage.removeItem('demly_cart');
-        updateCart();
-
-        // Fire custom event
-        window.dispatchEvent(new CustomEvent('demly:orderPlaced', { 
-          detail: result 
-        }));
-      } else {
-        throw new Error(result.error || 'Order failed');
-      }
-    } catch (error) {
-      alert('Failed to place order: ' + error.message);
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Place Order';
-    }
-  }
-
-  function closeAndReset() {
-    closeCart();
-    setTimeout(() => {
-      checkoutForm.classList.remove('active');
-      checkoutForm.innerHTML = `
-        <button id="demly-back-btn">← Back to Cart</button>
-        <div class="demly-form-group">
-          <label>Full Name *</label>
-          <input type="text" id="demly-name" required>
-        </div>
-        <div class="demly-form-group">
-          <label>Email</label>
-          <input type="email" id="demly-email">
-        </div>
-        <div class="demly-form-group">
-          <label>Phone *</label>
-          <input type="tel" id="demly-phone" required>
-        </div>
-        <div class="demly-form-group">
-          <label>Delivery Address</label>
-          <textarea id="demly-address"></textarea>
-        </div>
-        <div class="demly-form-group">
-          <label>Order Notes</label>
-          <textarea id="demly-notes" placeholder="Special instructions..."></textarea>
-        </div>
-        <button id="demly-submit-btn">Place Order</button>
-      `;
-      
-      // Re-attach event listeners
-      document.getElementById('demly-back-btn').addEventListener('click', () => {
-        checkoutForm.classList.remove('active');
-        cartItems.style.display = 'block';
-        cartFooter.style.display = 'block';
-      });
-      
-      document.getElementById('demly-submit-btn').addEventListener('click', submitOrder);
-    }, 300);
-  }
-
-  // Event listeners
-  cartButton.addEventListener('click', openCart);
-  closeBtn.addEventListener('click', closeCart);
-  
-  checkoutBtn.addEventListener('click', () => {
-    cartItems.style.display = 'none';
-    cartFooter.style.display = 'none';
-    checkoutForm.classList.add('active');
-  });
-
-  backBtn.addEventListener('click', () => {
-    checkoutForm.classList.remove('active');
-    cartItems.style.display = 'block';
-    cartFooter.style.display = 'block';
-  });
-
-  submitBtn.addEventListener('click', submitOrder);
-
-  // Load cart from localStorage
-  const savedCart = localStorage.getItem('demly_cart');
-  if (savedCart) {
-    cart = JSON.parse(savedCart);
-    updateCart();
-  }
-
-  // Public API
-  window.DemlyWidget = {
-    addToCart,
-    openCart,
-    closeCart,
-    increaseQty,
-    decreaseQty,
-    removeItem,
-    closeAndReset,
-    getCart: () => cart
   };
 
-  // Auto-detect "Add to Cart" buttons
+  window.demlyQty = (index, delta) => {
+    cart[index].quantity += delta;
+    if (cart[index].quantity <= 0) cart.splice(index, 1);
+    saveCart();
+    render();
+  };
+
+  // Handle "Add to Cart" buttons
   document.addEventListener('click', (e) => {
-    const target = e.target;
-    if (target.matches('[data-demly-product]')) {
-      e.preventDefault();
-      const productData = target.dataset.demlyProduct;
-      try {
-        const product = JSON.parse(productData);
-        addToCart(product);
-      } catch (error) {
-        console.error('Invalid product data:', error);
+    const target = e.target.closest('[data-demly-product]');
+    if (!target) return;
+    try {
+      const product = JSON.parse(target.getAttribute('data-demly-product'));
+      const existing = cart.find(i => i.id === product.id);
+      if (existing) { existing.quantity++; }
+      else { cart.push({ ...product, quantity: 1 }); }
+      saveCart();
+      render();
+      panel.classList.add('open');
+    } catch (err) { console.error('Demly: invalid product data', err); }
+  });
+
+  btn.addEventListener('click', () => panel.classList.toggle('open'));
+  document.getElementById('demly-close').addEventListener('click', () => panel.classList.remove('open'));
+
+  document.getElementById('demly-checkout-btn').addEventListener('click', async () => {
+    const name = document.getElementById('demly-name').value.trim();
+    if (!name) { alert('Please enter your name'); return; }
+
+    const checkoutBtn = document.getElementById('demly-checkout-btn');
+    checkoutBtn.disabled = true;
+    checkoutBtn.textContent = 'Placing order...';
+
+    try {
+      const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+        body: JSON.stringify({
+          customer: {
+            name,
+            email: document.getElementById('demly-email').value.trim() || null,
+            phone: document.getElementById('demly-phone').value.trim() || null,
+          },
+          items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+          notes: document.getElementById('demly-notes').value.trim() || null,
+          subtotal: total,
+          total,
+        }),
+      });
+
+      if (res.ok) {
+        cart = [];
+        saveCart();
+        render();
+        formDiv.style.display = 'none';
+        successDiv.style.display = 'block';
+        setTimeout(() => panel.classList.remove('open'), 3000);
+      } else {
+        const err = await res.json();
+        alert('Order failed: ' + (err.error || 'Unknown error'));
+        checkoutBtn.disabled = false;
+        checkoutBtn.textContent = 'Place Order';
       }
+    } catch (err) {
+      alert('Network error. Please try again.');
+      checkoutBtn.disabled = false;
+      checkoutBtn.textContent = 'Place Order';
     }
   });
 
-  console.log('✅ Demly Widget loaded successfully');
+  render();
 })();
