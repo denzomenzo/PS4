@@ -228,7 +228,7 @@ export async function PUT(req: NextRequest) {
     // Fires when billing period ends after cancel_at_period_end, or immediate cancel
     // CRITICAL: preserve scheduled_for_deletion_at so cron can delete the account
     if (event.type === 'customer.subscription.deleted') {
-      const stripeSub = event.data.object as Stripe.Subscription;
+      const stripeSub = event.data.object as any; // cast to any — TS types omit current_period_end
 
       const { data: license } = await supabase
         .from('licenses').select('*').eq('stripe_subscription_id', stripeSub.id).single();
