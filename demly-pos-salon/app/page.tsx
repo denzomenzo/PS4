@@ -6,7 +6,7 @@ import {
   Check, Zap, Shield, TrendingUp, Sparkles, Star, ShoppingCart, 
   Package, Users, Globe, Clock, Coffee, Store, Scissors, Warehouse, 
   ArrowRight, ChevronRight, Sun, Moon, Menu, X, Play, Image as ImageIcon,
-  X as XIcon, Pound, Receipt, Smartphone, HeadphonesIcon
+  X as XIcon, PoundSterling, Receipt, Smartphone, HeadphonesIcon
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
