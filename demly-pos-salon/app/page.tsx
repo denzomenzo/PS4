@@ -368,7 +368,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
             {[
               {
-                icon: Pound,
+                icon: PoundSterling,
                 color: 'from-emerald-500 to-green-600',
                 title: 'Flat £29/month. That\'s it.',
                 desc: 'No transaction fees eating into your margins. No per-device charges. No hidden costs. One price, everything included. Square charges 1.75% per transaction — on £20k monthly turnover that\'s £350 before you\'ve even paid for the software.'
