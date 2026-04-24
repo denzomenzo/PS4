@@ -202,7 +202,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <Link href="/pay" className="px-8 sm:px-10 py-3 sm:py-4 bg-emerald-600 hover:bg-emerald-700 rounded-full font-bold text-base sm:text-lg text-white transition-colors shadow-lg shadow-emerald-600/20">
-                  Start Free Trial — No Card Required
+                  Get Started
                 </Link>
                 <Link href="/industries" className={`px-8 sm:px-10 py-3 sm:py-4 rounded-full font-bold text-base sm:text-lg transition-colors ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10 border border-white/10 text-white' : 'bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-slate-900'}`}>
                   Browse Industries
@@ -567,7 +567,7 @@ export default function LandingPage() {
                 ))}
               </ul>
               <Link href="/pay?plan=monthly" className={`block w-full text-center py-3 rounded-full font-bold transition-colors ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10 border border-white/10' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'} ${textPrimary}`}>
-                Start Free Trial
+                Start Now
               </Link>
             </div>
             <div className={`${cardBg} rounded-3xl p-6 md:p-8 border-2 border-emerald-500/30 relative`}>
@@ -589,7 +589,7 @@ export default function LandingPage() {
                 ))}
               </ul>
               <Link href="/pay?plan=annual" className="block w-full text-center py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20">
-                Start Free Trial
+                Get Started
               </Link>
             </div>
           </div>
@@ -603,7 +603,7 @@ export default function LandingPage() {
             Stop paying transaction fees. Start today.
           </h2>
           <p className={`text-lg md:text-xl ${textSecondary} mb-3`}>
-            Free trial. No credit card. Set up in 10 minutes.
+            Seamlessly integrate with all your hardware, instant set-up.
           </p>
           <p className={`text-sm ${textMuted} mb-8`}>
             14-day money back guarantee if you're not happy.
@@ -614,7 +614,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <Link href="/pay" className="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full font-bold transition-colors shadow-lg shadow-emerald-600/20">
-                  Start Free Trial — No Card Required
+                  Get Started
                 </Link>
                 <Link href="/industries" className={`px-8 py-4 rounded-full font-bold transition-colors ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-white hover:bg-slate-50 text-slate-900 border border-slate-200'}`}>
                   View Industries
